@@ -11,8 +11,16 @@ import CEconItem from '@tf2autobot/steamcommunity/classes/CEconItem.js';
 import TradeOffer from '@tf2autobot/tradeoffer-manager/lib/classes/TradeOffer';
 import { camelCase } from 'change-case';
 import IPricer from './IPricer';
+import { EventEmitter } from 'events';
 
 const REQUIRED_OPTS = ['STEAM_ACCOUNT_NAME', 'STEAM_PASSWORD', 'STEAM_SHARED_SECRET', 'STEAM_IDENTITY_SECRET'];
+
+type TradeOfferManagerPollingState = {
+    _polling?: boolean;
+    polling?: boolean;
+    _isPolling?: boolean;
+    _pollInProgress?: boolean;
+};
 
 export default class BotManager {
     private schemaManager: SchemaManager;
@@ -132,16 +140,17 @@ export default class BotManager {
 
         this.cleanup();
 
-        // TODO: Check if a poll is being made before stopping the bot
+        // Wait for any in-flight tradeoffer poll to finish before shutting down the bot
+        void this.waitForOfferPollToFinish().finally(() => {
+            if (this.bot === null) {
+                log.debug('Bot instance was not yet created');
+                return this.exit(err);
+            }
 
-        if (this.bot === null) {
-            log.debug('Bot instance was not yet created');
-            return this.exit(err);
-        }
-
-        this.bot.handler.onShutdown().finally(() => {
-            log.debug('Handler finished cleaning up');
-            this.exit(err);
+            this.bot.handler.onShutdown().finally(() => {
+                log.debug('Handler finished cleaning up');
+                this.exit(err);
+            });
         });
     }
 
@@ -219,6 +228,60 @@ export default class BotManager {
 
         // Disconnect from socket server to stop price updates
         this.pricer.shutdown(!!this.bot?.options.enableSocket);
+    }
+
+    private isOfferPollInProgress(): boolean {
+        if (!this.bot) {
+            return false;
+        }
+
+        const maybe = this.bot.manager as unknown as TradeOfferManagerPollingState;
+
+        return Boolean(maybe._polling ?? maybe.polling ?? maybe._isPolling ?? maybe._pollInProgress);
+    }
+
+    private waitForOfferPollToFinish(timeoutMs = 15000): Promise<void> {
+        if (!this.bot) {
+            return Promise.resolve();
+        }
+
+        //don't block shutdown if lib isn't currently polling.
+        if (!this.isOfferPollInProgress()) {
+            return Promise.resolve();
+        }
+
+        log.debug('TradeOfferManager poll in progress, waiting for it to finish before shutdown...');
+
+        const managerEmitter = this.bot.manager as unknown as EventEmitter;
+
+        return new Promise(resolve => {
+            let done = false;
+
+            const finish = (): void => {
+                if (done) return;
+                done = true;
+
+                clearTimeout(t);
+                managerEmitter.removeListener('pollData', onDone);
+                managerEmitter.removeListener('pollSuccess', onDone);
+                managerEmitter.removeListener('pollFailure', onDone);
+
+                resolve();
+            };
+
+            const onDone = (): void => finish();
+
+            //(pollData is documented as emitted after each poll). :contentReference[oaicite:1]{index=1}
+            managerEmitter.on('pollData', onDone);
+            managerEmitter.on('pollSuccess', onDone);
+            managerEmitter.on('pollFailure', onDone);
+
+            //never hang shutdown forever
+            const t = setTimeout(() => {
+                log.warn(`Timed out waiting for TradeOfferManager poll to finish after ${timeoutMs}ms, continuing...`);
+                finish();
+            }, timeoutMs);
+        });
     }
 
     private exit(err: Error | null): void {

@@ -49,9 +49,28 @@ import { axiosAbortSignal } from '../lib/helpers';
 import { apiRequest } from '../lib/apiRequest';
 import EasyCopyPaste from 'easycopypaste';
 
+type Callback = (err?: Error | null) => void;
+
+type EasyCopyPasteInstance = {
+    useBoldChars: boolean;
+    useWordSwap: boolean;
+};
+
+const EasyCopyPasteCtor = EasyCopyPaste as unknown as new () => EasyCopyPasteInstance;
+
+type PriceDBListingEvent = { id: string };
+type PriceDBInventoryRefreshedEvent = { itemCount: number; refreshCount: number };
+
 export interface SteamTokens {
     refreshToken: string;
     accessToken: string;
+}
+
+interface StartData {
+    loginAttempts?: number[];
+    pricelist?: PricesDataObject;
+    pollData?: TradeOfferManager.PollData;
+    blockedList?: Blocked;
 }
 
 export default class Bot {
@@ -179,7 +198,7 @@ export default class Bot {
 
     public periodicCheckAdmin: NodeJS.Timeout;
 
-    readonly ecp: EasyCopyPaste;
+    readonly ecp: EasyCopyPasteInstance;
 
     constructor(public readonly botManager: BotManager, public options: Options, readonly priceSource: IPricer) {
         this.botManager = botManager;
@@ -199,7 +218,7 @@ export default class Bot {
         });
 
         // ECP --START--
-        this.ecp = new EasyCopyPaste();
+        this.ecp = new EasyCopyPasteCtor();
         const ecpSettings = options.miscSettings.ecp;
 
         if (ecpSettings) {
@@ -366,15 +385,16 @@ export default class Bot {
             })
                 .then(content => {
                     this.tf2.setLang(content);
-                    return resolve();
+                    resolve();
                 })
                 .catch(err => {
                     if (err instanceof AbortSignal && attempt !== 'retry') {
-                        return this.getLocalizationFile('retry');
+                        void this.getLocalizationFile('retry').then(resolve).catch(reject);
+                        return;
                     }
                     // Just log, do nothing.
                     log.warn('Error getting TF2 Localization file.');
-                    return reject(err);
+                    reject(err as Error);
                 });
         });
     }
@@ -440,15 +460,12 @@ export default class Bot {
         this.halted = true;
         let removeAllListingsFailed = false;
 
-        // If we want to show another game here, probably needed new functions like Bot.useMainGame() and Bot.useHaltGame()
-        // (and refactor to use everywhere these functions instead of gamesPlayed)
         log.debug('Setting status in Steam to "Snooze"');
         this.client.setPersona(EPersonaState.Snooze);
 
         log.debug('Settings status in Discord to "idle"');
         this.discordBot?.halt();
 
-        // disable auto-check for missing/mismatching listings
         clearInterval(this.autoRefreshListingsInterval);
 
         log.debug('Removing all listings due to halt mode turned on');
@@ -476,7 +493,6 @@ export default class Bot {
         log.debug('Settings status in Discord to "online"');
         this.discordBot?.unhalt();
 
-        // Re-initialize auto-check for missing/mismatching listings
         this.startAutoRefreshListings();
 
         return recreateListingsFailed;
@@ -485,29 +501,30 @@ export default class Bot {
     private addListener(
         emitter: EventEmitter,
         event: string,
-        listener: (...args: any[]) => void,
+        listener: (...args: any[]) => void | Promise<void>,
         checkCanEmit: boolean
     ): void {
         emitter.on(event, (...args: any[]) => {
             setImmediate(() => {
                 if (!checkCanEmit || this.canSendEvents()) {
                     // eslint-disable-next-line @typescript-eslint/no-unsafe-argument
-                    listener(...args);
+                    void listener(...args);
                 }
             });
         });
     }
 
-    private addAsyncListener(
+    private addAsyncListener<T extends unknown[]>(
         emitter: EventEmitter,
         event: string,
-        listener: (...args) => Promise<void>,
+        listener: (...args: T) => Promise<void>,
         checkCanEmit: boolean
     ): void {
-        emitter.on(event, (...args): void => {
+        emitter.on(event, (...args: unknown[]): void => {
             if (!checkCanEmit || this.canSendEvents()) {
-                // eslint-disable-next-line @typescript-eslint/no-misused-promises, @typescript-eslint/no-unsafe-argument
-                setImmediate(listener, ...args);
+                setImmediate(() => {
+                    void listener(...(args as T));
+                });
             }
         });
     }
@@ -515,7 +532,6 @@ export default class Bot {
     startVersionChecker(): void {
         void this.checkForUpdates;
 
-        // Check for updates every 10 minutes
         setInterval(() => {
             this.checkForUpdates.catch(err => {
                 log.error('Failed to check for updates: ', err);
@@ -605,7 +621,7 @@ export default class Bot {
                 signal: axiosAbortSignal(60000)
             })
                 .then(data => {
-                    return resolve({
+                    resolve({
                         version: data.version,
                         canUpdateRepo: data.updaterepo,
                         updateMessage: data.updateMessage
@@ -613,50 +629,48 @@ export default class Bot {
                 })
                 .catch(err => {
                     if (err instanceof AbortSignal && attempt !== 'retry') {
-                        return this.getLatestVersion('retry');
+                        void this.getLatestVersion('retry').then(resolve).catch(reject);
+                        return;
                     }
-                    reject(err);
+                    reject(err as Error);
                 });
         });
     }
 
     startAutoRefreshListings(): void {
-        // Automatically check for missing listings every 30 minutes
         let pricelistLength = 0;
 
-        this.autoRefreshListingsInterval = setInterval(
-            () => {
-                const createListingsEnabled = this.options.miscSettings.createListings.enable;
+        this.autoRefreshListingsInterval = setInterval(() => {
+            const createListingsEnabled = this.options.miscSettings.createListings.enable;
 
-                if (this.halted) {
-                    // Make sure not to run if halted
-                    return;
-                }
+            if (this.halted) {
+                return;
+            }
 
-                if (this.alreadyExecutedRefreshlist || !createListingsEnabled) {
-                    log.debug(
-                        `❌ ${
-                            this.alreadyExecutedRefreshlist
-                                ? 'Just recently executed refreshlist command'
-                                : 'miscSettings.createListings.enable is set to false'
-                        }, will not run automatic check for missing listings.`
-                    );
+            if (this.alreadyExecutedRefreshlist || !createListingsEnabled) {
+                log.debug(
+                    `❌ ${
+                        this.alreadyExecutedRefreshlist
+                            ? 'Just recently executed refreshlist command'
+                            : 'miscSettings.createListings.enable is set to false'
+                    }, will not run automatic check for missing listings.`
+                );
 
-                    setTimeout(() => {
-                        this.startAutoRefreshListings();
-                    }, this.executedDelayTime);
+                setTimeout(() => {
+                    this.startAutoRefreshListings();
+                }, this.executedDelayTime);
 
-                    // reset to default
-                    this.setRefreshlistExecutedDelay = 30 * 60 * 1000;
-                    clearInterval(this.autoRefreshListingsInterval);
-                    return;
-                }
+                this.setRefreshlistExecutedDelay = 30 * 60 * 1000;
+                clearInterval(this.autoRefreshListingsInterval);
+                return;
+            }
 
-                pricelistLength = 0;
-                log.debug('Running automatic check for missing/mismatch listings...');
+            pricelistLength = 0;
+            log.debug('Running automatic check for missing/mismatch listings...');
 
-                const listings: { [sku: string]: Listing[] } = {};
-                this.listingManager.getListings(false, async (err: AxiosError) => {
+            const listings: { [sku: string]: Listing[] } = {};
+            this.listingManager.getListings(false, (err: AxiosError) => {
+                void (async () => {
                     if (err) {
                         log.warn('Error getting listings on auto-refresh listings operation:', filterAxiosError(err));
                         setTimeout(() => {
@@ -697,14 +711,12 @@ export default class Bot {
                         if (isFilterCantAfford && listing.intent === 0 && match !== null) {
                             const canAffordToBuy = inventoryManager.isCanAffordToBuy(match.buy, inventory);
                             if (!canAffordToBuy) {
-                                // Listing for buying exist but we can't afford to buy, remove.
                                 log.debug(`Intent buy, removed because can't afford: ${match.sku}`);
                                 listing.remove();
                             }
                         }
 
                         if (listing.intent === 1 && match !== null && !match.enabled) {
-                            // Listings for selling exist, but the item is currently disabled, remove it.
                             log.debug(`Intent sell, removed because not selling: ${match.sku}`);
                             listing.remove();
                         }
@@ -732,24 +744,17 @@ export default class Bot {
 
                         if (_listings) {
                             _listings.forEach(listing => {
-                                if (
-                                    _listings.length === 1 &&
-                                    listing.intent === 0 && // We only check if the only listing exist is buy order
-                                    amountAvailable > entry.min
-                                ) {
-                                    // here we only check if the bot already have that item
+                                if (_listings.length === 1 && listing.intent === 0 && amountAvailable > entry.min) {
                                     log.debug(`Missing sell order listings: ${priceKey}`);
                                 } else if (
                                     listing.intent === 0 &&
                                     listing.currencies.toValue(keyPrice) !== entry.buy.toValue(keyPrice)
                                 ) {
-                                    // if intent is buy, we check if the buying price is not same
                                     log.debug(`Buying price for ${priceKey} not updated`);
                                 } else if (
                                     listing.intent === 1 &&
                                     listing.currencies.toValue(keyPrice) !== entry.sell.toValue(keyPrice)
                                 ) {
-                                    // if intent is sell, we check if the selling price is not same
                                     log.debug(`Selling price for ${priceKey} not updated`);
                                 } else {
                                     delete pricelist[priceKey];
@@ -758,8 +763,6 @@ export default class Bot {
 
                             continue;
                         }
-
-                        // listing not exist
 
                         if (!entry.enabled) {
                             delete pricelist[priceKey];
@@ -771,8 +774,6 @@ export default class Bot {
                             (amountCanBuy > 0 && inventoryManager.isCanAffordToBuy(entry.buy, inventory)) ||
                             amountAvailable > 0
                         ) {
-                            // if can amountCanBuy is more than 0 and isCanAffordToBuy is true OR amountAvailable is more than 0
-                            // return this entry
                             log.debug(
                                 `Missing${isFilterCantAfford ? '/Re-adding can afford' : ' listings'}: ${priceKey}`
                             );
@@ -805,11 +806,11 @@ export default class Bot {
                     }
 
                     pricelistLength = pricelistCount;
+                })().catch(err2 => {
+                    log.error('Auto-refresh listings task failed:', err2);
                 });
-            },
-            // set check every 60 minutes if pricelist to check was more than 4000 items
-            (pricelistLength > 4000 ? 60 : 30) * 60 * 1000
-        );
+            });
+        }, (pricelistLength > 4000 ? 60 : 30) * 60 * 1000);
     }
 
     private get sendStatsEnabled(): boolean {
@@ -857,23 +858,18 @@ export default class Bot {
         return new Promise((resolve, reject) => {
             this.schemaManager.init(err => {
                 if (err) {
-                    return reject(err);
+                    reject(err);
+                    return;
                 }
 
                 this.schema = this.schemaManager.schema;
-
-                return resolve();
+                resolve();
             });
         });
     }
 
     start(): Promise<void> {
-        let data: {
-            loginAttempts?: number[];
-            pricelist?: PricesDataObject;
-            pollData?: TradeOfferManager.PollData;
-            blockedList?: Blocked;
-        };
+        let data: StartData = {};
         let cookies: string[];
 
         this.addListener(this.client, 'loggedOn', this.handler.onLoggedOn.bind(this.handler), false);
@@ -902,15 +898,16 @@ export default class Bot {
         return new Promise((resolve, reject) => {
             async.eachSeries(
                 [
-                    (callback): void => {
+                    (callback: Callback): void => {
                         log.debug('Calling onRun');
-                        void this.handler.onRun().asCallback(async (err, v) => {
+                        void this.handler.onRun().asCallback((err: unknown, v: unknown) => {
                             if (err) {
-                                /* eslint-disable-next-line @typescript-eslint/no-unsafe-return, @typescript-eslint/no-unsafe-call */
-                                return callback(err);
+                                callback(err as Error);
+                                return;
                             }
 
-                            data = v;
+                            data = (v as StartData) ?? {};
+
                             if (data.pollData) {
                                 log.debug('Setting poll data');
                                 this.manager.pollData = data.pollData;
@@ -926,126 +923,122 @@ export default class Bot {
                                 this.blockedList = data.blockedList;
                             }
 
-                            log.debug('Loading FIFO cost basis data');
-                            await this.inventoryCostBasis.load().catch(err => {
-                                log.error('Failed to load inventory cost basis:', err);
-                            });
-
-                            /* eslint-disable-next-line @typescript-eslint/no-unsafe-return, @typescript-eslint/no-unsafe-call */
-                            return callback(null);
+                            void this.inventoryCostBasis
+                                .load()
+                                .catch(err2 => log.error('Failed to load inventory cost basis:', err2))
+                                .finally(() => callback(null));
                         });
                     },
-                    async (callback): Promise<void> => {
-                        log.info('Signing in to Steam...');
-
-                        this.login(await this.getRefreshToken())
-                            .then(() => {
+                    (callback: Callback): void => {
+                        void (async () => {
+                            log.info('Signing in to Steam...');
+                            try {
+                                await this.login(await this.getRefreshToken());
                                 log.info('Signed in to Steam!');
-
-                                /* eslint-disable-next-line @typescript-eslint/no-unsafe-return, @typescript-eslint/no-unsafe-call */
-                                return callback(null);
-                            })
-                            .catch(err => {
-                                if (err) {
-                                    log.warn('Failed to sign in to Steam: ', err);
-                                    /* eslint-disable-next-line @typescript-eslint/no-unsafe-return, @typescript-eslint/no-unsafe-call */
-                                    return callback(err);
-                                }
-                            });
+                                callback(null);
+                            } catch (err) {
+                                log.warn('Failed to sign in to Steam: ', err);
+                                callback(err as Error);
+                            }
+                        })();
                     },
-                    async (callback): Promise<void> => {
-                        if (this.options.discordBotToken) {
+                    (callback: Callback): void => {
+                        if (!this.options.discordBotToken) {
+                            log.info('Discord api key is not set, ignoring.');
+                            callback(null);
+                            return;
+                        }
+
+                        void (async () => {
                             log.info(`Initializing Discord bot...`);
                             this.discordBot = new DiscordBot(this.options, this);
                             try {
                                 await this.discordBot.start();
-                                /* eslint-disable-next-line @typescript-eslint/no-unsafe-return, @typescript-eslint/no-unsafe-call */
-                                return callback(null);
+                                callback(null);
                             } catch (err) {
                                 this.discordBot = null;
                                 log.warn('Failed to start Discord bot: ', err);
-                                /* eslint-disable-next-line @typescript-eslint/no-unsafe-return, @typescript-eslint/no-unsafe-call */
-                                return callback(err);
+                                callback(err as Error);
                             }
-                        } else {
-                            log.info('Discord api key is not set, ignoring.');
-                            /* eslint-disable-next-line @typescript-eslint/no-unsafe-return, @typescript-eslint/no-unsafe-call */
-                            return callback(null);
-                        }
+                        })();
                     },
-                    (callback): void => {
+                    (callback: Callback): void => {
                         log.debug('Waiting for web session');
-                        void this.getWebSession().asCallback((err, v) => {
+                        void this.getWebSession().asCallback((err: unknown, v: unknown) => {
                             if (err) {
-                                /* eslint-disable-next-line @typescript-eslint/no-unsafe-return, @typescript-eslint/no-unsafe-call */
-                                return callback(err);
+                                callback(err as Error);
+                                return;
                             }
 
-                            cookies = v;
+                            cookies = v as string[];
                             this.bptf.setCookies(cookies);
 
-                            /* eslint-disable-next-line @typescript-eslint/no-unsafe-return, @typescript-eslint/no-unsafe-call */
-                            return callback(null);
+                            callback(null);
                         });
                     },
-                    (callback): void => {
+                    (callback: Callback): void => {
                         if (this.options.bptfApiKey && this.options.bptfAccessToken) {
-                            /* eslint-disable-next-line @typescript-eslint/no-unsafe-return, @typescript-eslint/no-unsafe-call */
-                            return callback(null);
+                            callback(null);
+                            return;
                         }
 
                         log.warn(
                             'You have not included the backpack.tf API key or access token in the environment variables'
                         );
-                        void this.getBptfAPICredentials.asCallback(err => {
+
+                        void this.getBptfAPICredentials.asCallback((err: unknown) => {
                             if (err) {
-                                /* eslint-disable-next-line @typescript-eslint/no-unsafe-return, @typescript-eslint/no-unsafe-call */
-                                return callback(err);
+                                callback(err as Error);
+                                return;
                             }
-                            /* eslint-disable-next-line @typescript-eslint/no-unsafe-return, @typescript-eslint/no-unsafe-call */
-                            return callback(null);
+                            callback(null);
                         });
                     },
-                    (callback): void => {
+                    (callback: Callback): void => {
                         log.info('Setting cookies...');
-                        void this.setCookies(cookies).asCallback(callback);
+                        void this.setCookies(cookies).asCallback((err: unknown) => {
+                            if (err) {
+                                callback(err as Error);
+                                return;
+                            }
+                            callback(null);
+                        });
                     },
-                    (callback): void => {
+                    (callback: Callback): void => {
                         this.checkAdminBanned()
                             .then(banned => {
                                 if (banned) {
-                                    /* eslint-disable-next-line @typescript-eslint/no-unsafe-return, @typescript-eslint/no-unsafe-call */
-                                    return callback(new Error('Not allowed'));
+                                    callback(new Error('Not allowed'));
+                                    return;
                                 }
-                                /* eslint-disable-next-line @typescript-eslint/no-unsafe-return, @typescript-eslint/no-unsafe-call */
-                                return callback(null);
+                                callback(null);
                             })
-                            .catch(err => {
-                                if (err) {
-                                    /* eslint-disable-next-line @typescript-eslint/no-unsafe-return, @typescript-eslint/no-unsafe-call */
-                                    return callback(err);
-                                }
-                            });
+                            .catch(err => callback(err as Error));
 
                         this.periodicCheck();
                     },
-                    (callback): void => {
+                    (callback: Callback): void => {
                         this.schemaManager = new SchemaManager({
                             updateTime: 1 * 60 * 60 * 1000,
                             lite: true
                         });
 
                         log.info('Getting TF2 schema...');
-                        void this.initializeSchema().asCallback(callback);
+                        void this.initializeSchema().asCallback((err: unknown) => {
+                            if (err) {
+                                callback(err as Error);
+                                return;
+                            }
+                            callback(null);
+                        });
                     },
-                    (callback: (err?) => void): void => {
+                    (callback: Callback): void => {
                         log.info('Initializing pricelist...');
 
                         this.pricelist = new Pricelist(this.priceSource, this.schema, this.options, this);
                         this.addListener(
                             this.pricelist,
                             'pricelist',
-                            // eslint-disable-next-line @typescript-eslint/no-misused-promises
                             this.handler.onPricelist.bind(this.handler),
                             false
                         );
@@ -1055,18 +1048,19 @@ export default class Bot {
 
                         callback(null);
                     },
-                    (callback): void => {
+                    (callback: Callback): void => {
                         log.info('Initializing halt mode, inventory, bptf-listings, and profile settings');
                         if (this.options.miscSettings.startHalted.enable) {
                             void this.halt();
                         }
+
                         this.setProperties();
+
                         async.parallel(
                             [
-                                (callback): void => {
+                                (cb: Callback): void => {
                                     log.debug('Initializing inventory...');
                                     this.inventoryManager = new InventoryManager(this.pricelist);
-                                    // only call this here, and in Commands/Options
                                     Inventory.setOptions(this.schema.paints, this.strangeParts, this.options.highValue);
                                     this.inventoryManager.setInventory = new Inventory(
                                         this.client.steamID,
@@ -1074,9 +1068,15 @@ export default class Bot {
                                         'our',
                                         this.boundInventoryGetter
                                     );
-                                    void this.inventoryManager.getInventory.fetch().asCallback(callback);
+                                    void this.inventoryManager.getInventory.fetch().asCallback((err: unknown) => {
+                                        if (err) {
+                                            cb(err as Error);
+                                            return;
+                                        }
+                                        cb(null);
+                                    });
                                 },
-                                (callback): void => {
+                                (cb: Callback): void => {
                                     log.debug('Initializing bptf-listings...');
                                     this.userID = this.bptf._getUserID();
                                     this.listingManager = new ListingManager({
@@ -1148,9 +1148,15 @@ export default class Bot {
                                         true
                                     );
 
-                                    this.listingManager.init(callback);
+                                    this.listingManager.init((err: unknown) => {
+                                        if (err) {
+                                            cb(err as Error);
+                                            return;
+                                        }
+                                        cb(null);
+                                    });
                                 },
-                                (callback): void => {
+                                (cb: Callback): void => {
                                     if (
                                         !this.options.pricedbStoreApiKey ||
                                         !this.options.miscSettings.pricedbStore.enable
@@ -1158,12 +1164,14 @@ export default class Bot {
                                         log.debug(
                                             'Skipping PriceDB Store Manager initialization (not configured or disabled)'
                                         );
-                                        return callback(null);
+                                        cb(null);
+                                        return;
                                     }
 
                                     if (!this.client.steamID) {
                                         log.warn('Cannot initialize PriceDB Store Manager: not logged in to Steam');
-                                        return callback(null);
+                                        cb(null);
+                                        return;
                                     }
 
                                     this.pricedbStoreManager = new PriceDBStoreManager(
@@ -1171,36 +1179,40 @@ export default class Bot {
                                         this.client.steamID.getSteamID64()
                                     );
 
-                                    this.pricedbStoreManager.on('listingCreated', listing => {
+                                    this.pricedbStoreManager.on('listingCreated', (listing: PriceDBListingEvent) => {
                                         log.debug('PriceDB Store listing created:', listing.id);
                                     });
 
-                                    this.pricedbStoreManager.on('listingUpdated', listing => {
+                                    this.pricedbStoreManager.on('listingUpdated', (listing: PriceDBListingEvent) => {
                                         log.debug('PriceDB Store listing updated:', listing.id);
                                     });
 
-                                    this.pricedbStoreManager.on('listingDeleted', assetId => {
+                                    this.pricedbStoreManager.on('listingDeleted', (assetId: string) => {
                                         log.debug('PriceDB Store listing deleted:', assetId);
                                     });
 
-                                    this.pricedbStoreManager.on('inventoryRefreshed', data => {
-                                        log.info(
-                                            `PriceDB Store inventory refreshed: ${data.itemCount} items (${data.refreshCount}/25 today)`
-                                        );
-                                    });
+                                    this.pricedbStoreManager.on(
+                                        'inventoryRefreshed',
+                                        (evt: PriceDBInventoryRefreshedEvent) => {
+                                            log.info(
+                                                `PriceDB Store inventory refreshed: ${evt.itemCount} items (${evt.refreshCount}/25 today)`
+                                            );
+                                        }
+                                    );
 
-                                    this.pricedbStoreManager.on('error', err => {
+                                    this.pricedbStoreManager.on('error', (err: unknown) => {
                                         log.error('PriceDB Store Manager error:', err);
                                     });
 
                                     this.pricedbStoreManager
                                         .init()
-                                        .then(() => callback(null))
-                                        .catch(callback);
+                                        .then(() => cb(null))
+                                        .catch(err => cb(err as Error));
                                 },
-                                (callback): void => {
+                                (cb: Callback): void => {
                                     if (this.options.skipUpdateProfileSettings) {
-                                        return callback(null);
+                                        cb(null);
+                                        return;
                                     }
 
                                     log.debug('Updating profile settings...');
@@ -1211,15 +1223,22 @@ export default class Bot {
                                             inventory: 3,
                                             inventoryGifts: false
                                         },
-                                        callback
+                                        (err: unknown) => {
+                                            if (err) {
+                                                cb(err as Error);
+                                                return;
+                                            }
+                                            cb(null);
+                                        }
                                     );
                                 }
                             ],
-                            // eslint-disable-next-line @typescript-eslint/no-unsafe-argument
-                            callback
+                            (err?: Error | null) => {
+                                callback(err ?? null);
+                            }
                         );
                     },
-                    (callback: (err?) => void): void => {
+                    (callback: Callback): void => {
                         log.info('Setting up pricelist...');
 
                         const pricelist = Array.isArray(data.pricelist)
@@ -1231,22 +1250,30 @@ export default class Bot {
 
                         this.pricelist
                             .setPricelist(pricelist, this)
-                            .then(() => {
-                                callback(null);
-                            })
-                            .catch(err => {
-                                callback(err);
-                            });
+                            .then(() => callback(null))
+                            .catch(err => callback(err as Error));
                     },
-                    (callback): void => {
+                    (callback: Callback): void => {
                         log.debug('Getting max friends...');
-                        void this.friends.getMaxFriends.asCallback(callback);
+                        void this.friends.getMaxFriends.asCallback((err: unknown) => {
+                            if (err) {
+                                callback(err as Error);
+                                return;
+                            }
+                            callback(null);
+                        });
                     },
-                    (callback): void => {
+                    (callback: Callback): void => {
                         log.debug('Creating listings...');
-                        void this.listings.redoListings().asCallback(callback);
+                        void this.listings.redoListings().asCallback((err: unknown) => {
+                            if (err) {
+                                callback(err as Error);
+                                return;
+                            }
+                            callback(null);
+                        });
                     },
-                    (callback: (err?) => void): void => {
+                    (callback: Callback): void => {
                         log.debug('Getting localization file...');
                         this.getLocalizationFile()
                             .then(() => {
@@ -1255,37 +1282,35 @@ export default class Bot {
                                 }, 24 * 60 * 60 * 1000);
                                 callback(null);
                             })
-                            .catch(err => {
-                                callback(err);
-                            });
+                            .catch(err => callback(err as Error));
                     },
-                    (callback): void => {
-                        this.community.getTradeURL((err, url) => {
+                    (callback: Callback): void => {
+                        this.community.getTradeURL((err: unknown, url: unknown) => {
                             if (err) {
-                                /* eslint-disable-next-line @typescript-eslint/no-unsafe-return, @typescript-eslint/no-unsafe-call */
-                                return callback(err);
+                                callback(err as Error);
+                                return;
                             }
 
-                            this.tradeOfferUrl = url;
-                            /* eslint-disable-next-line @typescript-eslint/no-unsafe-return, @typescript-eslint/no-unsafe-call */
-                            return callback(null);
+                            this.tradeOfferUrl = url as string;
+                            callback(null);
                         });
                     }
                 ],
-                (item, callback) => {
+                (item: (cb: Callback) => void, callback: Callback): void => {
                     if (this.botManager.isStopping) {
-                        // Shutdown is requested, break out of the startup process
-                        return resolve();
+                        resolve();
+                        return;
                     }
                     item(callback);
                 },
-                err => {
+                (err?: Error | null): void => {
                     if (err) {
-                        return reject(err);
+                        reject(err);
+                        return;
                     }
                     if (this.botManager.isStopping) {
-                        // Shutdown is requested, break out of the startup process
-                        return resolve();
+                        resolve();
+                        return;
                     }
 
                     this.manager.pollInterval = 5 * 1000;
@@ -1299,7 +1324,7 @@ export default class Bot {
                         this.discordBot?.setPresence('online');
                     }
 
-                    return resolve();
+                    resolve();
                 }
             );
         });
@@ -1346,9 +1371,10 @@ export default class Bot {
         }
 
         return new Promise((resolve, reject) => {
-            this.manager.setCookies(cookies, err => {
+            this.manager.setCookies(cookies, (err: unknown) => {
                 if (err) {
-                    return reject(err);
+                    reject(err as Error);
+                    return;
                 }
 
                 resolve();
@@ -1361,7 +1387,8 @@ export default class Bot {
             if (!eventOnly) {
                 const cookies = this.getCookies;
                 if (cookies.length !== 0) {
-                    return resolve(cookies);
+                    resolve(cookies);
+                    return;
                 }
             }
 
@@ -1369,12 +1396,11 @@ export default class Bot {
 
             const timeout = setTimeout(() => {
                 this.client.removeListener('webSession', webSessionEvent);
-                return reject(new Error('Could not sign in to steamcommunity'));
+                reject(new Error('Could not sign in to steamcommunity'));
             }, 10000);
 
             function webSessionEvent(sessionID: string, cookies: string[]): void {
                 clearTimeout(timeout);
-
                 resolve(cookies);
             }
         });
@@ -1409,25 +1435,28 @@ export default class Bot {
 
     private get getBptfAccessToken(): Promise<string> {
         return new Promise((resolve, reject) => {
-            this.bptf.getAccessToken((err, accessToken) => {
+            this.bptf.getAccessToken((err: unknown, accessToken: unknown) => {
                 if (err) {
-                    return reject(err);
+                    reject(err as Error);
+                    return;
                 }
 
-                return resolve(accessToken);
+                resolve(accessToken as string);
             });
         });
     }
 
     private get getOrCreateBptfAPIKey(): Promise<string> {
         return new Promise((resolve, reject) => {
-            this.bptf.getAPIKey((err, apiKey) => {
+            this.bptf.getAPIKey((err: unknown, apiKey: unknown) => {
                 if (err) {
-                    return reject(err);
+                    reject(err as Error);
+                    return;
                 }
 
                 if (apiKey !== null) {
-                    return resolve(apiKey);
+                    resolve(apiKey as string);
+                    return;
                 }
 
                 log.verbose("You don't have a backpack.tf API key, creating one...");
@@ -1435,12 +1464,13 @@ export default class Bot {
                 this.bptf.generateAPIKey(
                     'http://localhost',
                     'Check if an account is banned on backpack.tf',
-                    (err, apiKey) => {
-                        if (err) {
-                            return reject(err);
+                    (err2: unknown, apiKey2: unknown) => {
+                        if (err2) {
+                            reject(err2 as Error);
+                            return;
                         }
 
-                        return resolve(apiKey);
+                        resolve(apiKey2 as string);
                     }
                 );
             });
@@ -1450,28 +1480,28 @@ export default class Bot {
     private bptfLogin(): Promise<void> {
         return new Promise((resolve, reject) => {
             if (this.bptf['loggedIn']) {
-                return resolve();
+                resolve();
+                return;
             }
 
             log.verbose('Signing in to backpack.tf...');
 
-            this.bptf.login(err => {
+            this.bptf.login((err: unknown) => {
                 if (err) {
-                    return reject(err);
+                    reject(err as Error);
+                    return;
                 }
 
                 log.verbose('Logged in to backpack.tf!');
                 this.bptf['loggedIn'] = true;
 
-                return resolve();
+                resolve();
             });
         });
     }
 
     private async login(refreshToken?: string): Promise<void> {
         log.debug('Starting login attempt');
-        // loginKey: loginKey,
-        // private: true
 
         const wait = this.loginWait();
         if (wait !== 0) {
@@ -1496,7 +1526,7 @@ export default class Bot {
                     this.client.removeListener('error', errorEvent);
                     clearTimeout(timeout);
 
-                    resolve(null);
+                    resolve();
                 };
 
                 const errorEvent = (err: CustomError): void => {
@@ -1508,7 +1538,6 @@ export default class Bot {
                     log.error('Failed to sign in to Steam: ', err);
 
                     if (err.eresult === EResult.AccessDenied) {
-                        // Access denied during login
                         this.deleteRefreshToken().finally(() => {
                             reject(err);
                         });
@@ -1558,26 +1587,21 @@ export default class Bot {
     private async getRefreshToken(): Promise<string | null> {
         const tokenPath = this.handler.getPaths.files.refreshToken;
 
-        // eslint-disable-next-line @typescript-eslint/no-unused-vars
-        const refreshToken = (await files.readFile(tokenPath, false).catch(err => null)) as string;
+        const refreshToken = (await files.readFile(tokenPath, false).catch(() => null)) as string;
 
         if (!refreshToken) {
             return null;
         }
 
-        const decoded = jwt.decode(refreshToken, {
-            complete: true
-        });
+        const decoded = jwt.decode(refreshToken, { complete: true });
 
         if (!decoded) {
-            // Invalid token
             return null;
         }
 
         const { exp } = decoded.payload as { exp: number };
 
         if (exp < Date.now() / 1000) {
-            // Refresh token expired
             return null;
         }
 
@@ -1593,7 +1617,6 @@ export default class Bot {
     }
 
     sendMessage(steamID: SteamID | string, message: string): void {
-        // Check for Discord redirect first (allows Discord messages even if Steam messages are disabled)
         if (steamID instanceof SteamID && steamID.redirectAnswerTo) {
             const origMessage = steamID.redirectAnswerTo;
             if (origMessage instanceof DiscordMessage && this.discordBot) {
@@ -1604,9 +1627,7 @@ export default class Bot {
             return;
         }
 
-        // Check if Steam messages are globally disabled (but allow messages to admins)
         if (this.options.globalDisable?.messages === true && !this.isAdmin(steamID)) {
-            // Don't send Steam messages if globally disabled (Discord messages still go through, admins exempt)
             log.debug(`Steam message not sent (globally disabled) to ${steamID.toString()}: ${message}`);
             return;
         }
@@ -1615,7 +1636,6 @@ export default class Bot {
         const friend = this.friends.getFriend(steamID64);
 
         if (!friend) {
-            // If not friend, we send message with chatMessage
             this.client.chatMessage(steamID, message);
             this.getPartnerDetails(steamID64)
                 .then(name => {
@@ -1627,9 +1647,8 @@ export default class Bot {
             return;
         }
 
-        // else, we use the new chat.sendFriendMessage
         const friendName = friend.player_name;
-        this.client.chat.sendFriendMessage(steamID, message, { chatEntryType: 1 }, err => {
+        this.client.chat.sendFriendMessage(steamID, message, { chatEntryType: 1 }, (err: unknown) => {
             if (err) {
                 log.warn(`Failed to send message to ${friendName} (${steamID64}):`, err);
                 return;
@@ -1641,12 +1660,14 @@ export default class Bot {
 
     private getPartnerDetails(steamID: SteamID | string): Promise<string> {
         return new Promise(resolve => {
-            this.community.getSteamUser(steamID, (err, user) => {
+            this.community.getSteamUser(steamID, (err: unknown, user: unknown) => {
                 if (err) {
                     resolve('unknown');
-                } else {
-                    resolve(user.name);
+                    return;
                 }
+
+                const u = user as { name?: string };
+                resolve(u?.name ?? 'unknown');
             });
         });
     }
@@ -1672,25 +1693,28 @@ export default class Bot {
 
     private onWebSession(sessionID: string, cookies: string[]): void {
         log.debug(`New web session`);
-
         void this.setCookies(cookies);
     }
 
     private onSessionExpired(): void {
         log.debug('Web session has expired');
-
         if (this.client.steamID) this.client.webLogOn();
     }
 
     private onConfKeyNeeded(tag: string, callback: (err: Error | null, time: number, confKey: string) => void): void {
         log.debug('Conf key needed');
 
-        void this.getTimeOffset.asCallback((err, offset) => {
-            const time = SteamTotp.time(offset);
-            const confKey = SteamTotp.getConfirmationKey(this.options.steamIdentitySecret, time, tag);
-
-            return callback(null, time, confKey);
-        });
+        void this.getTimeOffset
+            .then(offset => {
+                const time = SteamTotp.time(offset);
+                const confKey = SteamTotp.getConfirmationKey(this.options.steamIdentitySecret, time, tag);
+                callback(null, time, confKey);
+            })
+            .catch(() => {
+                const time = SteamTotp.time(undefined);
+                const confKey = SteamTotp.getConfirmationKey(this.options.steamIdentitySecret, time, tag);
+                callback(null, time, confKey);
+            });
     }
 
     private onSteamGuard(domain: string, callback: (authCode: string) => void, lastCodeWrong: boolean): void {
@@ -1703,7 +1727,6 @@ export default class Bot {
         }
 
         if (this.consecutiveSteamGuardCodesWrong > 1) {
-            // Too many logins will trigger this error because steam returns TwoFactorCodeMismatch
             throw new Error('Too many wrong Steam Guard codes');
         }
 
@@ -1717,7 +1740,6 @@ export default class Bot {
             .then(this.generateAuthCode.bind(this))
             .then(authCode => {
                 this.newLoginAttempt();
-
                 callback(authCode);
             });
     }
@@ -1727,7 +1749,6 @@ export default class Bot {
             log.warn('Signed in elsewhere, stopping the bot...');
             this.botManager.stop(err, false, true);
         } else if (err.eresult === EResult.AccessDenied) {
-            // Access denied during login
             await this.deleteRefreshToken();
         } else if (err.eresult === EResult.LogonSessionReplaced) {
             this.sessionReplaceCount++;
@@ -1742,10 +1763,8 @@ export default class Bot {
 
             await this.deleteRefreshToken();
 
-            this.login(await this.getRefreshToken()).catch(err => {
-                if (err) {
-                    throw err;
-                }
+            this.login(await this.getRefreshToken()).catch(err2 => {
+                if (err2) throw err2;
             });
         } else {
             throw err;
@@ -1753,11 +1772,11 @@ export default class Bot {
     }
 
     private async generateAuthCode(): Promise<string> {
-        let offset: number;
+        let offset: number | undefined;
         try {
             offset = await this.getTimeOffset;
-        } catch (err) {
-            // ignore error
+        } catch {
+            // ignore
         }
 
         return SteamTotp.generateAuthCode(this.options.steamSharedSecret, offset);
@@ -1766,17 +1785,18 @@ export default class Bot {
     private get getTimeOffset(): Promise<number> {
         return new Promise((resolve, reject) => {
             if (this.timeOffset !== null) {
-                return resolve(this.timeOffset);
+                resolve(this.timeOffset);
+                return;
             }
 
-            SteamTotp.getTimeOffset((err, offset) => {
+            SteamTotp.getTimeOffset((err: unknown, offset: unknown) => {
                 if (err) {
-                    return reject(err);
+                    reject(err as Error);
+                    return;
                 }
 
-                this.timeOffset = offset;
-
-                resolve(offset);
+                this.timeOffset = offset as number;
+                resolve(this.timeOffset);
             });
         });
     }
@@ -1787,16 +1807,11 @@ export default class Bot {
         let wait = 0;
         if (attemptsWithinPeriod.length >= this.maxLoginAttemptsWithinPeriod) {
             const oldest = attemptsWithinPeriod[0];
-
-            // Time when we can make login attempt
             const timeCanAttempt = dayjs().add(this.loginPeriodTime, 'millisecond');
-
-            // Get milliseconds till oldest till timeCanAttempt
             wait = timeCanAttempt.diff(oldest, 'millisecond');
         }
 
         if (wait === 0 && this.consecutiveSteamGuardCodesWrong > 1) {
-            // 30000 ms wait for TwoFactorCodeMismatch is enough to not get ratelimited
             return 30000 * this.consecutiveSteamGuardCodesWrong;
         }
 
@@ -1809,15 +1824,12 @@ export default class Bot {
 
     private get getLoginAttemptsWithinPeriod(): dayjs.Dayjs[] {
         const now = dayjs();
-
-        const filtered = this.loginAttempts.filter(attempt => now.diff(attempt, 'millisecond') < this.loginPeriodTime);
-        return filtered;
+        return this.loginAttempts.filter(attempt => now.diff(attempt, 'millisecond') < this.loginPeriodTime);
     }
 
     private newLoginAttempt(): void {
         const now = dayjs();
 
-        // Clean up old login attempts
         this.loginAttempts = this.loginAttempts.filter(
             attempt => now.diff(attempt, 'millisecond') < this.loginPeriodTime
         );

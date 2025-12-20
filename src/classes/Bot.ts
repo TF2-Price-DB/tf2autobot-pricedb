@@ -54,6 +54,8 @@ type Callback = (err?: Error | null) => void;
 type EasyCopyPasteInstance = {
     useBoldChars: boolean;
     useWordSwap: boolean;
+    toEcpStr: (name: string, key: string) => string;
+    reverseEcpStr: (str: string) => any;
 };
 
 const EasyCopyPasteCtor = EasyCopyPaste as unknown as new () => EasyCopyPasteInstance;

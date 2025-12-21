@@ -217,7 +217,20 @@ export class Entry implements EntryData {
     }
 
     hasPrice(): boolean {
-        // TODO: Allow null buy / sell price depending on intent
+        //bank requires both buy and sell
+        if (this.intent === 2) {
+            return this.buy !== null && this.sell !== null;
+        }
+
+        if (this.intent === 0) {
+            return this.buy !== null;
+        }
+
+        if (this.intent === 1) {
+            return this.sell !== null;
+        }
+
+        //shouldn't reach here, but just in case
         return this.buy !== null && this.sell !== null;
     }
 
@@ -506,10 +519,9 @@ export default class Pricelist extends EventEmitter {
             // skip this part if autoprice is false and/or isPartialPriced is true
             const price: GetItemPriceResponse = await this.priceSource.getPrice(entry.sku).catch(err => {
                 throw new Error(
-                    `Unable to get current prices for ${entry.sku}: ${
-                        (err as ErrorRequest).body && (err as ErrorRequest).body.message
-                            ? (err as ErrorRequest).body.message
-                            : (err as ErrorRequest).message
+                    `Unable to get current prices for ${entry.sku}: ${(err as ErrorRequest).body && (err as ErrorRequest).body.message
+                        ? (err as ErrorRequest).body.message
+                        : (err as ErrorRequest).message
                     }`
                 );
             });
@@ -527,7 +539,7 @@ export default class Pricelist extends EventEmitter {
                 if (!canUseKeyPricesFromSource) {
                     throw new Error(
                         'Broken key prices from source - Please make sure prices for Mann Co. Supply Crate Key (5021;6) are correct - ' +
-                            'both buy and sell "keys" property must be 0 and value ("metal") must not 0'
+                        'both buy and sell "keys" property must be 0 and value ("metal") must not 0'
                     );
                 }
 
@@ -565,7 +577,7 @@ export default class Pricelist extends EventEmitter {
                     if (!canUseKeyPricesFromSource) {
                         throw new Error(
                             'Broken key prices from source - Please make sure prices for Mann Co. Supply Crate Key (5021;6) are correct - ' +
-                                'both buy and sell "keys" property must be 0 and value ("metal") must not 0'
+                            'both buy and sell "keys" property must be 0 and value ("metal") must not 0'
                         );
                     }
 
@@ -767,7 +779,7 @@ export default class Pricelist extends EventEmitter {
                 return reject(new Error('Item is not priced'));
             }
 
-            const entry = Object.assign({}, this.prices[priceKey]); //TODO: do we need to copy it ?
+            const entry = this.prices[priceKey].clone();
             delete this.prices[priceKey];
 
             if (emitChange) {
@@ -915,7 +927,7 @@ export default class Pricelist extends EventEmitter {
                     if (!canUseKeyPricesFromSource) {
                         log.error(
                             `Broken key prices from source - Please make sure prices for Mann Co. Supply Crate Key (5021;6) are correct -` +
-                                ` both buy and sell "keys" property must be 0 and value ("metal") must not 0. Using temporary key prices...`
+                            ` both buy and sell "keys" property must be 0 and value ("metal") must not 0. Using temporary key prices...`
                         );
 
                         this.useTemporaryKeyPrices(entryKey);
@@ -1032,7 +1044,7 @@ export default class Pricelist extends EventEmitter {
 
                     log.error(
                         'Broken key prices from source - Please make sure prices for Mann Co. Supply Crate Key (5021;6) are correct - ' +
-                            'both buy and sell "keys" property must be 0 and value ("metal") must not 0'
+                        'both buy and sell "keys" property must be 0 and value ("metal") must not 0'
                     );
 
                     return;
@@ -1083,155 +1095,158 @@ export default class Pricelist extends EventEmitter {
                     continue;
                 }
 
-                if (transformedPrices[sku]) {
-                    const newestPrice = transformedPrices[sku];
-                    // Found matching items
-                    if (currPrice.time >= newestPrice.time) {
-                        continue;
-                    }
+                const newestPrice = transformedPrices[sku];
 
-                    //TODO: CONTINUE / FINISH
+                if (!newestPrice) {
+                    //item not found in new pricelist
+                    log.warn(`Item with sku ${sku} not found in new pricelist.`);
+                    this.failedUpdateOldPrices.push(sku);
+                    continue;
+                }
 
-                    // We received a newer price, update our price
-                    const oldPrices = {
+                //filter out older or same prices
+                if (currPrice.time >= newestPrice.time) {
+                    continue;
+                }
+
+                //rceived a newer price, update our price
+                let oldPrices: BuyAndSell;
+                let newPrices: BuyAndSell;
+
+                try {
+                    oldPrices = {
                         buy: new Currencies(currPrice.buy),
                         sell: new Currencies(currPrice.sell)
                     };
 
-                    const newPrices = {
+                    newPrices = {
                         buy: new Currencies(newestPrice.buy),
                         sell: new Currencies(newestPrice.sell)
                     };
+                } catch (err) {
+                    //corrupted price data
+                    log.error(`Corrupted price data for ${sku}: `, err);
+                    this.failedUpdateOldPrices.push(sku);
+                    continue;
+                }
 
-                    const newBuyValue = newPrices.buy.toValue(keyPrice);
-                    const newSellValue = newPrices.sell.toValue(keyPrice);
+                const newBuyValue = newPrices.buy.toValue(keyPrice);
+                const newSellValue = newPrices.sell.toValue(keyPrice);
 
-                    // Use FIFO (oldest purchase) cost for PPU protection, fallback to current buy price
-                    const fifoCost = currPrice.getFIFOPurchasePrice();
-                    const costBasis = fifoCost || currPrice.buy;
-                    const currBuyingValue = costBasis.toValue(keyPrice);
-                    const currSellingValue = currPrice.sell.toValue(keyPrice);
+                //use fifo cost if available
+                const fifoCost = currPrice.getFIFOPurchasePrice();
+                const costBasis = fifoCost || currPrice.buy;
+                const currBuyingValue = costBasis.toValue(keyPrice);
+                const currSellingValue = currPrice.sell.toValue(keyPrice);
 
-                    const currentStock = inventory.getAmount({
-                        priceKey: sku,
-                        includeNonNormalized: false,
-                        tradableOnly: true
-                    });
-                    const isInStock = currentStock > 0;
+                const currentStock = inventory.getAmount({
+                    priceKey: sku,
+                    includeNonNormalized: false,
+                    tradableOnly: true
+                });
+                const isInStock = currentStock > 0;
 
-                    // Update last in stock time
-                    if (isInStock) {
-                        currPrice.lastInStockTime = Math.floor(Date.now() / 1000);
-                    }
+                //update last in stock time
+                if (isInStock) {
+                    currPrice.lastInStockTime = Math.floor(Date.now() / 1000);
+                }
 
-                    // Check if within grace period (temporarily out of stock)
-                    const stockGracePeriod = ppu.stockGracePeriodSeconds || 3600;
-                    const wasRecentlyInStock = currPrice.lastInStockTime
-                        ? Math.floor(Date.now() / 1000) - currPrice.lastInStockTime < stockGracePeriod
-                        : false;
+                //check recently in stock within grace period
+                const stockGracePeriod = ppu.stockGracePeriodSeconds || 3600;
+                const wasRecentlyInStock = currPrice.lastInStockTime
+                    ? Math.floor(Date.now() / 1000) - currPrice.lastInStockTime < stockGracePeriod
+                    : false;
 
-                    // Use partialPriceTime for threshold if available, otherwise use time
-                    const lastUpdateTime = currPrice.partialPriceTime || currPrice.time;
-                    const isNotExceedThreshold = newestPrice.time - lastUpdateTime < ppu.thresholdInSeconds;
-                    const isNotExcluded = !excludedSKU.includes(sku);
+                //use partial price update conditions
+                const lastUpdateTime = currPrice.partialPriceTime || currPrice.time;
+                const isNotExceedThreshold = newestPrice.time - lastUpdateTime < ppu.thresholdInSeconds;
+                const isNotExcluded = !excludedSKU.includes(sku);
 
-                    // Remove max === 1 restriction if configured
-                    const maxRestrictionMet = ppu.removeMaxRestriction
-                        ? ppu.maxProtectedUnits === -1
-                            ? true
-                            : currentStock <= (ppu.maxProtectedUnits || 1)
-                        : currPrice.max === 1;
+                //review max restriction
+                const maxRestrictionMet = ppu.removeMaxRestriction
+                    ? ppu.maxProtectedUnits === -1
+                        ? true
+                        : currentStock <= (ppu.maxProtectedUnits || 1)
+                    : currPrice.max === 1;
 
-                    // https://github.com/TF2Autobot/tf2autobot/issues/506
-                    // https://github.com/TF2Autobot/tf2autobot/pull/520
+                if (
+                    ppu.enable &&
+                    (isInStock || wasRecentlyInStock) &&
+                    isNotExceedThreshold &&
+                    isNotExcluded &&
+                    maxRestrictionMet
+                ) {
+                    const isNegativeDiff = newSellValue - currBuyingValue <= 0;
+                    const isBuyingChanged = currBuyingValue !== newBuyValue;
 
-                    if (
-                        ppu.enable &&
-                        (isInStock || wasRecentlyInStock) &&
-                        isNotExceedThreshold &&
-                        isNotExcluded &&
-                        maxRestrictionMet
-                    ) {
-                        const isNegativeDiff = newSellValue - currBuyingValue <= 0;
-                        const isBuyingChanged = currBuyingValue !== newBuyValue;
+                    if (isNegativeDiff || isBuyingChanged || currPrice.isPartialPriced) {
+                        const minProfit = ppu.minProfitScrap || 1;
 
-                        if (isNegativeDiff || isBuyingChanged || currPrice.isPartialPriced) {
-                            const minProfit = ppu.minProfitScrap || 1;
+                        //calculate protected sell price
+                        const protectedSell = currBuyingValue + minProfit;
 
-                            // Sell price: Follow market up for profit, but never below protected cost + minProfit
-                            const protectedSell = currBuyingValue + minProfit;
-
-                            // Buy price: Follow market down for competitiveness, can increase up to cost basis
-                            if (newBuyValue < currPrice.buy.toValue(keyPrice)) {
-                                // Market went down, lower buy price to stay competitive
-                                currPrice.buy = newPrices.buy;
-                            } else if (newBuyValue > currPrice.buy.toValue(keyPrice)) {
-                                // Market went up, can increase buy price but not beyond cost basis (to maintain profit margin)
-                                currPrice.buy = Currencies.toCurrencies(
-                                    Math.min(newBuyValue, currBuyingValue),
-                                    keyPrice
-                                );
-                            }
-
-                            // Apply the protected sell price
-                            if (newSellValue >= protectedSell) {
-                                // Market is above our protection floor, use market price
-                                currPrice.sell = newPrices.sell;
-                            } else {
-                                // Market dropped below protection, maintain protected price
-                                currPrice.sell = Currencies.toCurrencies(protectedSell, keyPrice);
-                            }
-
-                            // Set partialPriceTime on first activation
-                            if (!currPrice.isPartialPriced) {
-                                currPrice.partialPriceTime = Math.floor(Date.now() / 1000);
-                            }
-
-                            currPrice.isPartialPriced = true;
-
-                            const msg = this.generatePartialPriceUpdateMsg(
-                                oldPrices,
-                                currPrice,
-                                newPrices,
-                                newestPrice.source
-                            );
-                            this.partialPricedUpdateBulk.push(msg);
-                            pricesChanged = true;
-                        } else {
-                            if (!currPrice.isPartialPriced) {
-                                currPrice.buy = newPrices.buy;
-                                currPrice.sell = newPrices.sell;
-                                currPrice.time = newestPrice.time;
-
-                                pricesChanged = true;
-                            }
+                        // adjust buy price
+                        if (newBuyValue < currPrice.buy.toValue(keyPrice)) {
+                            currPrice.buy = newPrices.buy;
+                        } else if (newBuyValue > currPrice.buy.toValue(keyPrice)) {
+                            currPrice.buy = Currencies.toCurrencies(Math.min(newBuyValue, currBuyingValue), keyPrice);
                         }
-                    } else {
-                        // Reset PPU when: not partial priced, exceeded threshold, OR no purchase history (nothing to protect)
-                        const hasNothingToProtect =
-                            currPrice.purchaseHistory.length === 0 && !isInStock && !wasRecentlyInStock;
 
-                        if (
-                            !currPrice.isPartialPriced || // partialPrice is false - update as usual
-                            (currPrice.isPartialPriced && !isNotExceedThreshold) || // Still partialPrice AND has exceeded threshold
-                            (currPrice.isPartialPriced && hasNothingToProtect) // No purchase history and not in stock - nothing to protect
-                        ) {
+                        //adjust sell price
+                        if (newSellValue >= protectedSell) {
+                            currPrice.sell = newPrices.sell;
+                        } else {
+                            currPrice.sell = Currencies.toCurrencies(protectedSell, keyPrice);
+                        }
+
+                        //set time to newest price time
+                        if (!currPrice.isPartialPriced) {
+                            currPrice.partialPriceTime = Math.floor(Date.now() / 1000);
+                        }
+
+                        currPrice.isPartialPriced = true;
+
+                        const msg = this.generatePartialPriceUpdateMsg(
+                            oldPrices,
+                            currPrice,
+                            newPrices,
+                            newestPrice.source
+                        );
+                        this.partialPricedUpdateBulk.push(msg);
+                        pricesChanged = true;
+                    } else {
+                        if (!currPrice.isPartialPriced) {
                             currPrice.buy = newPrices.buy;
                             currPrice.sell = newPrices.sell;
                             currPrice.time = newestPrice.time;
 
-                            if (currPrice.isPartialPriced) {
-                                currPrice.isPartialPriced = false; // reset to default
-                                currPrice.partialPriceTime = null;
-                                this.autoResetPartialPriceBulk.push(sku);
-                            }
-
                             pricesChanged = true;
                         }
                     }
+                } else {
+                    // Reset PPU when: not partial priced, exceeded threshold, OR no purchase history (nothing to protect)
+                    const hasNothingToProtect =
+                        currPrice.purchaseHistory.length === 0 && !isInStock && !wasRecentlyInStock;
+
+                    if (
+                        !currPrice.isPartialPriced ||
+                        (currPrice.isPartialPriced && !isNotExceedThreshold) ||
+                        (currPrice.isPartialPriced && hasNothingToProtect)
+                    ) {
+                        currPrice.buy = newPrices.buy;
+                        currPrice.sell = newPrices.sell;
+                        currPrice.time = newestPrice.time;
+
+                        if (currPrice.isPartialPriced) {
+                            currPrice.isPartialPriced = false;
+                            currPrice.partialPriceTime = null;
+                            this.autoResetPartialPriceBulk.push(sku);
+                        }
+
+                        pricesChanged = true;
+                    }
                 }
             }
-
             if (pricesChanged) {
                 this.emit('pricelist', this.prices);
             }
@@ -1246,10 +1261,9 @@ export default class Pricelist extends EventEmitter {
     ): string {
         const priceSource = source || 'pricer';
         return (
-            `${
-                this.isDwAlertEnabled
-                    ? `[${currPrices.name}](https://autobot.tf/items/${currPrices.sku})`
-                    : currPrices.name
+            `${this.isDwAlertEnabled
+                ? `[${currPrices.name}](https://autobot.tf/items/${currPrices.sku})`
+                : currPrices.name
             } (${currPrices.sku}):\n▸ ` +
             [
                 `old: ${oldPrices.buy.toString()}/${oldPrices.sell.toString()}`,
@@ -1262,10 +1276,9 @@ export default class Pricelist extends EventEmitter {
 
     private generatePartialPriceResetMsg(oldPrices: BuyAndSell, currPrices: Entry): string {
         return (
-            `${
-                this.isDwAlertEnabled
-                    ? `[${currPrices.name}](https://autobot.tf/items/${currPrices.sku})`
-                    : currPrices.name
+            `${this.isDwAlertEnabled
+                ? `[${currPrices.name}](https://autobot.tf/items/${currPrices.sku})`
+                : currPrices.name
             } (${currPrices.sku}):\n▸ ` +
             [
                 `old: ${oldPrices.buy.toString()}/${oldPrices.sell.toString()}`,
@@ -1314,7 +1327,7 @@ export default class Pricelist extends EventEmitter {
             if (!canUseKeyPricesFromSource) {
                 log.error(
                     'Broken key prices from source - Please make sure prices for Mann Co. Supply Crate Key (5021;6) are correct - ' +
-                        'both buy and sell "keys" property must be 0 and value ("metal") must not 0'
+                    'both buy and sell "keys" property must be 0 and value ("metal") must not 0'
                 );
 
                 return;
@@ -1565,7 +1578,7 @@ export default class Pricelist extends EventEmitter {
         }
 
         const now = dayjs().unix();
-        const prices = Object.assign({}, this.prices); //TODO: better way to copy ?
+        const prices: PricesObject = { ...this.prices };
 
         for (const sku in prices) {
             if (!Object.prototype.hasOwnProperty.call(prices, sku)) {

@@ -5,10 +5,11 @@ import log from '../../logger';
 export default class PriceDbSocketManager extends EventEmitter {
     private socket: Socket | null = null;
 
-    private reconnectAttempts = 0;
-    private maxReconnectAttempts = 3;
+    private readonly maxReconnectAttempts = 3;
+    private readonly maxReconnectDelay = 30000;
+
+    private  reconnectAttempts = 0;
     private reconnectDelay = 1000;
-    private maxReconnectDelay = 30000;
 
     private shouldReconnect = true;
     public isConnecting = false;
@@ -23,7 +24,7 @@ export default class PriceDbSocketManager extends EventEmitter {
     }
 
     connect(preferTLS = false, force = false): void {
-        if (this.socket && this.socket.connected && !force) {
+        if (this.socket?.connected && !force) {
             log.debug(`PriceDB socket already connected.`);
             return;
         }
@@ -54,7 +55,7 @@ export default class PriceDbSocketManager extends EventEmitter {
 
         this.socket = io(endpoint, {
             transports: ['websocket'],
-            timeout: 10_000,
+            timeout: 10000,
             reconnection: false,
             autoConnect: true
         });
@@ -98,24 +99,29 @@ export default class PriceDbSocketManager extends EventEmitter {
         this.reconnectAttempts += 1;
 
         if (this.reconnectAttempts > this.maxReconnectAttempts) {
-            if (!preferTLS) {
-                log.warn('Max non-TLS reconnect attempts reached, falling back to TLS endpoint.');
-                this.reconnectAttempts = 0;
-                this.reconnectTimer = setTimeout(() => {
-                    this.reconnectTimer = null;
-                    if (!this.shouldReconnect) return;
-                    this.connect(true, true);
-                }, 500);
-                return;
-            } else {
+            this.reconnectAttempts = 0;
+
+            if (preferTLS) {
                 log.error('Max reconnect attempts reached for PriceDB (both protocols tried).');
                 this.reconnectAttempts = 0;
                 return;
             }
+    
+            log.warn('Max non-TLS reconnect attempts reached, falling back to TLS endpoint.');
+            this.reconnectAttempts = 0;
+            this.reconnectTimer = setTimeout(() => {
+                this.reconnectTimer = null;
+                if (!this.shouldReconnect) return;
+                this.connect(true, true);
+            }, 500);
+
+            return;
         }
 
         let delay = this.reconnectDelay * Math.pow(2, this.reconnectAttempts - 1);
-        if (delay > this.maxReconnectDelay) delay = this.maxReconnectDelay;
+        if (delay > this.maxReconnectDelay) {
+            delay = this.maxReconnectDelay;
+        }
 
         log.debug(
             `Attempting to reconnect to PriceDB ${preferTLS ? '[TLS]' : ''} in ${delay}ms (attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts})`
@@ -124,7 +130,7 @@ export default class PriceDbSocketManager extends EventEmitter {
         this.reconnectTimer = setTimeout(() => {
             this.reconnectTimer = null;
             if (!this.shouldReconnect) return;
-            this.connect(preferTLS, true);
+                this.connect(preferTLS, true);
         }, delay);
     }
 

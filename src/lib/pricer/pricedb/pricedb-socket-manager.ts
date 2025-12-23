@@ -130,7 +130,7 @@ export default class PriceDbSocketManager extends EventEmitter {
         this.reconnectTimer = setTimeout(() => {
             this.reconnectTimer = null;
             if (!this.shouldReconnect) return;
-                this.connect(preferTLS, true);
+            this.connect(preferTLS, true);
         }, delay);
     }
 

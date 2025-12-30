@@ -53,13 +53,21 @@ export default class StatusCommands {
         };
 
         // Create readable breakdown strings
-        const breakdown24hStr = `(${breakdown24h.keys !== 0 ? `${breakdown24h.keys > 0 ? '+' : ''}${breakdown24h.keys} keys, ` : ''}${
-            breakdown24h.metal > 0 ? '+' : ''
-        }${breakdown24h.metal.toFixed(2)} ref${breakdown24h.overpay !== 0 ? `, ${breakdown24h.overpay > 0 ? '+' : ''}${breakdown24h.overpay.toFixed(2)} ref overpay` : ''}, at ${keyPrices.buy.metal}/${keyPrices.sell.metal} ref key rate)`;
+        const breakdown24hStr = `(${
+            breakdown24h.keys !== 0 ? `${breakdown24h.keys > 0 ? '+' : ''}${breakdown24h.keys} keys, ` : ''
+        }${breakdown24h.metal > 0 ? '+' : ''}${breakdown24h.metal.toFixed(2)} ref${
+            breakdown24h.overpay !== 0
+                ? `, ${breakdown24h.overpay > 0 ? '+' : ''}${breakdown24h.overpay.toFixed(2)} ref overpay`
+                : ''
+        }, at ${keyPrices.buy.metal}/${keyPrices.sell.metal} ref key rate)`;
 
-        const breakdownAllTimeStr = `(${breakdownAllTime.keys !== 0 ? `${breakdownAllTime.keys > 0 ? '+' : ''}${breakdownAllTime.keys} keys, ` : ''}${
-            breakdownAllTime.metal > 0 ? '+' : ''
-        }${breakdownAllTime.metal.toFixed(2)} ref${breakdownAllTime.overpay !== 0 ? `, ${breakdownAllTime.overpay > 0 ? '+' : ''}${breakdownAllTime.overpay.toFixed(2)} ref overpay` : ''}, at ${keyPrices.buy.metal}/${keyPrices.sell.metal} ref key rate)`;
+        const breakdownAllTimeStr = `(${
+            breakdownAllTime.keys !== 0 ? `${breakdownAllTime.keys > 0 ? '+' : ''}${breakdownAllTime.keys} keys, ` : ''
+        }${breakdownAllTime.metal > 0 ? '+' : ''}${breakdownAllTime.metal.toFixed(2)} ref${
+            breakdownAllTime.overpay !== 0
+                ? `, ${breakdownAllTime.overpay > 0 ? '+' : ''}${breakdownAllTime.overpay.toFixed(2)} ref overpay`
+                : ''
+        }, at ${keyPrices.buy.metal}/${keyPrices.sell.metal} ref key rate)`;
 
         // Format estimate warning
         const estimateWarning = profits.hasEstimates ? '\n\n⚠️ Profit contains estimates' : '';
@@ -105,9 +113,9 @@ export default class StatusCommands {
                 `\n---• unknown reason: ${trades.today.canceled.unknown}` +
                 `\n\n--- Profits ---` +
                 `\nLast 24h: ${totalProfit24h > 0 ? '+' : ''}${totalProfit24h.toFixed(2)} ref ${breakdown24hStr}` +
-                `\nAll Time${
-                    profits.since !== 0 ? ` (since ${pluralize('day', profits.since, true)} ago)` : ''
-                }: ${totalProfitAllTime > 0 ? '+' : ''}${totalProfitAllTime.toFixed(2)} ref ${breakdownAllTimeStr}` +
+                `\nAll Time${profits.since !== 0 ? ` (since ${pluralize('day', profits.since, true)} ago)` : ''}: ${
+                    totalProfitAllTime > 0 ? '+' : ''
+                }${totalProfitAllTime.toFixed(2)} ref ${breakdownAllTimeStr}` +
                 estimateWarning
         );
     }

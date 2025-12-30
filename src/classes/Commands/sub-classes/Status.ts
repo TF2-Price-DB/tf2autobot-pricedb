@@ -30,43 +30,36 @@ export default class StatusCommands {
 
         const keyPrices = this.bot.pricelist.getKeyPrices;
 
-        // Format raw profit (24h) - keys and metal shown separately
-        const rawProfit24h =
-            profits.rawProfitTimed.keys !== 0
-                ? `${profits.rawProfitTimed.keys > 0 ? '+' : ''}${profits.rawProfitTimed.keys} keys, ${
-                      profits.rawProfitTimed.metal > 0 ? '+' : ''
-                  }${profits.rawProfitTimed.metal.toFixed(2)} ref`
-                : `${profits.rawProfitTimed.metal > 0 ? '+' : ''}${profits.rawProfitTimed.metal.toFixed(2)} ref`;
+        // Calculate total profit in ref for cleaner display
+        const totalProfit24h =
+            profits.rawProfitTimed.keys * keyPrices.sell.metal +
+            profits.rawProfitTimed.metal +
+            profits.overpriceProfitTimed;
 
-        // Format total raw profit - keys and metal shown separately
-        const rawProfitTotal =
-            profits.rawProfit.keys !== 0
-                ? `${profits.rawProfit.keys > 0 ? '+' : ''}${profits.rawProfit.keys} keys, ${
-                      profits.rawProfit.metal > 0 ? '+' : ''
-                  }${profits.rawProfit.metal.toFixed(2)} ref`
-                : `${profits.rawProfit.metal > 0 ? '+' : ''}${profits.rawProfit.metal.toFixed(2)} ref`;
+        const totalProfitAllTime =
+            profits.rawProfit.keys * keyPrices.sell.metal + profits.rawProfit.metal + profits.overpriceProfit;
 
-        // Format overpay profits
-        const overpay24h = `${profits.overpriceProfitTimed > 0 ? '+' : ''}${profits.overpriceProfitTimed.toFixed(
-            2
-        )} ref`;
-        const overpayTotal = `${profits.overpriceProfit > 0 ? '+' : ''}${profits.overpriceProfit.toFixed(2)} ref`;
+        // Format the breakdown components for display
+        const breakdown24h = {
+            keys: profits.rawProfitTimed.keys,
+            metal: profits.rawProfitTimed.metal,
+            overpay: profits.overpriceProfitTimed
+        };
 
-        // Calculate full profit (raw + overpay) for algebraic display
-        const fullProfit24hScrap =
-            profits.rawProfitTimed.keys * keyPrices.sell.metal * 9 +
-            profits.rawProfitTimed.metal * 9 +
-            profits.overpriceProfitTimed * 9;
-        const fullProfit24h = Currencies.toCurrencies(Math.round(fullProfit24hScrap), keyPrices.sell.metal).toString();
+        const breakdownAllTime = {
+            keys: profits.rawProfit.keys,
+            metal: profits.rawProfit.metal,
+            overpay: profits.overpriceProfit
+        };
 
-        const fullProfitTotalScrap =
-            profits.rawProfit.keys * keyPrices.sell.metal * 9 +
-            profits.rawProfit.metal * 9 +
-            profits.overpriceProfit * 9;
-        const fullProfitTotal = Currencies.toCurrencies(
-            Math.round(fullProfitTotalScrap),
-            keyPrices.sell.metal
-        ).toString();
+        // Create readable breakdown strings
+        const breakdown24hStr = `(${breakdown24h.keys !== 0 ? `${breakdown24h.keys > 0 ? '+' : ''}${breakdown24h.keys} keys, ` : ''}${
+            breakdown24h.metal > 0 ? '+' : ''
+        }${breakdown24h.metal.toFixed(2)} ref${breakdown24h.overpay !== 0 ? `, ${breakdown24h.overpay > 0 ? '+' : ''}${breakdown24h.overpay.toFixed(2)} ref overpay` : ''}, at ${keyPrices.buy.metal}/${keyPrices.sell.metal} ref key rate)`;
+
+        const breakdownAllTimeStr = `(${breakdownAllTime.keys !== 0 ? `${breakdownAllTime.keys > 0 ? '+' : ''}${breakdownAllTime.keys} keys, ` : ''}${
+            breakdownAllTime.metal > 0 ? '+' : ''
+        }${breakdownAllTime.metal.toFixed(2)} ref${breakdownAllTime.overpay !== 0 ? `, ${breakdownAllTime.overpay > 0 ? '+' : ''}${breakdownAllTime.overpay.toFixed(2)} ref overpay` : ''}, at ${keyPrices.buy.metal}/${keyPrices.sell.metal} ref key rate)`;
 
         // Format estimate warning
         const estimateWarning = profits.hasEstimates ? '\n\n⚠️ Profit contains estimates' : '';
@@ -111,18 +104,10 @@ export default class StatusCommands {
                 `\n---• confirmation failed: ${trades.today.canceled.failedConfirmation}` +
                 `\n---• unknown reason: ${trades.today.canceled.unknown}` +
                 `\n\n--- Profits ---` +
-                `\n\nKey Rate: ${keyPrices.buy.metal}/${keyPrices.sell.metal} ref` +
-                `\n\n--- Last 24 hours ---` +
-                `\nProfit Raw: ${rawProfit24h}` +
-                `\nOverpay: ${overpay24h}` +
-                `\n\n--- All Time${
+                `\nLast 24h: ${totalProfit24h > 0 ? '+' : ''}${totalProfit24h.toFixed(2)} ref ${breakdown24hStr}` +
+                `\nAll Time${
                     profits.since !== 0 ? ` (since ${pluralize('day', profits.since, true)} ago)` : ''
-                } ---` +
-                `\nProfit Raw: ${rawProfitTotal}` +
-                `\nOverpay: ${overpayTotal}` +
-                `\n\n--- Total Profit (Clean Converted) ---` +
-                `\nLast 24h: ${fullProfit24h}` +
-                `\nAll Time: ${fullProfitTotal}` +
+                }: ${totalProfitAllTime > 0 ? '+' : ''}${totalProfitAllTime.toFixed(2)} ref ${breakdownAllTimeStr}` +
                 estimateWarning
         );
     }

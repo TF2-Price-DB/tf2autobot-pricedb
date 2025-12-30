@@ -133,6 +133,12 @@ export default class PriceDBStoreManager extends EventEmitter {
 
     private storeSlug: string | null = null; // cached store slug from group
 
+    private lastGroupCheckTime = 0; // timestamp of last group check
+
+    private groupCheckCooldownMs = 300000; // 5 minutes cooldown between group checks when not in group
+
+    private isNotInGroup = false; // flag to indicate user is not in a group
+
     private requestQueue: QueuedRequest[] = [];
 
     private isProcessingQueue = false;
@@ -484,18 +490,28 @@ export default class PriceDBStoreManager extends EventEmitter {
             if (response.data.success && response.data.group) {
                 // Cache the store slug for URL generation
                 this.storeSlug = response.data.group.custom_store_slug;
+                this.isNotInGroup = false; // Reset flag when group is found
+                this.lastGroupCheckTime = Date.now();
                 log.debug(
                     `Fetched group info - Group: ${response.data.group.group_name}, Slug: ${response.data.group.custom_store_slug}`
                 );
                 return response.data.group;
             }
             log.debug('No group found in /groups/my response');
+            this.isNotInGroup = true;
+            this.lastGroupCheckTime = Date.now();
             return null;
         } catch (err) {
             const axiosError = err as AxiosError;
             // 404 is expected when user is not in a group - This really needs changing server-side I will get to it eventually
             if (axiosError?.response?.status === 404) {
-                log.debug('User is not in a group (404 response)');
+                this.isNotInGroup = true;
+                this.lastGroupCheckTime = Date.now();
+                // Only log once when first detected or after cooldown
+                const timeSinceLastCheck = Date.now() - this.lastGroupCheckTime;
+                if (timeSinceLastCheck === 0 || timeSinceLastCheck >= this.groupCheckCooldownMs) {
+                    log.debug('User is not in a group (404 response)');
+                }
                 return null;
             }
             const error = filterAxiosError(axiosError);
@@ -553,6 +569,11 @@ export default class PriceDBStoreManager extends EventEmitter {
 
             if (response.data.success) {
                 log.info(`Accepted invite to group ${groupId}`);
+                // Reset the not-in-group flag since user just joined
+                this.isNotInGroup = false;
+                this.lastGroupCheckTime = 0; // Reset cooldown to allow immediate refresh
+                // Refresh group info to get the store slug
+                await this.getMyGroup();
                 return true;
             }
             return false;
@@ -596,6 +617,16 @@ export default class PriceDBStoreManager extends EventEmitter {
     }
 
     /**
+     * Force refresh group status (useful after joining a group)
+     */
+    async refreshGroupStatus(): Promise<void> {
+        this.isNotInGroup = false;
+        this.lastGroupCheckTime = 0;
+        this.storeSlug = null;
+        await this.getMyGroup();
+    }
+
+    /**
      * Get the friendly store URL using slug
      */
     async getStoreURL(): Promise<string> {
@@ -616,7 +647,13 @@ export default class PriceDBStoreManager extends EventEmitter {
             return `https://store.pricedb.io/sf/${this.storeSlug}`;
         }
 
-        // If not cached, trigger an async fetch (don't wait for it)
+        // If not in a group and cooldown hasn't expired, skip the API call
+        const timeSinceLastCheck = Date.now() - this.lastGroupCheckTime;
+        if (this.isNotInGroup && timeSinceLastCheck < this.groupCheckCooldownMs) {
+            return null;
+        }
+
+        // If not cached and cooldown expired (or never checked), trigger an async fetch
         // This ensures the cache will be populated for next time
         if (!this.storeSlug) {
             void this.getMyGroup().catch(err => {

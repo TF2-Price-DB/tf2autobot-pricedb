@@ -6,15 +6,31 @@ export default class PriceDbSocketManager extends EventEmitter {
     private socket: Socket | null = null;
 
     private readonly maxReconnectAttempts = 3;
+
     private readonly maxReconnectDelay = 30000;
 
-    private  reconnectAttempts = 0;
+    private reconnectAttempts = 0;
+
     private reconnectDelay = 1000;
 
     private shouldReconnect = true;
+
     public isConnecting = false;
 
     private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+
+    // Price update batching for logging
+    private priceUpdateCount = 0;
+
+    private lastPriceLogTime = Date.now();
+
+    private readonly priceLogIntervalMs = 30000; // Log summary every 30 seconds
+
+    private priceLogTimer: ReturnType<typeof setTimeout> | null = null;
+
+    private recentPriceUpdates: string[] = []; // Store recent SKUs for summary
+
+    private readonly maxRecentPrices = 5; // Show max 5 recent price SKUs in summary
 
     constructor(
         private readonly url: string = 'ws://ws.pricedb.io/',
@@ -87,9 +103,54 @@ export default class PriceDbSocketManager extends EventEmitter {
         });
 
         this.socket.on('price', data => {
-            log.debug('Received price update from PriceDB:', data);
+            this.handlePriceUpdate(data);
             this.emit('price', data);
         });
+    }
+
+    private handlePriceUpdate(data: any): void {
+        this.priceUpdateCount++;
+
+        // Track recent price updates for summary
+        if (data.sku && this.recentPriceUpdates.length < this.maxRecentPrices) {
+            if (!this.recentPriceUpdates.includes(data.sku)) {
+                this.recentPriceUpdates.push(data.sku);
+            }
+        }
+
+        // Log summary periodically instead of every update
+        const now = Date.now();
+        if (now - this.lastPriceLogTime >= this.priceLogIntervalMs) {
+            this.logPriceUpdateSummary();
+        } else if (!this.priceLogTimer) {
+            // Schedule a summary log if not already scheduled
+            this.priceLogTimer = setTimeout(() => {
+                this.logPriceUpdateSummary();
+            }, this.priceLogIntervalMs);
+        }
+    }
+
+    private logPriceUpdateSummary(): void {
+        if (this.priceUpdateCount > 0) {
+            const recentSkus =
+                this.recentPriceUpdates.length > 0
+                    ? ` (recent: ${this.recentPriceUpdates.join(', ')}${
+                          this.recentPriceUpdates.length >= this.maxRecentPrices ? ', ...' : ''
+                      })`
+                    : '';
+
+            log.debug(`Received ${this.priceUpdateCount} price updates from PriceDB${recentSkus}`);
+
+            // Reset counters
+            this.priceUpdateCount = 0;
+            this.recentPriceUpdates = [];
+            this.lastPriceLogTime = Date.now();
+        }
+
+        if (this.priceLogTimer) {
+            clearTimeout(this.priceLogTimer);
+            this.priceLogTimer = null;
+        }
     }
 
     private scheduleReconnect(preferTLS: boolean): void {
@@ -106,7 +167,7 @@ export default class PriceDbSocketManager extends EventEmitter {
                 this.reconnectAttempts = 0;
                 return;
             }
-    
+
             log.warn('Max non-TLS reconnect attempts reached, falling back to TLS endpoint.');
             this.reconnectAttempts = 0;
             this.reconnectTimer = setTimeout(() => {
@@ -124,7 +185,9 @@ export default class PriceDbSocketManager extends EventEmitter {
         }
 
         log.debug(
-            `Attempting to reconnect to PriceDB ${preferTLS ? '[TLS]' : ''} in ${delay}ms (attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts})`
+            `Attempting to reconnect to PriceDB ${preferTLS ? '[TLS]' : ''} in ${delay}ms (attempt ${
+                this.reconnectAttempts
+            }/${this.maxReconnectAttempts})`
         );
 
         this.reconnectTimer = setTimeout(() => {
@@ -142,6 +205,16 @@ export default class PriceDbSocketManager extends EventEmitter {
         if (this.reconnectTimer) {
             clearTimeout(this.reconnectTimer);
             this.reconnectTimer = null;
+        }
+
+        if (this.priceLogTimer) {
+            clearTimeout(this.priceLogTimer);
+            this.priceLogTimer = null;
+        }
+
+        // Log any remaining price updates before disconnecting
+        if (this.priceUpdateCount > 0) {
+            this.logPriceUpdateSummary();
         }
 
         if (this.socket) {

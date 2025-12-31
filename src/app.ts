@@ -147,7 +147,7 @@ ON_DEATH({ uncaughtException: true })((signalOrErr, origin: string | Error) => {
         if (botReady) {
             log.error(
                 'Refer to Wiki here: https://github.com/TF2Autobot/tf2autobot/wiki/Common-Errors OR ' +
-                    'Create an issue here: https://github.com/idinium96/TF2Autobot/issues/new?assignees=&labels=bug&template=bug_report.md&title='
+                    'Report the issue in the discord https://pricedb.io/discord'
             );
         }
     } else {

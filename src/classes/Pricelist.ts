@@ -519,9 +519,10 @@ export default class Pricelist extends EventEmitter {
             // skip this part if autoprice is false and/or isPartialPriced is true
             const price: GetItemPriceResponse = await this.priceSource.getPrice(entry.sku).catch(err => {
                 throw new Error(
-                    `Unable to get current prices for ${entry.sku}: ${(err as ErrorRequest).body && (err as ErrorRequest).body.message
-                        ? (err as ErrorRequest).body.message
-                        : (err as ErrorRequest).message
+                    `Unable to get current prices for ${entry.sku}: ${
+                        (err as ErrorRequest).body && (err as ErrorRequest).body.message
+                            ? (err as ErrorRequest).body.message
+                            : (err as ErrorRequest).message
                     }`
                 );
             });
@@ -539,7 +540,7 @@ export default class Pricelist extends EventEmitter {
                 if (!canUseKeyPricesFromSource) {
                     throw new Error(
                         'Broken key prices from source - Please make sure prices for Mann Co. Supply Crate Key (5021;6) are correct - ' +
-                        'both buy and sell "keys" property must be 0 and value ("metal") must not 0'
+                            'both buy and sell "keys" property must be 0 and value ("metal") must not 0'
                     );
                 }
 
@@ -577,7 +578,7 @@ export default class Pricelist extends EventEmitter {
                     if (!canUseKeyPricesFromSource) {
                         throw new Error(
                             'Broken key prices from source - Please make sure prices for Mann Co. Supply Crate Key (5021;6) are correct - ' +
-                            'both buy and sell "keys" property must be 0 and value ("metal") must not 0'
+                                'both buy and sell "keys" property must be 0 and value ("metal") must not 0'
                         );
                     }
 
@@ -927,7 +928,7 @@ export default class Pricelist extends EventEmitter {
                     if (!canUseKeyPricesFromSource) {
                         log.error(
                             `Broken key prices from source - Please make sure prices for Mann Co. Supply Crate Key (5021;6) are correct -` +
-                            ` both buy and sell "keys" property must be 0 and value ("metal") must not 0. Using temporary key prices...`
+                                ` both buy and sell "keys" property must be 0 and value ("metal") must not 0. Using temporary key prices...`
                         );
 
                         this.useTemporaryKeyPrices(entryKey);
@@ -1044,7 +1045,7 @@ export default class Pricelist extends EventEmitter {
 
                     log.error(
                         'Broken key prices from source - Please make sure prices for Mann Co. Supply Crate Key (5021;6) are correct - ' +
-                        'both buy and sell "keys" property must be 0 and value ("metal") must not 0'
+                            'both buy and sell "keys" property must be 0 and value ("metal") must not 0'
                     );
 
                     return;
@@ -1261,9 +1262,10 @@ export default class Pricelist extends EventEmitter {
     ): string {
         const priceSource = source || 'pricer';
         return (
-            `${this.isDwAlertEnabled
-                ? `[${currPrices.name}](https://autobot.tf/items/${currPrices.sku})`
-                : currPrices.name
+            `${
+                this.isDwAlertEnabled
+                    ? `[${currPrices.name}](https://pricedb.io/item/${currPrices.sku})`
+                    : currPrices.name
             } (${currPrices.sku}):\n▸ ` +
             [
                 `old: ${oldPrices.buy.toString()}/${oldPrices.sell.toString()}`,
@@ -1276,9 +1278,10 @@ export default class Pricelist extends EventEmitter {
 
     private generatePartialPriceResetMsg(oldPrices: BuyAndSell, currPrices: Entry): string {
         return (
-            `${this.isDwAlertEnabled
-                ? `[${currPrices.name}](https://autobot.tf/items/${currPrices.sku})`
-                : currPrices.name
+            `${
+                this.isDwAlertEnabled
+                    ? `[${currPrices.name}](https://pricedb.io/item/${currPrices.sku})`
+                    : currPrices.name
             } (${currPrices.sku}):\n▸ ` +
             [
                 `old: ${oldPrices.buy.toString()}/${oldPrices.sell.toString()}`,
@@ -1327,7 +1330,7 @@ export default class Pricelist extends EventEmitter {
             if (!canUseKeyPricesFromSource) {
                 log.error(
                     'Broken key prices from source - Please make sure prices for Mann Co. Supply Crate Key (5021;6) are correct - ' +
-                    'both buy and sell "keys" property must be 0 and value ("metal") must not 0'
+                        'both buy and sell "keys" property must be 0 and value ("metal") must not 0'
                 );
 
                 return;

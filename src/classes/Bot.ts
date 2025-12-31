@@ -562,7 +562,7 @@ export default class Bot {
                 this.messageAdmins(
                     'version',
                     `⚠️ Update available! Current: v${process.env.BOT_VERSION}, Latest: v${latestVersion}.` +
-                        `\n\n📰 Release note: https://github.com/TF2-Price-DB/tf2autobot-pricedb/releases` +
+                        `\n\n📰 Check discord (https://pricedb.io/discord) for release notes` +
                         (updateMessage ? `\n\n💬 Update message: ${updateMessage}` : ''),
                     []
                 );
@@ -1085,7 +1085,7 @@ export default class Bot {
                                         token: this.options.bptfAccessToken,
                                         userID: this.userID,
                                         userAgent:
-                                            'TF2Autobot' +
+                                            'TF2AutobotPriceDB' +
                                             (this.options.useragentHeaderCustom !== ''
                                                 ? ` - ${this.options.useragentHeaderCustom}`
                                                 : ' - Run your own bot for free'),

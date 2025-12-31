@@ -25,7 +25,7 @@ export async function apiRequest<B>({
         method,
         url,
         headers: {
-            'User-Agent': 'TF2Autobot@' + process.env.BOT_VERSION,
+            'User-Agent': 'TF2AutobotPriceDB@' + process.env.BOT_VERSION,
             ...headers
         },
         timeout: 30000

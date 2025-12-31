@@ -368,11 +368,11 @@ export default class Commands {
                     );
                 }
 
-                this.bot.sendMessage(steamID, `• ${sku}\nhttps://autobot.tf/items/${sku}`);
+                this.bot.sendMessage(steamID, `• ${sku}\nhttps://pricedb.io/item/${sku}`);
             } else {
                 // Receive sku
                 const name = this.bot.schema.getName(SKU.fromString(itemNamesOrSkus), false);
-                this.bot.sendMessage(steamID, `• ${name}\nhttps://autobot.tf/items/${itemNamesOrSkus}`);
+                this.bot.sendMessage(steamID, `• ${name}\nhttps://pricedb.io/item/${itemNamesOrSkus}`);
             }
         } else {
             const results: { source: string; generated: string }[] = [];
@@ -1514,7 +1514,7 @@ function getMptfDashboardItems(mptfApiKey: string, ignorePainted = false): Promi
             method: 'GET',
             url: 'https://marketplace.tf/api/Seller/GetDashboardItems/v2',
             headers: {
-                'User-Agent': 'TF2Autobot@' + process.env.BOT_VERSION
+                'User-Agent': 'TF2AutobotPriceDB@' + process.env.BOT_VERSION
             },
             params: {
                 key: mptfApiKey

@@ -1879,7 +1879,7 @@ export default function sendWebHookPriceUpdateV1(
     let effectURL: string;
     if (!effectsId) {
         effectURL = '';
-    } else effectURL = `https://autobot.tf/images/effects/${effectsId}_94x94.png`;
+    } else effectURL = `https://sku.pricedb.io/public/images/effects/${effectsId}_380x380.png`;
 
     const qualityItem = parts[1];
     const qualityColorPrint = qualityColor[qualityItem];
@@ -1893,7 +1893,7 @@ export default function sendWebHookPriceUpdateV1(
             {
                 author: {
                     name: itemName,
-                    url: `https://autobot.tf/items/${sku}`,
+                    url: `https://pricedb.io/item/${sku}`,
                     icon_url: isCustomPricer
                         ? 'https://cdn.akamai.steamstatic.com/steamcommunity/public/images/avatars/81/818fb1e235ccf685e8532a17f111f2697451b0d0_full.jpg'
                         : 'https://steamcdn-a.akamaihd.net/steamcommunity/public/images/avatars/3d/3dba19679c4a689b9d24fa300856cbf3d948d631_full.jpg'

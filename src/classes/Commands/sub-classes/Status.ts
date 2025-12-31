@@ -448,7 +448,7 @@ export default class StatusCommands {
                     this.bot.sendMessage(
                         steamID,
                         `⚠️ Update available! Current: v${process.env.BOT_VERSION}, Latest: v${latestVersion}.` +
-                            `\n\n📰 Release note: https://github.com/TF2Autobot/tf2autobot/releases` +
+                            `\n\n📰 Check discord (https://pricedb.io/discord) for release notes` +
                             (updateMessage ? `\n\n💬 Update message: ${updateMessage}` : '')
                     );
                     await timersPromises.setTimeout(1000);

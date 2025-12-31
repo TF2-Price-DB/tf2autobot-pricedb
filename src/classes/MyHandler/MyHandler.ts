@@ -346,7 +346,7 @@ export default class MyHandler extends Handler {
                 `because no longer in stock or exceed the threshold:\n\n• ${bulkResetPartiallyPriced
                     .map(sku => {
                         const name = this.bot.schema.getName(SKU.fromString(sku), this.opt.tradeSummary.showProperName);
-                        return `${isDwEnabled ? `[${name}](https://autobot.tf/items/${sku})` : name} (${sku})`;
+                        return `${isDwEnabled ? `[${name}](https://pricedb.io/item/${sku})` : name} (${sku})`;
                     })
                     .join('\n• ')}`;
 
@@ -2586,7 +2586,7 @@ export default class MyHandler extends Handler {
                 url: 'https://api.backpack.tf/api/users/info/v1',
                 method: 'GET',
                 headers: {
-                    'User-Agent': 'TF2Autobot@' + process.env.BOT_VERSION,
+                    'User-Agent': 'TF2AutobotPriceDB@' + process.env.BOT_VERSION,
                     Cookie: 'user-id=' + this.bot.userID
                 },
                 params: {

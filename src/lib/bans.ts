@@ -274,7 +274,7 @@ export default class Bans {
                 method: 'POST',
                 url: 'https://marketplace.tf/api/Bans/GetUserBan/v2',
                 headers: {
-                    'User-Agent': 'TF2Autobot@' + process.env.BOT_VERSION
+                    'User-Agent': 'TF2AutobotPriceDB@' + process.env.BOT_VERSION
                 },
                 params: {
                     key: this.bot.options.mptfApiKey,
@@ -358,7 +358,7 @@ export function isBptfBanned({
             method: 'GET',
             url: 'https://api.backpack.tf/api/users/info/v1',
             headers: {
-                'User-Agent': 'TF2Autobot@' + process.env.BOT_VERSION,
+                'User-Agent': 'TF2AutobotPriceDB@' + process.env.BOT_VERSION,
                 Cookie: 'user-id=' + userID
             },
             params: {

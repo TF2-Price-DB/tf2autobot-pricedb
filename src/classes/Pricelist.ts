@@ -1160,7 +1160,7 @@ export default class Pricelist extends EventEmitter {
 
                 //use partial price update conditions
                 const lastUpdateTime = currPrice.partialPriceTime || currPrice.time;
-                const isNotExceedThreshold = newestPrice.time - lastUpdateTime < ppu.thresholdInSeconds;
+                const isNotExceedThreshold = Math.floor(Date.now() / 1000) - lastUpdateTime < ppu.thresholdInSeconds;
                 const isNotExcluded = !excludedSKU.includes(sku);
 
                 //review max restriction
@@ -1409,7 +1409,7 @@ export default class Pricelist extends EventEmitter {
 
             // Use partialPriceTime for threshold if available
             const lastUpdateTime = match.partialPriceTime || match.time;
-            const isNotExceedThreshold = data.time - lastUpdateTime < ppu.thresholdInSeconds;
+            const isNotExceedThreshold = Math.floor(Date.now() / 1000) - lastUpdateTime < ppu.thresholdInSeconds;
             const isNotExcluded = !['5021;6'].concat(ppu.excludeSKU).includes(match.sku);
 
             // Remove max === 1 restriction if configured

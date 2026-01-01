@@ -1756,7 +1756,7 @@ export default class Bot {
 
     private onDisconnected(eresult: EResult, msg?: string): void {
         log.warn('Disconnected from Steam', { eresult, msg });
-        
+
         // Notify handler
         this.handler.onDisconnected(eresult, msg);
 
@@ -1791,7 +1791,7 @@ export default class Bot {
         this.reconnectAttempts++;
 
         let delay = (reconnectConfig.delaySeconds ?? 30) * 1000;
-        
+
         if (reconnectConfig.exponentialBackoff) {
             // Exponential backoff: delay * (2 ^ (attempt - 1))
             delay = delay * Math.pow(2, this.reconnectAttempts - 1);
@@ -1806,13 +1806,13 @@ export default class Bot {
                 try {
                     log.info('Reconnecting to Steam...');
                     await this.login(await this.getRefreshToken());
-                    
+
                     // Reset reconnection state on successful login
                     this.isReconnecting = false;
                     this.reconnectAttempts = 0;
-                    
+
                     log.info('Successfully reconnected to Steam!');
-                    
+
                     // Restore online status and game
                     if (this.ready) {
                         this.client.setPersona(EPersonaState.Online);

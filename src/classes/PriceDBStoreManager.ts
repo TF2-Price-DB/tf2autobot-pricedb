@@ -647,15 +647,18 @@ export default class PriceDBStoreManager extends EventEmitter {
             return `https://store.pricedb.io/sf/${this.storeSlug}`;
         }
 
-        // If not in a group and cooldown hasn't expired, skip the API call
+        // Check if we should attempt to fetch group info
         const timeSinceLastCheck = Date.now() - this.lastGroupCheckTime;
-        if (this.isNotInGroup && timeSinceLastCheck < this.groupCheckCooldownMs) {
+        const cooldownExpired = timeSinceLastCheck >= this.groupCheckCooldownMs;
+
+        // If not in a group and cooldown hasn't expired, skip the API call
+        if (this.isNotInGroup && !cooldownExpired) {
             return null;
         }
 
         // If not cached and cooldown expired (or never checked), trigger an async fetch
         // This ensures the cache will be populated for next time
-        if (!this.storeSlug) {
+        if (!this.storeSlug && cooldownExpired) {
             void this.getMyGroup().catch(err => {
                 log.debug('Failed to fetch group info for cache refresh:', err);
             });

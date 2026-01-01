@@ -157,6 +157,27 @@ export default class UserCart extends Cart {
                 continue;
             }
 
+            const amount = this[which][priceKey];
+
+            // Handle pure currencies first (keys, ref, rec, scrap)
+            if (priceKey === '5021;6') {
+                // Mann Co. Supply Crate Key
+                value += keyPrice.toValue() * amount;
+                continue;
+            } else if (priceKey === '5002;6') {
+                // Refined Metal
+                value += 9 * amount;
+                continue;
+            } else if (priceKey === '5001;6') {
+                // Reclaimed Metal
+                value += 3 * amount;
+                continue;
+            } else if (priceKey === '5000;6') {
+                // Scrap Metal
+                value += amount;
+                continue;
+            }
+
             const match = this.bot.pricelist[which === 'our' ? 'getPriceBySkuOrAsset' : 'getPrice']({
                 priceKey,
                 onlyEnabled: true
@@ -166,7 +187,7 @@ export default class UserCart extends Cart {
                 continue;
             }
 
-            value += match[which === 'our' ? 'sell' : 'buy'].toValue(keyPrice.metal) * this[which][priceKey];
+            value += match[which === 'our' ? 'sell' : 'buy'].toValue(keyPrice.metal) * amount;
         }
 
         return Currencies.toCurrencies(value, this.canUseKeys ? keyPrice.metal : undefined);

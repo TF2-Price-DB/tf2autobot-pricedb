@@ -1,7 +1,6 @@
 import Bot from '../../classes/Bot';
 import dayjs from 'dayjs';
-import Currencies from '@tf2autobot/tf2-currencies';
-import SteamTradeOfferManager, { OfferData, TradeProfitData } from '@tf2autobot/tradeoffer-manager';
+import SteamTradeOfferManager, { OfferData } from '@tf2autobot/tradeoffer-manager';
 
 // New FIFO-based profit calculation system
 
@@ -22,75 +21,6 @@ interface Profit {
 
 interface OfferDataWithTime extends OfferData {
     time: number;
-}
-
-function computeOverpay(
-    trade: OfferDataWithTime,
-    fallbackKeyPrice: number,
-    keySellPrice: number
-): { keys: number; metal: number; usedEstimate: boolean } {
-    const dict = trade.dict || { our: {}, their: {} };
-    const prices = (trade as any).prices || {};
-    const tradeValue = (trade as any).value as { our?: { total?: number }; their?: { total?: number }; rate?: number };
-
-    // Use the historical key rate from the trade, not current prices
-    // This gives TRUE overpay as it happened at trade time
-    const keyRate = tradeValue?.rate ?? fallbackKeyPrice;
-    const keyPriceScrap = Currencies.toScrap(keyRate);
-
-    // Always recalculate from dict + stored prices to avoid corruption issues
-    // Note: sent offers may have corrupted total values in the value object
-    let ourTotalScrap = 0;
-    let theirTotalScrap = 0;
-    let usedEstimate = false;
-
-    for (const sku in dict.our) {
-        const amount = dict.our[sku];
-        if (sku === '5000;6') ourTotalScrap += amount; // scrap
-        else if (sku === '5001;6') ourTotalScrap += amount * 3; // rec
-        else if (sku === '5002;6') ourTotalScrap += amount * 9; // ref
-        else if (sku === '5021;6') {
-            // Keys valued at the historical trade rate
-            ourTotalScrap += amount * keyPriceScrap;
-        } else {
-            const price = prices[sku];
-            if (price?.sell) {
-                // price.sell is { keys: number, metal: number }
-                const sellValueScrap = price.sell.keys * keyPriceScrap + Currencies.toScrap(price.sell.metal);
-                ourTotalScrap += sellValueScrap * amount;
-            } else {
-                // Missing price data - cannot calculate accurately
-                usedEstimate = true;
-            }
-        }
-    }
-
-    for (const sku in dict.their) {
-        const amount = dict.their[sku];
-        if (sku === '5000;6') theirTotalScrap += amount; // scrap
-        else if (sku === '5001;6') theirTotalScrap += amount * 3; // rec
-        else if (sku === '5002;6') theirTotalScrap += amount * 9; // ref
-        else if (sku === '5021;6') {
-            // Keys valued at the historical trade rate
-            theirTotalScrap += amount * keyPriceScrap;
-        } else {
-            const price = prices[sku];
-            if (price?.buy) {
-                // price.buy is { keys: number, metal: number }
-                const buyValueScrap = price.buy.keys * keyPriceScrap + Currencies.toScrap(price.buy.metal);
-                theirTotalScrap += buyValueScrap * amount;
-            } else {
-                // Missing price data - cannot calculate accurately
-                usedEstimate = true;
-            }
-        }
-    }
-
-    const netOverpayScrap = (theirTotalScrap ?? 0) - (ourTotalScrap ?? 0);
-    const overpayKeys = Math.trunc(netOverpayScrap / keyPriceScrap);
-    const overpayMetal = Currencies.toRefined(netOverpayScrap - overpayKeys * keyPriceScrap);
-
-    return { keys: overpayKeys, metal: overpayMetal, usedEstimate };
 }
 
 /**
@@ -157,7 +87,6 @@ export default async function profit(bot: Bot, pollData: SteamTradeOfferManager.
                 : +bot.options.statistics.profitDataSinceInUnix;
 
         const keyPrice = bot.pricelist.getKeyPrice.metal;
-        const keyPrices = bot.pricelist.getKeyPrices;
 
         // Process each trade
         for (const trade of trades) {
@@ -194,14 +123,13 @@ export default async function profit(bot: Bot, pollData: SteamTradeOfferManager.
                 hasEstimates = true;
             }
 
-            // Recalculate overpay from recorded trade values (ignore stored overpay to avoid corruption)
-            const overpay = computeOverpay(trade, keyPrices.buy.metal, keyPrices.sell.metal);
-            if (overpay.usedEstimate) {
-                hasEstimates = true;
-            }
+            // Use stored overpay (calculated at trade time with complete data)
+            // This prevents drift from recalculating with potentially missing price data
+            const overpayKeys = tradeProfit.overpay?.keys ?? 0;
+            const overpayMetal = tradeProfit.overpay?.metal ?? 0;
 
-            totalOverpayKeys += overpay.keys;
-            totalOverpay += overpay.metal;
+            totalOverpayKeys += overpayKeys;
+            totalOverpay += overpayMetal;
 
             // Add to 24h totals if within timeframe
             const tradeTime = trade.handleTimestamp || tradeProfit.timestamp;
@@ -209,8 +137,8 @@ export default async function profit(bot: Bot, pollData: SteamTradeOfferManager.
                 timedRawKeys += tradeProfit.rawProfit.keys;
                 timedRawMetal += tradeProfit.rawProfit.metal;
 
-                timedOverpayKeys += overpay.keys;
-                timedOverpay += overpay.metal;
+                timedOverpayKeys += overpayKeys;
+                timedOverpay += overpayMetal;
             }
         }
 

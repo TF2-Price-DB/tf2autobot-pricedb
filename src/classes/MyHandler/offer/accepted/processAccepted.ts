@@ -19,10 +19,23 @@ export default async function processAccepted(
     const isDisableSKU: string[] = [];
     const theirHighValuedItems: string[] = [];
 
-    // Calculate and store profit data asynchronously
-    await calculateProfitData(offer, bot).catch(err => {
-        log.error('Failed to calculate profit data:', err);
-    });
+    // Check if this is an admin/donation/premium trade before calculating profit
+    const offerReceived = offer.data('action') as i.Action;
+    const isAdminTrade = offerReceived?.reason === 'ADMIN' || bot.isAdmin(offer.partner);
+    const isDonation = offer.data('donation');
+    const isPremium = offer.data('buyBptfPremium');
+
+    // Only calculate profit for regular trades (not admin/donation/premium)
+    if (!isAdminTrade && !isDonation && !isPremium) {
+        await calculateProfitData(offer, bot).catch(err => {
+            log.error('Failed to calculate profit data:', err);
+        });
+    } else {
+        log.debug(
+            `Skipping profit calculation for offer ${offer.id}: ` +
+                `admin=${isAdminTrade}, donation=${isDonation}, premium=${isPremium}`
+        );
+    }
 
     const accepted: Accepted = {
         invalidItems: [],
@@ -33,7 +46,6 @@ export default async function processAccepted(
         isMention: false
     };
 
-    const offerReceived = offer.data('action') as i.Action;
     const meta = offer.data('meta') as i.Meta;
     const highValue = offer.data('highValue') as i.HighValueOutput; // can be both offer received and offer sent
 

@@ -88,3 +88,4 @@ dist/
 .idea/
 verify_overpay.js
 ecosystem.config.json
+repair_polldata.js

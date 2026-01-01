@@ -9,6 +9,7 @@ import { stats, profit, itemStats, testPriceKey } from '../../../lib/tools/expor
 import { sendStats } from '../../DiscordWebhook/export';
 import loadPollData, { deletePollData } from '../../../lib/tools/polldata';
 import SteamTradeOfferManager from '@tf2autobot/tradeoffer-manager';
+import log from '../../../lib/logger';
 
 // Bot status
 
@@ -134,7 +135,7 @@ export default class StatusCommands {
         void sendStats(this.bot, true, steamID);
     }
 
-    statsWipeCommand(steamID: SteamID, message: string): void {
+    async statsWipeCommand(steamID: SteamID, message: string): Promise<void> {
         const params = CommandParser.parseParams(CommandParser.removeCommand(message));
 
         if (params.i_am_sure != 'yes_i_am') {
@@ -160,6 +161,13 @@ export default class StatusCommands {
             this.bot.trades.setPollData(pollData);
 
             deletePollData(this.bot.handler.getPaths.files.dir);
+
+            // Clear FIFO inventory cost basis to prevent zombie entries
+            // Note: This only affects profit tracking, not PPU (which has its own system)
+            if (this.bot.inventoryCostBasis && typeof this.bot.inventoryCostBasis.clear === 'function') {
+                await this.bot.inventoryCostBasis.clear();
+                log.debug('FIFO inventory cost basis cleared');
+            }
 
             this.bot.sendMessage(steamID, '✅ All stats have been deleted.');
 

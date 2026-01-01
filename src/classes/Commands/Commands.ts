@@ -266,7 +266,7 @@ export default class Commands {
             } else if (command === 'itemstats' && (isAdmin || isWhitelisted)) {
                 void this.status.itemStatsCommand(steamID, message);
             } else if (command == 'wipestats' && isAdmin) {
-                this.status.statsWipeCommand(steamID, message);
+                void this.status.statsWipeCommand(steamID, message);
             } else if (command === 'inventory' && isAdmin) {
                 this.status.inventoryCommand(steamID);
             } else if (command === 'version' && (isAdmin || isWhitelisted)) {

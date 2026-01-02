@@ -1454,7 +1454,8 @@ export default class Pricelist extends EventEmitter {
                         // Market went up, can increase buy price but not beyond cost basis (to maintain profit margin)
                         const newBuy = Math.min(newBuyValue, currBuyingValue);
                         const currentBuy = match.buy.toValue(keyPrice);
-                        const action = newBuy > currentBuy ? 'increasing' : newBuy < currentBuy ? 'decreasing' : 'maintaining';
+                        const action =
+                            newBuy > currentBuy ? 'increasing' : newBuy < currentBuy ? 'decreasing' : 'maintaining';
                         log.debug(
                             `ppu - ${action} buy price to ${newBuy} (market: ${newBuyValue}, cost basis: ${currBuyingValue})`
                         );

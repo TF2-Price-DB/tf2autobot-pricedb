@@ -444,24 +444,36 @@ export default class MyHandler extends Handler {
         log.info('Logged off from Steam');
     }
 
-    async onMessage(steamID: SteamID, message: string): Promise<void> {
+    async onMessage(steamID: SteamID, message: string, respondChat = true): Promise<void | string> {
         if (!this.opt.commands.enable) {
             if (!this.bot.isAdmin(steamID)) {
                 const custom = this.opt.commands.customDisableReply;
-                return this.bot.sendMessage(steamID, custom ? custom : '❌ Command function is disabled by the owner.');
+                const msg = custom ? custom : '❌ Command function is disabled by the owner.';
+                if (respondChat) {
+                    return this.bot.sendMessage(steamID, msg);
+                } else {
+                    return msg;
+                }
             }
         }
 
         if (this.bot.isHalted && !this.bot.isAdmin(steamID)) {
             const custom = this.opt.customMessage.halted;
-            return this.bot.sendMessage(
-                steamID,
-                custom ? custom : '❌ The bot is not operational right now. Please come back later.'
-            );
+            const msg = custom ? custom : '❌ The bot is not operational right now. Please come back later.';
+            if (respondChat) {
+                return this.bot.sendMessage(steamID, msg);
+            } else {
+                return msg;
+            }
         }
 
         if (this.isUpdating) {
-            return this.bot.sendMessage(steamID, '⚠️ The bot is updating, please wait until I am back online.');
+            const msg = '⚠️ The bot is updating, please wait until I am back online.';
+            if (respondChat) {
+                return this.bot.sendMessage(steamID, msg);
+            } else {
+                return msg;
+            }
         }
 
         if (steamID.type !== 0) {

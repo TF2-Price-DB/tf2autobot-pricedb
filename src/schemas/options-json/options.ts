@@ -2842,6 +2842,18 @@ export const optionsSchema: jsonschema.Schema = {
             },
             required: ['spells', 'sheens', 'killstreakers', 'painted', 'strangeParts'],
             additionalProperties: false
+        },
+        IPC: {
+            type: 'boolean'
+        },
+        tls: {
+            type: 'boolean'
+        },
+        tlsHost: {
+            type: 'string'
+        },
+        tlsPort: {
+            type: 'number'
         }
     },
     required: [

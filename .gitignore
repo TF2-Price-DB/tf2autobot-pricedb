@@ -86,6 +86,8 @@ dist/
 
 
 .idea/
+
+#bliss test files
 verify_overpay.js
 ecosystem.config.json
 repair_polldata.js

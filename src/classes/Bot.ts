@@ -44,6 +44,7 @@ import Options from './Options';
 import IPricer from './IPricer';
 import { EventEmitter } from 'events';
 import { Blocked } from './MyHandler/interfaces';
+import ipcHandler from './IPC';
 import filterAxiosError from '@tf2autobot/filter-axios-error';
 import { axiosAbortSignal } from '../lib/helpers';
 import { apiRequest } from '../lib/apiRequest';
@@ -77,6 +78,8 @@ interface StartData {
 
 export default class Bot {
     // Modules and classes
+    readonly ipc?: ipcHandler;
+
     schema: SchemaManager.Schema;
 
     readonly bptf: BptfLogin;
@@ -257,6 +260,7 @@ export default class Bot {
 
         this.handler = new MyHandler(this, this.priceSource);
         this.inventoryCostBasis = new InventoryCostBasis(this);
+        if (this.options.IPC) this.ipc = new ipcHandler(this);
 
         this.admins = [];
 
@@ -957,6 +961,7 @@ export default class Bot {
                             try {
                                 await this.login(await this.getRefreshToken());
                                 log.info('Signed in to Steam!');
+                                if (this.options.IPC) this.ipc.init();
                                 callback(null);
                             } catch (err) {
                                 log.warn('Failed to sign in to Steam: ', err);
@@ -1077,6 +1082,10 @@ export default class Bot {
                         }
 
                         this.setProperties();
+                        if (this.options.IPC) {
+                            this.ipc.sendPricelist();
+                            this.addListener(this.pricelist, 'pricelist', this.ipc.sendPricelist.bind(this.ipc), false);
+                        }
 
                         async.parallel(
                             [

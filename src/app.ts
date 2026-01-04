@@ -1,3 +1,11 @@
+setInterval(() => {
+    const calls = __here.getCalls();
+    const output = calls.map(([file, func]) => `${file}::${func}`).join('\n');
+    fs.writeFileSync('c:/repos/instrumental_moment.txt', output, 'utf-8');
+    log.info(`Dumped ${calls.length} function calls to instrumental_moment.txt`);
+}, 1 * 60 * 1000 * 60); // every 1 hour
+
+import __here from './__here';
 try {
     // only installed in dev mode
     // eslint-disable-next-line @typescript-eslint/no-var-requires,@typescript-eslint/no-unsafe-assignment
@@ -64,12 +72,17 @@ import { apiRequest } from './lib/apiRequest';
 
 /*eslint-disable */
 SchemaManager.prototype.getSchema = function (callback): void {
+    __here('C:\\repos\\tf2autobot-pricedb\\src\\app.ts', '@@anon.1');
     apiRequest({ method: 'GET', url: 'https://sku.pricedb.io/api/schema' })
         .then(schema => {
+            __here('C:\\repos\\tf2autobot-pricedb\\src\\app.ts', '@@anon.2');
             this.setSchema(schema, true);
             callback(null, this.schema);
         })
-        .catch(err => callback(err));
+        .catch(err => {
+            __here('C:\\repos\\tf2autobot-pricedb\\src\\app.ts', '@@anon.3');
+            return callback(err);
+        });
 };
 /*eslint-enable */
 
@@ -87,6 +100,7 @@ import { Webhook } from './classes/DiscordWebhook/interfaces';
 import { uptime } from './lib/tools/time';
 
 ON_DEATH({ uncaughtException: true })((signalOrErr, origin: string | Error) => {
+    __here('C:\\repos\\tf2autobot-pricedb\\src\\app.ts', '@@anon.4');
     const crashed = !['SIGINT', 'SIGTERM'].includes(signalOrErr as 'SIGINT' | 'SIGTERM' | 'SIGQUIT');
 
     // finds error in case signal is uncaughtException
@@ -111,6 +125,7 @@ ON_DEATH({ uncaughtException: true })((signalOrErr, origin: string | Error) => {
             `package.version: ${process.env.BOT_VERSION || undefined}; node: ${process.version} ${process.platform} ${
                 process.arch
             }}`,
+
             'Stack trace:',
             stackTrace,
             `${uptime()}`
@@ -125,7 +140,12 @@ ON_DEATH({ uncaughtException: true })((signalOrErr, origin: string | Error) => {
                 avatar_url: optDW.avatarURL ? optDW.avatarURL : '',
                 content:
                     optDW.sendAlert.isMention && optDW.ownerID.length > 0
-                        ? optDW.ownerID.map(id => `<@!${id}>`).join(', ')
+                        ? optDW.ownerID
+                              .map(id => {
+                                  __here('C:\\repos\\tf2autobot-pricedb\\src\\app.ts', '@@anon.5');
+                                  return `<@!${id}>`;
+                              })
+                              .join(', ')
                         : '',
                 embeds: [
                     {
@@ -139,9 +159,10 @@ ON_DEATH({ uncaughtException: true })((signalOrErr, origin: string | Error) => {
                 ]
             };
 
-            apiRequest({ method: 'POST', url: optDW.sendAlert.url.main, data: sendAlertWebhook }).catch(err =>
-                log.error('Error sending webhook on crash', err)
-            );
+            apiRequest({ method: 'POST', url: optDW.sendAlert.url.main, data: sendAlertWebhook }).catch(err => {
+                __here('C:\\repos\\tf2autobot-pricedb\\src\\app.ts', '@@anon.6');
+                return log.error('Error sending webhook on crash', err);
+            });
         }
 
         if (botReady) {
@@ -154,12 +175,33 @@ ON_DEATH({ uncaughtException: true })((signalOrErr, origin: string | Error) => {
         log.warn('Received kill signal `' + message + '`');
     }
 
+    // Dump __here calls before stopping
+    try {
+        const calls = __here.getCalls();
+        const output = calls.map(([file, func]) => `${file}::${func}`).join('\n');
+        fs.writeFileSync('c:/repos/instrumental_moment.txt', output, 'utf-8');
+        log.info(`Dumped ${calls.length} function calls to instrumental_moment.txt`);
+    } catch (dumpError) {
+        log.error('Failed to dump __here calls:', dumpError);
+    }
+
     botManager.stop(crashed ? error : null, true, false);
 });
 
 process.on('message', message => {
+    __here('C:\\repos\\tf2autobot-pricedb\\src\\app.ts', '@@anon.7');
     if (message === 'shutdown') {
         log.warn('Process received shutdown message, stopping...');
+
+        // Dump __here calls before stopping
+        try {
+            const calls = __here.getCalls();
+            const output = calls.map(([file, func]) => `${file}::${func}`).join('\n');
+            fs.writeFileSync('c:/repos/instrumental_moment.txt', output, 'utf-8');
+            log.info(`Dumped ${calls.length} function calls to instrumental_moment.txt`);
+        } catch (dumpError) {
+            log.error('Failed to dump __here calls:', dumpError);
+        }
 
         botManager.stop(null, true, false);
     } else {
@@ -168,6 +210,7 @@ process.on('message', message => {
 });
 
 void botManager.start(options).asCallback(err => {
+    __here('C:\\repos\\tf2autobot-pricedb\\src\\app.ts', '@@anon.8');
     if (err) {
         /*eslint-disable */
         if (err.response || err.name === 'AxiosError') {
@@ -195,8 +238,10 @@ void botManager.start(options).asCallback(err => {
 
     if (options.enableHttpApi) {
         void import('./classes/HttpManager').then(({ default: HttpManager }) => {
+            __here('C:\\repos\\tf2autobot-pricedb\\src\\app.ts', '@@anon.9');
             const httpManager = new HttpManager(options, botManager.bot);
             void httpManager.start().asCallback(err => {
+                __here('C:\\repos\\tf2autobot-pricedb\\src\\app.ts', '@@anon.10');
                 if (err) {
                     throw err;
                 }

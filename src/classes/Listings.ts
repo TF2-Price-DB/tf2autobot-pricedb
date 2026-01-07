@@ -36,7 +36,7 @@ export default class Listings {
 
     /**
      * Tracks the expected price for each listing to avoid stale cache comparison issues.
-     * Key: listing ID (440_{assetid} for both buy and sell listings)
+     * Key: listing ID (440_assetid for both buy and sell listings)
      * Value: The Currencies object we last queued for update
      */
     private readonly expectedListingPrices: Map<string, Currencies> = new Map();
@@ -329,7 +329,9 @@ export default class Listings {
 
             if (showLogs) {
                 log.debug(
-                    `Sell listing check for ${priceKey}: hasSellListing=${hasSellListing}, amountCanSell=${amountCanSell}, assetid=${assetid}`
+                    `Sell listing check for ${priceKey}: hasSellListing=${String(
+                        hasSellListing
+                    )}, amountCanSell=${amountCanSell}, assetid=${assetid}`
                 );
             }
 
@@ -585,7 +587,7 @@ export default class Listings {
                         };
                         const errorListener = err => {
                             log.error('Remove all listings individual failed', err);
-                            // it was an error, so we don't listen for success anymore
+                            // it was an error, so we don't listen for success any more
                             this.bot.listingManager.removeListener('deleteListingsSuccessful', successListener);
                             reject(err);
                         };

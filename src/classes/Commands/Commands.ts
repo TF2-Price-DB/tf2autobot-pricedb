@@ -329,7 +329,10 @@ export default class Commands {
             }
         } else if (message.includes('_')) {
             try {
-                const intentDescriptor = this.bot.ecp.reverseEcpStr(message);
+                const intentDescriptor = this.bot.ecp.reverseEcpStr(message) as {
+                    originalItemName: string;
+                    decodedIntent: Instant | null;
+                } | null;
 
                 if (intentDescriptor === undefined) {
                     return this.bot.sendMessage(
@@ -341,12 +344,16 @@ export default class Commands {
                 this.buyOrSellCommand(
                     steamID,
                     intentDescriptor.originalItemName,
-                    intentDescriptor.decodedIntent as Instant,
+                    intentDescriptor.decodedIntent,
                     null,
                     true
                 );
             } catch (error) {
-                log.debug(`Failed to decode ecp string from ${steamID.getSteamID64()}: ${error}`);
+                log.debug(
+                    `Failed to decode ecp string from ${steamID.getSteamID64()}: ${
+                        error instanceof Error ? error.message : String(error)
+                    }`
+                );
 
                 return this.bot.sendMessage(
                     steamID,
@@ -744,7 +751,7 @@ export default class Commands {
     // Trade actions
 
     private cancelCommand(steamID: SteamID): void {
-        // Maybe have the cancel command only cancel the offer in the queue, and have a command for canceling the offer?
+        // Maybe have the cancel command only cancel the offer in the queue, and have a command for cancelling the offer?
 
         const positionInQueue = this.cartQueue.getPosition(steamID);
 

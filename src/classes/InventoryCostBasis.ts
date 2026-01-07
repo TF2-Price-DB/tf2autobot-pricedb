@@ -32,7 +32,7 @@ export default class InventoryCostBasis {
 
     constructor(bot: Bot) {
         this.bot = bot;
-        this.filePath = bot.paths.files.costBasis;
+        this.filePath = bot.handler.getPaths.files.costBasis;
     }
 
     /**

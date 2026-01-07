@@ -328,22 +328,31 @@ export default class Commands {
                 );
             }
         } else if (message.includes('_')) {
-            const intentDescriptor = this.bot.ecp.reverseEcpStr(message);
+            try {
+                const intentDescriptor = this.bot.ecp.reverseEcpStr(message);
 
-            if (intentDescriptor === undefined) {
+                if (intentDescriptor === undefined) {
+                    return this.bot.sendMessage(
+                        steamID,
+                        'Item could not be decoded. Please use the standard !buy or !sell command!'
+                    );
+                }
+
+                this.buyOrSellCommand(
+                    steamID,
+                    intentDescriptor.originalItemName,
+                    intentDescriptor.decodedIntent as Instant,
+                    null,
+                    true
+                );
+            } catch (error) {
+                log.debug(`Failed to decode ecp string from ${steamID.getSteamID64()}: ${error}`);
+
                 return this.bot.sendMessage(
                     steamID,
                     'Item could not be decoded. Please use the standard !buy or !sell command!'
                 );
             }
-
-            this.buyOrSellCommand(
-                steamID,
-                intentDescriptor.originalItemName,
-                intentDescriptor.decodedIntent as Instant,
-                null,
-                true
-            );
         }
     }
 

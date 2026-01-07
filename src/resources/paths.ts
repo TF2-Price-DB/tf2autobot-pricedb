@@ -7,6 +7,7 @@ interface FilePaths {
     loginAttempts: string;
     pricelist: string;
     blockedList: string;
+    costBasis: string;
     dir: string;
 }
 
@@ -40,6 +41,7 @@ export default function genPaths(steamAccountName: string, maxPollDataSizeMB = 5
             loginAttempts: path.join(__dirname, `../../files/${steamAccountName}/loginattempts.json`),
             pricelist: path.join(__dirname, `../../files/${steamAccountName}/pricelist.json`),
             blockedList: path.join(__dirname, `../../files/${steamAccountName}/blockedList.json`),
+            costBasis: path.join(__dirname, `../../files/${steamAccountName}/costBasis.json`),
             dir: path.join(__dirname, `../../files/${steamAccountName}/`)
         },
         logs: {

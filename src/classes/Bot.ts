@@ -711,10 +711,6 @@ export default class Bot {
                     this.listingManager.listings.forEach(listing => {
                         let listingSKU = listing.getSKU();
                         if (listing.intent === 1) {
-                            if (this.options.normalize.painted.our && /;[p][0-9]+/.test(listingSKU)) {
-                                listingSKU = listingSKU.replace(/;[p][0-9]+/, '');
-                            }
-
                             if (this.options.normalize.festivized.our && listingSKU.includes(';festive')) {
                                 listingSKU = listingSKU.replace(';festive', '');
                             }
@@ -730,6 +726,16 @@ export default class Bot {
                             match = assetIdPrice;
                         } else {
                             match = this.pricelist.getPrice({ priceKey: listingSKU });
+
+                            if (
+                                !match &&
+                                listing.intent === 1 &&
+                                this.options.normalize.painted.our &&
+                                /;p\d+/.test(listingSKU)
+                            ) {
+                                const baseSKU = listingSKU.replace(/;p\d+/, '');
+                                match = this.pricelist.getPrice({ priceKey: baseSKU });
+                            }
                         }
 
                         if (isFilterCantAfford && listing.intent === 0 && match !== null) {
@@ -746,6 +752,15 @@ export default class Bot {
                         }
 
                         listings[listingSKU] = (listings[listingSKU] ?? []).concat(listing);
+
+                        if (
+                            this.options.normalize.painted.our &&
+                            /;p\d+/.test(listingSKU) &&
+                            match &&
+                            match.sku !== listingSKU
+                        ) {
+                            listings[match.sku] = (listings[match.sku] ?? []).concat(listing);
+                        }
                     });
 
                     const pricelist = Object.assign({}, this.pricelist.getPrices);
@@ -830,8 +845,8 @@ export default class Bot {
                     }
 
                     pricelistLength = pricelistCount;
-                })().catch(err2 => {
-                    log.error('Auto-refresh listings task failed:', err2);
+                })().catch(error_ => {
+                    log.error('Auto-refresh listings task failed:', error_);
                 });
             });
         }, (pricelistLength > 4000 ? 60 : 30) * 60 * 1000);
@@ -951,7 +966,7 @@ export default class Bot {
 
                             void this.inventoryCostBasis
                                 .load()
-                                .catch(err2 => log.error('Failed to load inventory cost basis:', err2))
+                                .catch(error_ => log.error('Failed to load inventory cost basis:', error_))
                                 .finally(() => callback(null));
                         });
                     },
@@ -1872,8 +1887,8 @@ export default class Bot {
 
             await this.deleteRefreshToken();
 
-            this.login(await this.getRefreshToken()).catch(err2 => {
-                if (err2) throw err2;
+            this.login(await this.getRefreshToken()).catch(error_ => {
+                if (error_) throw error_;
             });
         } else {
             throw err;

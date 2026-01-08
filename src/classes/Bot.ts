@@ -727,8 +727,13 @@ export default class Bot {
                         } else {
                             match = this.pricelist.getPrice({ priceKey: listingSKU });
 
-                            if (!match && listing.intent === 1 && this.options.normalize.painted.our && /;[p][0-9]+/.test(listingSKU)) {
-                                const baseSKU = listingSKU.replace(/;[p][0-9]+/, '');
+                            if (
+                                !match &&
+                                listing.intent === 1 &&
+                                this.options.normalize.painted.our &&
+                                /;p\d+/.test(listingSKU)
+                            ) {
+                                const baseSKU = listingSKU.replace(/;p\d+/, '');
                                 match = this.pricelist.getPrice({ priceKey: baseSKU });
                             }
                         }
@@ -748,7 +753,7 @@ export default class Bot {
 
                         listings[listingSKU] = (listings[listingSKU] ?? []).concat(listing);
 
-                        if (this.options.normalize.painted.our && /;[p][0-9]+/.test(listingSKU) && match) {
+                        if (this.options.normalize.painted.our && /;p\d+/.test(listingSKU) && match) {
                             const baseSKU = match.sku;
                             if (baseSKU !== listingSKU) {
                                 listings[baseSKU] = (listings[baseSKU] ?? []).concat(listing);
@@ -838,8 +843,8 @@ export default class Bot {
                     }
 
                     pricelistLength = pricelistCount;
-                })().catch(err2 => {
-                    log.error('Auto-refresh listings task failed:', err2);
+                })().catch(error_ => {
+                    log.error('Auto-refresh listings task failed:', error_);
                 });
             });
         }, (pricelistLength > 4000 ? 60 : 30) * 60 * 1000);
@@ -959,7 +964,7 @@ export default class Bot {
 
                             void this.inventoryCostBasis
                                 .load()
-                                .catch(err2 => log.error('Failed to load inventory cost basis:', err2))
+                                .catch(error_ => log.error('Failed to load inventory cost basis:', error_))
                                 .finally(() => callback(null));
                         });
                     },
@@ -1880,8 +1885,8 @@ export default class Bot {
 
             await this.deleteRefreshToken();
 
-            this.login(await this.getRefreshToken()).catch(err2 => {
-                if (err2) throw err2;
+            this.login(await this.getRefreshToken()).catch(error_ => {
+                if (error_) throw error_;
             });
         } else {
             throw err;

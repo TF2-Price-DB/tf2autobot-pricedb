@@ -8,10 +8,28 @@ export interface PriceDBListing {
     id?: number;
     steam_id?: string;
     item_name?: string;
+    item_image?: string;
     asset_id: string;
     price_keys: number;
-    price_metal: number;
+    price_metal: string | number; // API returns string, but we may send as number
+    quality?: string;
+    type?: string;
+    unusual_effect?: string | null;
+    paint?: string | null;
+    spell?: string | null;
+    wear?: string | null;
+    killstreak_tier?: string | null;
+    australium?: boolean;
+    strange?: boolean;
+    craftable?: boolean;
+    tradable?: boolean;
+    marketable?: boolean;
+    descriptions?: string;
+    store_group_id?: number | null;
+    created_by_steam_id?: string | null;
     created_at?: string;
+    market_name?: string;
+    sku?: string;
 }
 
 export interface PriceDBListingResponse {
@@ -40,7 +58,6 @@ export interface PriceDBUserResponse {
         display_name: string;
         avatar_url: string;
         trade_url: string;
-        approved: boolean;
         created_at: string;
         rate_limit: number;
     };
@@ -64,8 +81,11 @@ export interface PriceDBGroup {
     owner_steam_id: string;
     group_name: string;
     description: string;
-    banner_url?: string;
-    links: Record<string, string>;
+    banner_url: string | null;
+    links: Array<{
+        url: string;
+        label: string;
+    }>;
     theme_settings: {
         preset: string;
     };
@@ -74,7 +94,7 @@ export interface PriceDBGroup {
     is_featured: boolean;
     created_at: string;
     updated_at: string;
-    custom_store_slug: string;
+    custom_store_slug: string | null;
     owner_name: string;
     owner_avatar: string;
     members: PriceDBGroupMember[];
@@ -88,16 +108,41 @@ export interface PriceDBGroupResponse {
 
 export interface PriceDBInvite {
     id: number;
-    group_id: number;
+    store_group_id: number;
+    steam_id: string;
+    role: string;
+    invite_status: string;
+    invited_by: string;
+    invited_at: string;
+    responded_at: string | null;
     group_name: string;
-    inviter_display_name: string;
-    created_at: string;
+    description: string;
+    banner_url: string | null;
+    inviter_name: string;
+    inviter_avatar: string;
+    owner_name: string;
+    owner_avatar: string;
 }
 
 export interface PriceDBInvitesResponse {
     success: boolean;
     count: number;
     invites: PriceDBInvite[];
+}
+
+export interface PriceDBAcceptInviteResponse {
+    success: boolean;
+    message: string;
+    membership: {
+        id: number;
+        store_group_id: number;
+        steam_id: string;
+        role: string;
+        invite_status: string;
+        invited_by: string;
+        invited_at: string;
+        responded_at: string;
+    };
 }
 
 export interface PriceDBInviteCreateResponse {
@@ -565,10 +610,10 @@ export default class PriceDBStoreManager extends EventEmitter {
      */
     async acceptGroupInvite(groupId: number): Promise<boolean> {
         try {
-            const response = await this.axiosInstance.post<PriceDBGroupResponse>(`/groups/${groupId}/accept`);
+            const response = await this.axiosInstance.post<PriceDBAcceptInviteResponse>(`/groups/${groupId}/accept`);
 
             if (response.data.success) {
-                log.info(`Accepted invite to group ${groupId}`);
+                log.info(`Accepted invite to group ${groupId} - ${response.data.message}`);
                 // Reset the not-in-group flag since user just joined
                 this.isNotInGroup = false;
                 this.lastGroupCheckTime = 0; // Reset cooldown to allow immediate refresh

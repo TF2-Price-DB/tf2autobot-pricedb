@@ -397,7 +397,9 @@ export default class MiscCommands {
 
             const members = group.members.map(m => `  • ${m.display_name} (${m.role}) - ${m.invite_status}`).join('\n');
 
-            const storeUrl = `https://store.pricedb.io/sf/${group.custom_store_slug}`;
+            const storeUrl = group.custom_store_slug
+                ? `https://store.pricedb.io/sf/${group.custom_store_slug}`
+                : `https://store.pricedb.io/store?id=${this.bot.client.steamID.getSteamID64()}`;
 
             this.bot.sendMessage(
                 steamID,
@@ -453,7 +455,7 @@ export default class MiscCommands {
             }
 
             const inviteList = invites
-                .map(inv => `  • ${inv.group_name} (ID: ${inv.group_id}) - invited by ${inv.inviter_display_name}`)
+                .map(inv => `  • ${inv.group_name} (ID: ${inv.store_group_id}) - invited by ${inv.inviter_name}`)
                 .join('\n');
 
             this.bot.sendMessage(

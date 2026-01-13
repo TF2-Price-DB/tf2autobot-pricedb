@@ -32,43 +32,34 @@ export default class StatusCommands {
         const keyPrices = this.bot.pricelist.getKeyPrices;
 
         // Calculate total profit in ref for cleaner display
-        const totalProfit24h =
-            profits.rawProfitTimed.keys * keyPrices.sell.metal +
-            profits.rawProfitTimed.metal +
-            profits.overpriceProfitTimed;
+        // Raw profit already includes all buy/sell value differences via FIFO diff values
+        const totalProfit24h = profits.rawProfitTimed.keys * keyPrices.sell.metal + profits.rawProfitTimed.metal;
 
-        const totalProfitAllTime =
-            profits.rawProfit.keys * keyPrices.sell.metal + profits.rawProfit.metal + profits.overpriceProfit;
+        const totalProfitAllTime = profits.rawProfit.keys * keyPrices.sell.metal + profits.rawProfit.metal;
 
         // Format the breakdown components for display
         const breakdown24h = {
             keys: profits.rawProfitTimed.keys,
-            metal: profits.rawProfitTimed.metal,
-            overpay: profits.overpriceProfitTimed
+            metal: profits.rawProfitTimed.metal
         };
 
         const breakdownAllTime = {
             keys: profits.rawProfit.keys,
-            metal: profits.rawProfit.metal,
-            overpay: profits.overpriceProfit
+            metal: profits.rawProfit.metal
         };
 
         // Create readable breakdown strings
         const breakdown24hStr = `(${
             breakdown24h.keys !== 0 ? `${breakdown24h.keys > 0 ? '+' : ''}${breakdown24h.keys} keys, ` : ''
-        }${breakdown24h.metal > 0 ? '+' : ''}${breakdown24h.metal.toFixed(2)} ref${
-            breakdown24h.overpay !== 0
-                ? `, ${breakdown24h.overpay > 0 ? '+' : ''}${breakdown24h.overpay.toFixed(2)} ref overpay`
-                : ''
-        }, at ${keyPrices.buy.metal}/${keyPrices.sell.metal} ref key rate)`;
+        }${breakdown24h.metal > 0 ? '+' : ''}${breakdown24h.metal.toFixed(2)} ref, at ${keyPrices.buy.metal}/${
+            keyPrices.sell.metal
+        } ref key rate)`;
 
         const breakdownAllTimeStr = `(${
             breakdownAllTime.keys !== 0 ? `${breakdownAllTime.keys > 0 ? '+' : ''}${breakdownAllTime.keys} keys, ` : ''
-        }${breakdownAllTime.metal > 0 ? '+' : ''}${breakdownAllTime.metal.toFixed(2)} ref${
-            breakdownAllTime.overpay !== 0
-                ? `, ${breakdownAllTime.overpay > 0 ? '+' : ''}${breakdownAllTime.overpay.toFixed(2)} ref overpay`
-                : ''
-        }, at ${keyPrices.buy.metal}/${keyPrices.sell.metal} ref key rate)`;
+        }${breakdownAllTime.metal > 0 ? '+' : ''}${breakdownAllTime.metal.toFixed(2)} ref, at ${keyPrices.buy.metal}/${
+            keyPrices.sell.metal
+        } ref key rate)`;
 
         // Format estimate warning
         const estimateWarning = profits.hasEstimates ? '\n\n⚠️ Profit contains estimates' : '';
@@ -173,7 +164,7 @@ export default class StatusCommands {
 
             this.bot.handler.commands.useUpdateOptionsCommand(
                 steamID,
-                '!config statistics.lastTotalTrades=0&statistics.startingTimeInUnix=0&statistics.lastTotalProfitMadeInRef=0&statistics.lastTotalProfitOverpayInRef=0&statistics.profitDataSinceInUnix=0'
+                '!config statistics.lastTotalTrades=0&statistics.startingTimeInUnix=0&statistics.lastTotalProfitMadeInRef=0&statistics.profitDataSinceInUnix=0'
             );
         } catch (err) {
             this.bot.sendMessage(steamID, `❌ Error while deleting stats: ${JSON.stringify(err)}`);

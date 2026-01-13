@@ -13,8 +13,6 @@ interface Profit {
         keys: number;
         metal: number;
     };
-    overpriceProfit: number; // Overpay profit in ref
-    overpriceProfitTimed: number; // 24h overpay profit in ref
     since: number; // Days since first trade
     hasEstimates?: boolean; // True if FIFO fallback or legacy calculation was used
 }
@@ -35,19 +33,14 @@ export default async function profit(bot: Bot, pollData: SteamTradeOfferManager.
         // Initialize profit trackers (keys and metal separate)
         let totalRawKeys = 0;
         let totalRawMetal = 0;
-        let totalOverpayKeys = 0;
-        let totalOverpay = 0;
         let timedRawKeys = 0;
         let timedRawMetal = 0;
-        let timedOverpayKeys = 0;
-        let timedOverpay = 0;
         let hasEstimates = false; // Track if any estimates were used
 
         if (!pollData.offerData) {
             // No trade data - use previous values if available
             const fromPrevious = {
                 made: bot.options.statistics.lastTotalProfitMadeInRef,
-                overpay: bot.options.statistics.lastTotalProfitOverpayInRef,
                 since: bot.options.statistics.profitDataSinceInUnix
             };
 
@@ -56,8 +49,6 @@ export default async function profit(bot: Bot, pollData: SteamTradeOfferManager.
             return resolve({
                 rawProfit: { keys: 0, metal: fromPrevious.made },
                 rawProfitTimed: { keys: 0, metal: 0 },
-                overpriceProfit: fromPrevious.overpay,
-                overpriceProfitTimed: 0,
                 since: !timeSince ? 0 : now.diff(dayjs.unix(timeSince), 'day')
             });
         }
@@ -123,22 +114,11 @@ export default async function profit(bot: Bot, pollData: SteamTradeOfferManager.
                 hasEstimates = true;
             }
 
-            // Use stored overpay (calculated at trade time with complete data)
-            // This prevents drift from recalculating with potentially missing price data
-            const overpayKeys = tradeProfit.overpay?.keys ?? 0;
-            const overpayMetal = tradeProfit.overpay?.metal ?? 0;
-
-            totalOverpayKeys += overpayKeys;
-            totalOverpay += overpayMetal;
-
             // Add to 24h totals if within timeframe
             const tradeTime = trade.handleTimestamp || tradeProfit.timestamp;
             if (tradeTime && tradeTime >= twentyFourHoursAgo) {
                 timedRawKeys += tradeProfit.rawProfit.keys;
                 timedRawMetal += tradeProfit.rawProfit.metal;
-
-                timedOverpayKeys += overpayKeys;
-                timedOverpay += overpayMetal;
             }
         }
 
@@ -146,13 +126,8 @@ export default async function profit(bot: Bot, pollData: SteamTradeOfferManager.
         // Legacy trades cannot be accurately recalculated with FIFO methodology
         const fromPrevious = {
             madeKeys: 0,
-            madeMetal: 0,
-            overpay: 0
+            madeMetal: 0
         };
-
-        // Convert overpay keys to ref and combine (for backward compatibility with Status display)
-        const totalOverpayInRef = totalOverpayKeys * keyPrice + totalOverpay;
-        const timedOverpayInRef = timedOverpayKeys * keyPrice + timedOverpay;
 
         resolve({
             rawProfit: {
@@ -163,8 +138,6 @@ export default async function profit(bot: Bot, pollData: SteamTradeOfferManager.
                 keys: timedRawKeys,
                 metal: timedRawMetal
             },
-            overpriceProfit: totalOverpayInRef + fromPrevious.overpay,
-            overpriceProfitTimed: timedOverpayInRef,
             since: !timeSince ? 0 : now.diff(dayjs.unix(timeSince), 'day'),
             hasEstimates // Include flag indicating if any estimates were used
         });

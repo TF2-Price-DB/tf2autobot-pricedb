@@ -39,20 +39,13 @@ export default async function sendStats(bot: Bot, forceSend = false, steamID?: S
               }${profits.rawProfit.metal.toFixed(2)} ref`
             : `${profits.rawProfit.metal > 0 ? '+' : ''}${profits.rawProfit.metal.toFixed(2)} ref`;
 
-    // Format overpay profits
-    const overpay24h = `${profits.overpriceProfitTimed > 0 ? '+' : ''}${profits.overpriceProfitTimed.toFixed(2)} ref`;
-    const overpayTotal = `${profits.overpriceProfit > 0 ? '+' : ''}${profits.overpriceProfit.toFixed(2)} ref`;
+    // Calculate total profit (raw profit already includes all buy/sell differences via FIFO)
+    const totalProfit24hScrap =
+        profits.rawProfitTimed.keys * keyPrices.sell.metal * 9 + profits.rawProfitTimed.metal * 9;
+    const totalProfit24h = Currencies.toCurrencies(Math.round(totalProfit24hScrap), keyPrices.sell.metal).toString();
 
-    // Calculate full profit (raw + overpay) for clean converted display
-    const fullProfit24hScrap =
-        profits.rawProfitTimed.keys * keyPrices.sell.metal * 9 +
-        profits.rawProfitTimed.metal * 9 +
-        profits.overpriceProfitTimed * 9;
-    const fullProfit24h = Currencies.toCurrencies(Math.round(fullProfit24hScrap), keyPrices.sell.metal).toString();
-
-    const fullProfitTotalScrap =
-        profits.rawProfit.keys * keyPrices.sell.metal * 9 + profits.rawProfit.metal * 9 + profits.overpriceProfit * 9;
-    const fullProfitTotal = Currencies.toCurrencies(Math.round(fullProfitTotalScrap), keyPrices.sell.metal).toString();
+    const totalProfitAllScrap = profits.rawProfit.keys * keyPrices.sell.metal * 9 + profits.rawProfit.metal * 9;
+    const totalProfitAll = Currencies.toCurrencies(Math.round(totalProfitAllScrap), keyPrices.sell.metal).toString();
 
     const discordStats: Webhook = {
         username: optDW.displayName || botInfo.name,
@@ -139,14 +132,12 @@ export default async function sendStats(bot: Bot, forceSend = false, steamID?: S
                         }`,
                         value:
                             `**Last 24 hours:**` +
-                            `\n• Profit Raw: ${rawProfit24h}` +
-                            `\n• Overpay: ${overpay24h}` +
+                            `\n• Profit: ${rawProfit24h}` +
                             `\n\n**All Time:**` +
-                            `\n• Profit Raw: ${rawProfitTotal}` +
-                            `\n• Overpay: ${overpayTotal}` +
-                            `\n\n**Total Profit (Clean Converted):**` +
-                            `\n• Last 24h: ${fullProfit24h}` +
-                            `\n• All Time: ${fullProfitTotal}` +
+                            `\n• Profit: ${rawProfitTotal}` +
+                            `\n\n**Total Profit (Converted):**` +
+                            `\n• Last 24h: ${totalProfit24h}` +
+                            `\n• All Time: ${totalProfitAll}` +
                             (profits.hasEstimates ? `\n\n⚠️ Contains estimates` : '')
                     },
                     {

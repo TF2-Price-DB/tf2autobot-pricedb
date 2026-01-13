@@ -95,10 +95,6 @@ declare module '@tf2autobot/tradeoffer-manager' {
                 keys: number;
                 metal: number;
             };
-            overpay: {
-                keys: number;
-                metal: number;
-            };
             hasEstimates?: boolean; // True if FIFO fallback was used
             timestamp: number;
         }

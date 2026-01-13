@@ -385,8 +385,8 @@ export default class PriceDBStoreManager extends EventEmitter {
                 this.lastInventoryRefresh = new Date();
                 log.info(`Inventory refreshed on pricedb.io. Items: ${response.data.item_count}`);
                 this.emit('inventoryRefreshed', {
-                    itemCount: response.data.item_count,
-                    refreshCount: response.data.refresh_count
+                    itemCount: response.data.item_count ?? 0,
+                    refreshCount: response.data.refresh_count ?? 0
                 });
                 return true;
             }

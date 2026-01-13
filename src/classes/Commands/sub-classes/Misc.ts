@@ -395,19 +395,32 @@ export default class MiscCommands {
                 return this.bot.sendMessage(steamID, '❌ No store group found for this bot.');
             }
 
-            const members = group.members.map(m => `  • ${m.display_name} (${m.role}) - ${m.invite_status}`).join('\n');
+            const acceptedMembers = group.members.filter(m => m.invite_status === 'accepted');
+            const pendingMembers = group.members.filter(m => m.invite_status === 'pending');
+            
+            const membersList = acceptedMembers.length > 0 
+                ? acceptedMembers.map(m => `  • ${m.display_name} (${m.role})`).join('\n')
+                : '  No members yet';
 
             const storeUrl = group.custom_store_slug
                 ? `https://store.pricedb.io/sf/${group.custom_store_slug}`
                 : `https://store.pricedb.io/store?id=${this.bot.client.steamID.getSteamID64()}`;
 
-            this.bot.sendMessage(
-                steamID,
+            let message = 
                 `📦 Store Group: ${group.group_name}\n` +
-                    `🔗 URL: ${storeUrl}\n` +
-                    `👑 Owner: ${group.owner_name}\n` +
-                    `👥 Members:\n${members}`
-            );
+                `🔗 URL: ${storeUrl}\n` +
+                `👑 Owner: ${group.owner_name}\n` +
+                `👥 Members (${acceptedMembers.length}):\n${membersList}`;
+            
+            if (pendingMembers.length > 0) {
+                message += `\n\n⏳ Pending Invites: ${pendingMembers.length}`;
+            }
+            
+            if (group.view_count > 0) {
+                message += `\n\n👁️ Store Views: ${group.view_count}`;
+            }
+
+            this.bot.sendMessage(steamID, message);
         } catch (err) {
             this.bot.sendMessage(steamID, `❌ Failed to fetch group info: ${(err as Error).message}`);
         }

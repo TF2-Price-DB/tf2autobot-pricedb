@@ -22,5 +22,9 @@
     "editor.detectIndentation": false,
     "eslint.validate": ["javascript", "typescript", "json"],
     "postman.settings.dotenv-detection-notification-visibility": false,
-    "cSpell.enabled": false
+    "cSpell.enabled": false,
+    "sonarlint.connectedMode.project": {
+        "connectionId": "tf2-price-db",
+        "projectKey": "TF2-Price-DB_tf2autobot-pricedb"
+    }
 }

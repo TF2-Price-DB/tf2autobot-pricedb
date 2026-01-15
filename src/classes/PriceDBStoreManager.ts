@@ -405,6 +405,39 @@ export default class PriceDBStoreManager extends EventEmitter {
     }
 
     /**
+     * Delete all listings from pricedb.io
+     */
+    async deleteAllListings(): Promise<{ deleted: number; failed: number }> {
+        const results = { deleted: 0, failed: 0 };
+        const assetIds = Array.from(this.listings.keys());
+
+        if (assetIds.length === 0) {
+            log.debug('No store.pricedb.io listings to delete');
+            return results;
+        }
+
+        log.debug(`Deleting ${assetIds.length} listings from store.pricedb.io...`);
+        for (const assetId of assetIds) {
+            try {
+                const success = await this.deleteListing(assetId);
+                if (success) {
+                    results.deleted++;
+                } else {
+                    results.failed++;
+                }
+            } catch (err) {
+                log.warn(`Failed to delete store.pricedb.io listing ${assetId}:`, err);
+                results.failed++;
+            }
+        }
+
+        log.info(
+            `Deleted ${results.deleted} store.pricedb.io listings${results.failed > 0 ? `, ${results.failed} failed` : ''}`
+        );
+        return results;
+    }
+
+    /**
      * Refresh the cached inventory on pricedb.io (limited to 25 per day)
      */
     async refreshInventory(): Promise<boolean> {

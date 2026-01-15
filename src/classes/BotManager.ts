@@ -173,13 +173,10 @@ export default class BotManager {
 
             log.warn('Stop has been requested, stopping...');
 
-            pm2.stop(process.env.pm_id, err => {
-                if (err) {
-                    return reject(err);
-                }
-
-                return resolve();
-            });
+            //moved pm2 stop to exit() something broke during dependency updates and pm2 was stopping
+            //before we finished shutting down
+            this.stop(null);
+            return resolve();
         });
     }
 
@@ -375,15 +372,35 @@ export default class BotManager {
         void waitForWriting().then(() => {
             log.debug('Done waiting for files');
 
-            log.on('finish', () => {
-                // Logger has finished, exit the process
-                process.exit(err ? 1 : 0);
-            });
+            //reordered all this something at somepoint broke and pm2 was stopping before we finished shutting down
+            if (process.env.pm_id !== undefined) {
+                log.debug('Stopping PM2 process...');
+                pm2.stop(process.env.pm_id, stopErr => {
+                    if (stopErr) {
+                        log.error('Error stopping PM2 process:', stopErr);
+                    }
 
-            log.warn('Exiting...');
+                    log.on('finish', () => {
+                        // Logger has finished, exit the process
+                        process.exit(err ? 1 : 0);
+                    });
 
-            // Stop the logger
-            log.end();
+                    log.warn('Exiting...');
+
+                    // Stop the logger
+                    log.end();
+                });
+            } else {
+                log.on('finish', () => {
+                    // Logger has finished, exit the process
+                    process.exit(err ? 1 : 0);
+                });
+
+                log.warn('Exiting...');
+
+                // Stop the logger
+                log.end();
+            }
         });
     }
 

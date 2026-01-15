@@ -407,12 +407,25 @@ export default class MyHandler extends Handler {
                             return resolve();
                         }
 
+                        // Remove backpack.tf listings first and then store.pricedb.io listings
                         this.bot.listings
                             .removeAll()
                             .catch((err: Error) =>
                                 log.warn('Failed to remove all listings on shutdown (autokeys was enabled): ', err)
                             )
-                            .finally(() => resolve());
+                            .finally(() => {
+                                // Remove store.pricedb.io listings
+                                if (this.bot.pricedbStoreManager) {
+                                    this.bot.pricedbStoreManager
+                                        .deleteAllListings()
+                                        .catch((err: Error) =>
+                                            log.warn('Failed to remove pricedb.io listings on shutdown: ', err)
+                                        )
+                                        .finally(() => resolve());
+                                } else {
+                                    resolve();
+                                }
+                            });
                     });
             } else {
                 if (!this.bot.listingManager || this.bot.listingManager.ready !== true) {
@@ -420,10 +433,23 @@ export default class MyHandler extends Handler {
                     return resolve();
                 }
 
+                // Remove backpack.tf listings
                 this.bot.listings
                     .removeAll()
                     .catch((err: Error) => log.warn('Failed to remove all listings on shutdown: ', err))
-                    .finally(() => resolve());
+                    .finally(() => {
+                        // Remove store.pricedb.io listings
+                        if (this.bot.pricedbStoreManager) {
+                            this.bot.pricedbStoreManager
+                                .deleteAllListings()
+                                .catch((err: Error) =>
+                                    log.warn('Failed to remove store.pricedb.io listings on shutdown: ', err)
+                                )
+                                .finally(() => resolve());
+                        } else {
+                            resolve();
+                        }
+                    });
             }
         });
     }

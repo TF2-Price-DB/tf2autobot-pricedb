@@ -299,7 +299,7 @@ export default class Bans {
                 method: 'GET',
                 url: 'https://raw.githubusercontent.com/TF2Autobot/untrusted-steam-ids/master/untrusted.min.json',
                 signal: axiosAbortSignal(60000)
-            })
+            }) // TODO: replace with pricedb alertnative or in addition so we can block faster
                 .then(body => {
                     const results = body.steamids[this.steamID];
 

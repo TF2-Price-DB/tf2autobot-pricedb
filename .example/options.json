@@ -73,7 +73,7 @@
             "discord": "!"
         },
         "ecp": {
-            "useBoldChars": false,
+            "useBoldChars": true,
             "useWordSwap": true
         }
     },

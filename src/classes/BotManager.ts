@@ -11,8 +11,22 @@ import CEconItem from '@tf2autobot/steamcommunity/classes/CEconItem.js';
 import TradeOffer from '@tf2autobot/tradeoffer-manager/lib/classes/TradeOffer';
 import { camelCase } from 'change-case';
 import IPricer from './IPricer';
+import { EventEmitter } from 'events';
 
 const REQUIRED_OPTS = ['STEAM_ACCOUNT_NAME', 'STEAM_PASSWORD', 'STEAM_SHARED_SECRET', 'STEAM_IDENTITY_SECRET'];
+
+type TradeOfferManagerPollingState = {
+    _polling?: boolean;
+    polling?: boolean;
+    _isPolling?: boolean;
+    _pollInProgress?: boolean;
+};
+
+// Define type for doPoll function
+type DoPollFn = (...args: unknown[]) => unknown | Promise<unknown>;
+type ManagerWithOptionalDoPoll = {
+    doPoll?: DoPollFn;
+};
 
 export default class BotManager {
     private schemaManager: SchemaManager;
@@ -26,6 +40,11 @@ export default class BotManager {
     private stopping = false;
 
     private exiting = false;
+
+    // "poll in-flight" tracking
+    private pollInFlight = false;
+
+    private originalDoPoll: DoPollFn | null = null;
 
     constructor(private readonly pricer: IPricer) {
         this.pricer = pricer;
@@ -78,7 +97,6 @@ export default class BotManager {
                 ],
                 (item, callback) => {
                     if (this.isStopping) {
-                        // Shutdown is requested, stop the bot
                         return this.stop(null, false, false);
                     }
 
@@ -90,13 +108,15 @@ export default class BotManager {
                     }
 
                     if (this.isStopping) {
-                        // Shutdown is requested, stop the bot
                         return this.stop(null, false, false);
                     }
 
                     this.pricer.connect(this.bot?.options.enableSocket);
 
                     this.schemaManager = this.bot.schemaManager;
+
+                    // Install poll tracker once bot exists
+                    this.installPollInFlightTracker();
 
                     return resolve();
                 }
@@ -124,7 +144,6 @@ export default class BotManager {
         }
 
         if (this.stopping) {
-            // We are already shutting down
             return;
         }
 
@@ -132,16 +151,16 @@ export default class BotManager {
 
         this.cleanup();
 
-        // TODO: Check if a poll is being made before stopping the bot
+        void this.waitForOfferPollToFinish().finally(() => {
+            if (this.bot === null) {
+                log.debug('Bot instance was not yet created');
+                return this.exit(err);
+            }
 
-        if (this.bot === null) {
-            log.debug('Bot instance was not yet created');
-            return this.exit(err);
-        }
-
-        this.bot.handler.onShutdown().finally(() => {
-            log.debug('Handler finished cleaning up');
-            this.exit(err);
+            this.bot.handler.onShutdown().finally(() => {
+                log.debug('Handler finished cleaning up');
+                this.exit(err);
+            });
         });
     }
 
@@ -154,20 +173,15 @@ export default class BotManager {
 
             log.warn('Stop has been requested, stopping...');
 
-            pm2.stop(process.env.pm_id, err => {
-                if (err) {
-                    return reject(err);
-                }
-
-                return resolve();
-            });
+            //moved pm2 stop to exit() something broke during dependency updates and pm2 was stopping
+            //before we finished shutting down
+            this.stop(null);
+            return resolve();
         });
     }
 
     restartProcess(): Promise<boolean> {
         return new Promise((resolve, reject) => {
-            // When running Docker, just signal the process to kill.
-            // Setting --restart=Always will make sure the container is restarted.
             if (process.env.DOCKER !== undefined) {
                 this.stop(null);
                 return resolve(true);
@@ -195,7 +209,7 @@ export default class BotManager {
             this.bot.client.setPersona(EPersonaState.Snooze);
             this.bot.client.autoRelogin = false;
 
-            // Stop polling offers
+            // Stop scheduling future polls (does not cancel an in-flight poll)
             this.bot.manager.pollInterval = -1;
 
             // Stop reading Discord
@@ -215,16 +229,136 @@ export default class BotManager {
 
             // Stop reset Reputation cache
             clearInterval(this.bot.resetRepCache);
+
+            // Stop reconnection timeout and reset state if active
+            this.bot.resetReconnectionState();
         }
 
         // Disconnect from socket server to stop price updates
         this.pricer.shutdown(!!this.bot?.options.enableSocket);
     }
 
+    private installPollInFlightTracker(): void {
+        if (!this.bot) return;
+
+        const manager = this.bot.manager as unknown as ManagerWithOptionalDoPoll;
+
+        if (typeof manager.doPoll !== 'function') {
+            return;
+        }
+
+        if (this.originalDoPoll) {
+            return;
+        }
+
+        //track original doPoll()
+        const original: DoPollFn = manager.doPoll.bind(this.bot.manager);
+        this.originalDoPoll = original;
+
+        const wrapped: DoPollFn = async (...args: unknown[]) => {
+            if (this.isStopping) {
+                return;
+            }
+
+            this.pollInFlight = true;
+
+            try {
+                return await original(...args);
+            } finally {
+                this.pollInFlight = false;
+            }
+        };
+
+        manager.doPoll = wrapped;
+    }
+
+    private uninstallPollInFlightTracker(): void {
+        if (!this.bot) return;
+
+        const manager = this.bot.manager as unknown as ManagerWithOptionalDoPoll;
+
+        if (this.originalDoPoll && typeof manager.doPoll === 'function') {
+            manager.doPoll = this.originalDoPoll;
+        }
+
+        this.originalDoPoll = null;
+        this.pollInFlight = false;
+    }
+
+    private isOfferPollInProgress(): boolean {
+        if (!this.bot) {
+            return false;
+        }
+
+        //check if we have patched doPoll()
+        if (this.originalDoPoll) {
+            return this.pollInFlight;
+        }
+
+        //fallback: check internal state of TradeOfferManager
+        const maybe = this.bot.manager as unknown as TradeOfferManagerPollingState;
+        return Boolean(maybe._polling ?? maybe.polling ?? maybe._isPolling ?? maybe._pollInProgress);
+    }
+
+    private waitForOfferPollToFinish(timeoutMs = 15000): Promise<void> {
+        if (!this.bot) {
+            return Promise.resolve();
+        }
+
+        const inFlight = this.isOfferPollInProgress();
+
+        log.debug(`Shutdown poll check: inFlight=${String(inFlight)}`);
+
+        if (!inFlight) {
+            return Promise.resolve();
+        }
+
+        const started = Date.now();
+        log.debug('TradeOfferManager poll in progress, waiting for it to finish before shutdown...');
+
+        const managerEmitter = this.bot.manager as unknown as EventEmitter;
+
+        return new Promise(resolve => {
+            let done = false;
+
+            const finish = (reason: string): void => {
+                if (done) return;
+                done = true;
+
+                clearTimeout(t);
+                managerEmitter.removeListener('pollData', onPollData);
+                managerEmitter.removeListener('pollSuccess', onPollSuccess);
+                managerEmitter.removeListener('pollFailure', onPollFailure);
+
+                log.debug(
+                    `TradeOfferManager poll wait finished: reason=${reason}, waitedMs=${String(Date.now() - started)}`
+                );
+
+                resolve();
+            };
+
+            const onPollData = (): void => finish('pollData');
+            const onPollSuccess = (): void => finish('pollSuccess');
+            const onPollFailure = (): void => finish('pollFailure');
+
+            managerEmitter.on('pollData', onPollData);
+            managerEmitter.on('pollSuccess', onPollSuccess);
+            managerEmitter.on('pollFailure', onPollFailure);
+
+            const t = setTimeout(() => {
+                log.warn(`Timed out waiting for TradeOfferManager poll to finish after ${timeoutMs}ms, continuing...`);
+                finish('timeout');
+            }, timeoutMs);
+        });
+    }
+
     private exit(err: Error | null): void {
         if (this.exiting) {
             return;
         }
+
+        //cleanup poll tracker
+        this.uninstallPollInFlightTracker();
 
         this.exiting = true;
 
@@ -238,15 +372,35 @@ export default class BotManager {
         void waitForWriting().then(() => {
             log.debug('Done waiting for files');
 
-            log.on('finish', () => {
-                // Logger has finished, exit the process
-                process.exit(err ? 1 : 0);
-            });
+            //reordered all this something at somepoint broke and pm2 was stopping before we finished shutting down
+            if (process.env.pm_id !== undefined) {
+                log.debug('Stopping PM2 process...');
+                pm2.stop(process.env.pm_id, stopErr => {
+                    if (stopErr) {
+                        log.error('Error stopping PM2 process:', stopErr);
+                    }
 
-            log.warn('Exiting...');
+                    log.on('finish', () => {
+                        // Logger has finished, exit the process
+                        process.exit(err ? 1 : 0);
+                    });
 
-            // Stop the logger
-            log.end();
+                    log.warn('Exiting...');
+
+                    // Stop the logger
+                    log.end();
+                });
+            } else {
+                log.on('finish', () => {
+                    // Logger has finished, exit the process
+                    process.exit(err ? 1 : 0);
+                });
+
+                log.warn('Exiting...');
+
+                // Stop the logger
+                log.end();
+            }
         });
     }
 

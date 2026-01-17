@@ -8,10 +8,28 @@ export interface PriceDBListing {
     id?: number;
     steam_id?: string;
     item_name?: string;
+    item_image?: string;
     asset_id: string;
     price_keys: number;
-    price_metal: number;
+    price_metal: string | number; // API returns string, but we may send as number
+    quality?: string;
+    type?: string;
+    unusual_effect?: string | null;
+    paint?: string | null;
+    spell?: string | null;
+    wear?: string | null;
+    killstreak_tier?: string | null;
+    australium?: boolean;
+    strange?: boolean;
+    craftable?: boolean;
+    tradable?: boolean;
+    marketable?: boolean;
+    descriptions?: string;
+    store_group_id?: number | null;
+    created_by_steam_id?: string | null;
     created_at?: string;
+    market_name?: string;
+    sku?: string;
 }
 
 export interface PriceDBListingResponse {
@@ -40,7 +58,6 @@ export interface PriceDBUserResponse {
         display_name: string;
         avatar_url: string;
         trade_url: string;
-        approved: boolean;
         created_at: string;
         rate_limit: number;
     };
@@ -64,8 +81,11 @@ export interface PriceDBGroup {
     owner_steam_id: string;
     group_name: string;
     description: string;
-    banner_url?: string;
-    links: Record<string, string>;
+    banner_url: string | null;
+    links: Array<{
+        url: string;
+        label: string;
+    }>;
     theme_settings: {
         preset: string;
     };
@@ -74,7 +94,7 @@ export interface PriceDBGroup {
     is_featured: boolean;
     created_at: string;
     updated_at: string;
-    custom_store_slug: string;
+    custom_store_slug: string | null;
     owner_name: string;
     owner_avatar: string;
     members: PriceDBGroupMember[];
@@ -88,16 +108,41 @@ export interface PriceDBGroupResponse {
 
 export interface PriceDBInvite {
     id: number;
-    group_id: number;
+    store_group_id: number;
+    steam_id: string;
+    role: string;
+    invite_status: string;
+    invited_by: string;
+    invited_at: string;
+    responded_at: string | null;
     group_name: string;
-    inviter_display_name: string;
-    created_at: string;
+    description: string;
+    banner_url: string | null;
+    inviter_name: string;
+    inviter_avatar: string;
+    owner_name: string;
+    owner_avatar: string;
 }
 
 export interface PriceDBInvitesResponse {
     success: boolean;
     count: number;
     invites: PriceDBInvite[];
+}
+
+export interface PriceDBAcceptInviteResponse {
+    success: boolean;
+    message: string;
+    membership: {
+        id: number;
+        store_group_id: number;
+        steam_id: string;
+        role: string;
+        invite_status: string;
+        invited_by: string;
+        invited_at: string;
+        responded_at: string;
+    };
 }
 
 export interface PriceDBInviteCreateResponse {
@@ -132,6 +177,12 @@ export default class PriceDBStoreManager extends EventEmitter {
     private lastInventoryRefresh: Date | null = null;
 
     private storeSlug: string | null = null; // cached store slug from group
+
+    private lastGroupCheckTime = 0; // timestamp of last group check
+
+    private groupCheckCooldownMs = 300000; // 5 minutes cooldown between group checks when not in group
+
+    private isNotInGroup = false; // flag to indicate user is not in a group
 
     private requestQueue: QueuedRequest[] = [];
 
@@ -354,6 +405,39 @@ export default class PriceDBStoreManager extends EventEmitter {
     }
 
     /**
+     * Delete all listings from pricedb.io
+     */
+    async deleteAllListings(): Promise<{ deleted: number; failed: number }> {
+        const results = { deleted: 0, failed: 0 };
+        const assetIds = Array.from(this.listings.keys());
+
+        if (assetIds.length === 0) {
+            log.debug('No store.pricedb.io listings to delete');
+            return results;
+        }
+
+        log.debug(`Deleting ${assetIds.length} listings from store.pricedb.io...`);
+        for (const assetId of assetIds) {
+            try {
+                const success = await this.deleteListing(assetId);
+                if (success) {
+                    results.deleted++;
+                } else {
+                    results.failed++;
+                }
+            } catch (err) {
+                log.warn(`Failed to delete store.pricedb.io listing ${assetId}:`, err);
+                results.failed++;
+            }
+        }
+
+        log.info(
+            `Deleted ${results.deleted} store.pricedb.io listings${results.failed > 0 ? `, ${results.failed} failed` : ''}`
+        );
+        return results;
+    }
+
+    /**
      * Refresh the cached inventory on pricedb.io (limited to 25 per day)
      */
     async refreshInventory(): Promise<boolean> {
@@ -379,8 +463,8 @@ export default class PriceDBStoreManager extends EventEmitter {
                 this.lastInventoryRefresh = new Date();
                 log.info(`Inventory refreshed on pricedb.io. Items: ${response.data.item_count}`);
                 this.emit('inventoryRefreshed', {
-                    itemCount: response.data.item_count,
-                    refreshCount: response.data.refresh_count
+                    itemCount: response.data.item_count ?? 0,
+                    refreshCount: response.data.refresh_count ?? 0
                 });
                 return true;
             }
@@ -484,18 +568,28 @@ export default class PriceDBStoreManager extends EventEmitter {
             if (response.data.success && response.data.group) {
                 // Cache the store slug for URL generation
                 this.storeSlug = response.data.group.custom_store_slug;
+                this.isNotInGroup = false; // Reset flag when group is found
+                this.lastGroupCheckTime = Date.now();
                 log.debug(
                     `Fetched group info - Group: ${response.data.group.group_name}, Slug: ${response.data.group.custom_store_slug}`
                 );
                 return response.data.group;
             }
             log.debug('No group found in /groups/my response');
+            this.isNotInGroup = true;
+            this.lastGroupCheckTime = Date.now();
             return null;
         } catch (err) {
             const axiosError = err as AxiosError;
             // 404 is expected when user is not in a group - This really needs changing server-side I will get to it eventually
             if (axiosError?.response?.status === 404) {
-                log.debug('User is not in a group (404 response)');
+                this.isNotInGroup = true;
+                this.lastGroupCheckTime = Date.now();
+                // Only log once when first detected or after cooldown
+                const timeSinceLastCheck = Date.now() - this.lastGroupCheckTime;
+                if (timeSinceLastCheck === 0 || timeSinceLastCheck >= this.groupCheckCooldownMs) {
+                    log.debug('User is not in a group (404 response)');
+                }
                 return null;
             }
             const error = filterAxiosError(axiosError);
@@ -549,10 +643,15 @@ export default class PriceDBStoreManager extends EventEmitter {
      */
     async acceptGroupInvite(groupId: number): Promise<boolean> {
         try {
-            const response = await this.axiosInstance.post<PriceDBGroupResponse>(`/groups/${groupId}/accept`);
+            const response = await this.axiosInstance.post<PriceDBAcceptInviteResponse>(`/groups/${groupId}/accept`);
 
             if (response.data.success) {
-                log.info(`Accepted invite to group ${groupId}`);
+                log.info(`Accepted invite to group ${groupId} - ${response.data.message}`);
+                // Reset the not-in-group flag since user just joined
+                this.isNotInGroup = false;
+                this.lastGroupCheckTime = 0; // Reset cooldown to allow immediate refresh
+                // Refresh group info to get the store slug
+                await this.getMyGroup();
                 return true;
             }
             return false;
@@ -596,6 +695,16 @@ export default class PriceDBStoreManager extends EventEmitter {
     }
 
     /**
+     * Force refresh group status (useful after joining a group)
+     */
+    async refreshGroupStatus(): Promise<void> {
+        this.isNotInGroup = false;
+        this.lastGroupCheckTime = 0;
+        this.storeSlug = null;
+        await this.getMyGroup();
+    }
+
+    /**
      * Get the friendly store URL using slug
      */
     async getStoreURL(): Promise<string> {
@@ -616,9 +725,18 @@ export default class PriceDBStoreManager extends EventEmitter {
             return `https://store.pricedb.io/sf/${this.storeSlug}`;
         }
 
-        // If not cached, trigger an async fetch (don't wait for it)
+        // Check if we should attempt to fetch group info
+        const timeSinceLastCheck = Date.now() - this.lastGroupCheckTime;
+        const cooldownExpired = timeSinceLastCheck >= this.groupCheckCooldownMs;
+
+        // If not in a group and cooldown hasn't expired, skip the API call
+        if (this.isNotInGroup && !cooldownExpired) {
+            return null;
+        }
+
+        // If not cached and cooldown expired (or never checked), trigger an async fetch
         // This ensures the cache will be populated for next time
-        if (!this.storeSlug) {
+        if (!this.storeSlug && cooldownExpired) {
             void this.getMyGroup().catch(err => {
                 log.debug('Failed to fetch group info for cache refresh:', err);
             });

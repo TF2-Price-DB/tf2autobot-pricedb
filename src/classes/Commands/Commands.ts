@@ -237,6 +237,8 @@ export default class Commands {
                 this.manager.TF2GCCommand(steamID, message, command as TF2GC);
             } else if (['name', 'avatar'].includes(command) && isAdmin) {
                 this.manager.nameAvatarCommand(steamID, message, command as NameAvatar, prefix);
+            } else if (command === 'changename' && isAdmin) {
+                this.manager.changeNameCommand(steamID, message, prefix);
             } else if (['block', 'unblock'].includes(command) && isAdmin) {
                 this.manager.blockUnblockCommand(steamID, message, command as BlockUnblock);
             } else if (['blockedlist', 'blocklist', 'blist'].includes(command) && isAdmin) {
@@ -266,7 +268,7 @@ export default class Commands {
             } else if (command === 'itemstats' && (isAdmin || isWhitelisted)) {
                 void this.status.itemStatsCommand(steamID, message);
             } else if (command == 'wipestats' && isAdmin) {
-                this.status.statsWipeCommand(steamID, message);
+                void this.status.statsWipeCommand(steamID, message);
             } else if (command === 'inventory' && isAdmin) {
                 this.status.inventoryCommand(steamID);
             } else if (command === 'version' && (isAdmin || isWhitelisted)) {
@@ -328,22 +330,38 @@ export default class Commands {
                 );
             }
         } else if (message.includes('_')) {
-            const intentDescriptor = this.bot.ecp.reverseEcpStr(message);
+            try {
+                const intentDescriptor = this.bot.ecp.reverseEcpStr(message) as {
+                    originalItemName: string;
+                    decodedIntent: Instant | null;
+                } | null;
 
-            if (intentDescriptor === undefined) {
+                if (intentDescriptor === undefined) {
+                    return this.bot.sendMessage(
+                        steamID,
+                        'Item could not be decoded. Please use the standard !buy or !sell command!'
+                    );
+                }
+
+                this.buyOrSellCommand(
+                    steamID,
+                    intentDescriptor.originalItemName,
+                    intentDescriptor.decodedIntent,
+                    null,
+                    true
+                );
+            } catch (error) {
+                log.debug(
+                    `Failed to decode ecp string from ${steamID.getSteamID64()}: ${
+                        error instanceof Error ? error.message : String(error)
+                    }`
+                );
+
                 return this.bot.sendMessage(
                     steamID,
                     'Item could not be decoded. Please use the standard !buy or !sell command!'
                 );
             }
-
-            this.buyOrSellCommand(
-                steamID,
-                intentDescriptor.originalItemName,
-                intentDescriptor.decodedIntent as Instant,
-                null,
-                true
-            );
         }
     }
 
@@ -368,11 +386,11 @@ export default class Commands {
                     );
                 }
 
-                this.bot.sendMessage(steamID, `• ${sku}\nhttps://autobot.tf/items/${sku}`);
+                this.bot.sendMessage(steamID, `• ${sku}\nhttps://pricedb.io/item/${sku}`);
             } else {
                 // Receive sku
                 const name = this.bot.schema.getName(SKU.fromString(itemNamesOrSkus), false);
-                this.bot.sendMessage(steamID, `• ${name}\nhttps://autobot.tf/items/${itemNamesOrSkus}`);
+                this.bot.sendMessage(steamID, `• ${name}\nhttps://pricedb.io/item/${itemNamesOrSkus}`);
             }
         } else {
             const results: { source: string; generated: string }[] = [];
@@ -735,7 +753,7 @@ export default class Commands {
     // Trade actions
 
     private cancelCommand(steamID: SteamID): void {
-        // Maybe have the cancel command only cancel the offer in the queue, and have a command for canceling the offer?
+        // Maybe have the cancel command only cancel the offer in the queue, and have a command for cancelling the offer?
 
         const positionInQueue = this.cartQueue.getPosition(steamID);
 
@@ -1514,7 +1532,7 @@ function getMptfDashboardItems(mptfApiKey: string, ignorePainted = false): Promi
             method: 'GET',
             url: 'https://marketplace.tf/api/Seller/GetDashboardItems/v2',
             headers: {
-                'User-Agent': 'TF2Autobot@' + process.env.BOT_VERSION
+                'User-Agent': 'TF2AutobotPriceDB@' + process.env.BOT_VERSION
             },
             params: {
                 key: mptfApiKey

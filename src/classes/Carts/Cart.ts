@@ -578,7 +578,7 @@ export default abstract class Cart {
                 method: 'GET',
                 url: 'https://api.backpack.tf/api/users/info/v1',
                 headers: {
-                    'User-Agent': 'TF2Autobot@' + process.env.BOT_VERSION,
+                    'User-Agent': 'TF2AutobotPriceDB@' + process.env.BOT_VERSION,
                     Cookie: 'user-id=' + this.bot.userID
                 },
                 params: {

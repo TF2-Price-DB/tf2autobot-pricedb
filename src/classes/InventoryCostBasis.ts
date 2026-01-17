@@ -32,13 +32,7 @@ export default class InventoryCostBasis {
 
     constructor(bot: Bot) {
         this.bot = bot;
-        // Use proper files directory path (files/{steamAccountName}/costBasis.json)
-        this.filePath = path.join(
-            __dirname,
-            '../../files',
-            this.bot.options.steamAccountName || 'unknown',
-            'costBasis.json'
-        );
+        this.filePath = bot.handler.getPaths.files.costBasis;
     }
 
     /**
@@ -111,12 +105,12 @@ export default class InventoryCostBasis {
 
     /**
      * Add an item to FIFO inventory
-     * @param sku Item SKU
-     * @param costKeys Pricelist cost in keys at time of purchase
-     * @param costMetal Pricelist cost in metal at time of purchase
-     * @param diffKeys Distributed overpay/underpay in keys from multi-item trade
-     * @param diffMetal Distributed overpay/underpay in refined from multi-item trade
-     * @param tradeId Trade offer ID
+     * @param sku - Item SKU
+     * @param costKeys - Pricelist cost in keys at time of purchase
+     * @param costMetal - Pricelist cost in metal at time of purchase
+     * @param diffKeys - Distributed overpay/underpay in keys from multi-item trade
+     * @param diffMetal - Distributed overpay/underpay in refined from multi-item trade
+     * @param tradeId - Trade offer ID
      */
     async addItem(
         sku: string,
@@ -148,9 +142,9 @@ export default class InventoryCostBasis {
     /**
      * Remove items from FIFO inventory (oldest first)
      * Fallback to pricelist if entries are missing (shouldn't happen but handles edge cases)
-     * @param sku Item SKU
-     * @param quantity Number of items to remove
-     * @param fallbackBuyPrice Optional pricelist buy price for fallback (if FIFO missing)
+     * @param sku - Item SKU
+     * @param quantity - Number of items to remove
+     * @param fallbackBuyPrice - Optional pricelist buy price for fallback (if FIFO missing)
      * @returns Object with removed entries and flag indicating if estimates were used
      */
     async removeItem(
@@ -213,7 +207,7 @@ export default class InventoryCostBasis {
 
     /**
      * Get the current FIFO cost for an item (without removing it)
-     * @param sku Item SKU
+     * @param sku - Item SKU
      * @returns First FIFO entry for this SKU, or null if not found
      */
     peekItem(sku: string): FIFOEntry | null {
@@ -222,7 +216,7 @@ export default class InventoryCostBasis {
 
     /**
      * Get the count of items in FIFO for a specific SKU
-     * @param sku Item SKU
+     * @param sku - Item SKU
      * @returns Number of entries
      */
     getItemCount(sku: string): number {

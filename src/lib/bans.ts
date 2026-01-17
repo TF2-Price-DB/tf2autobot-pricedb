@@ -234,29 +234,12 @@ export default class Bans {
     }
 
     private isSteamRepMarked(): Promise<SiteResult | undefined> {
+        // SteamRep no longer exists so we fallback to bptf steamrep data if it still holds it?
         return new Promise(resolve => {
-            apiRequest<SteamRep>({
-                method: 'GET',
-                url: 'https://steamrep.com/api/beta4/reputation/' + this.steamID,
-                params: {
-                    json: 1
-                }
-            })
-                .then(body => {
-                    const isSteamRepBanned = body.steamrep.reputation?.summary.toLowerCase().indexOf('scammer') !== -1;
-                    const fullRepInfo = body.steamrep.reputation?.full ?? '';
-
-                    this._isSteamRepBanned = isSteamRepBanned;
-                    return resolve({ isBanned: isSteamRepBanned, content: fullRepInfo });
-                })
-                .catch(err => {
-                    log.warn('Failed to get data from SteamRep');
-                    log.debug(err);
-                    if (this._isBptfSteamRepBanned !== null) {
-                        return resolve({ isBanned: this._isBptfSteamRepBanned });
-                    }
-                    return resolve(undefined);
-                });
+            if (this._isBptfSteamRepBanned !== null) {
+                return resolve({ isBanned: this._isBptfSteamRepBanned });
+            }
+            return resolve(undefined);
         });
     }
 
@@ -274,7 +257,7 @@ export default class Bans {
                 method: 'POST',
                 url: 'https://marketplace.tf/api/Bans/GetUserBan/v2',
                 headers: {
-                    'User-Agent': 'TF2Autobot@' + process.env.BOT_VERSION
+                    'User-Agent': 'TF2AutobotPriceDB@' + process.env.BOT_VERSION
                 },
                 params: {
                     key: this.bot.options.mptfApiKey,
@@ -316,7 +299,7 @@ export default class Bans {
                 method: 'GET',
                 url: 'https://raw.githubusercontent.com/TF2Autobot/untrusted-steam-ids/master/untrusted.min.json',
                 signal: axiosAbortSignal(60000)
-            })
+            }) // TODO: replace with pricedb alertnative or in addition so we can block faster
                 .then(body => {
                     const results = body.steamids[this.steamID];
 
@@ -358,7 +341,7 @@ export function isBptfBanned({
             method: 'GET',
             url: 'https://api.backpack.tf/api/users/info/v1',
             headers: {
-                'User-Agent': 'TF2Autobot@' + process.env.BOT_VERSION,
+                'User-Agent': 'TF2AutobotPriceDB@' + process.env.BOT_VERSION,
                 Cookie: 'user-id=' + userID
             },
             params: {

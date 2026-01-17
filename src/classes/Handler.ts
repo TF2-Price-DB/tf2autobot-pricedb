@@ -44,6 +44,18 @@ export default abstract class Handler {
     abstract onLoggedOn(): void;
 
     /**
+     * Called when the bot is disconnected from Steam
+     * @param eresult - The reason for disconnection
+     * @param msg - Additional message
+     */
+    abstract onDisconnected(eresult: number, msg?: string): void;
+
+    /**
+     * Called when the bot has logged off from Steam
+     */
+    abstract onLoggedOff(): void;
+
+    /**
      * Called when a new login key has been issued
      * @param loginKey - The new login key
      */
@@ -109,8 +121,9 @@ export default abstract class Handler {
      * Called when a friend message has been sent to the bot
      * @param steamID - SteamID object of the sender
      * @param message - The message from the sender
+     * @param respondChat - Should bot return response or respond to SteamID in chat
      */
-    async onMessage(steamID: SteamID, message: string): Promise<void> {
+    async onMessage(steamID: SteamID, message: string, respondChat: boolean): Promise<void | string> {
         // empty function
     }
 

@@ -54,6 +54,14 @@ For example `!buy Burning Team Captain` becomes `buy_burning_team_captain` which
     "sell": "🔥 %price% 📦 Stock : %amount_trade% / %max_stock%. 💬 Send %ecp_item%. 👉 Visit %pricedb_store% for my store!",
 ```
 
+- `%price%` - displays the price (e.g., `14 keys`).
+- `%name%` - displays the **item name** or **itemID**.
+- `%ecp_item%` - displays the trading command (e.g., 𝘀𝗲𝗹𝗹_𝗠𝗮𝗻𝗻_𝗖𝗼_𝗦𝘂𝗽𝗽𝗹𝘆_𝗖𝗿𝗮𝘁𝗲_𝗞𝗲𝘆).
+- `%max_stock%` - displays the maximum capacity of the item in the bot's inventory.
+- `%current_stock%` - displays the current count of the item in the bot's inventory.
+- `%pricedb_store%` - displays the URL of the bot's PriceDB store.
+- `%pricedb_item%` - displays the URL of the item. 
+
 This results in listings like the below
 
 ![ECP](img/ecp_listings.png)

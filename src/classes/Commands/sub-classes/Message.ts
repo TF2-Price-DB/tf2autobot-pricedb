@@ -46,9 +46,9 @@ export default class MessageCommand {
                     steamID,
                     `❌ Your syntax is wrong or the SteamID is incorrectly formatted. Here's an example: "${prefix}message 76561198120070906 Hi"` +
                         "\n\nHow to get the targeted user's SteamID?" +
-                        '\n1. Go to his/her profile page.' +
-                        '\n2. Go to https://steamrep.com/' +
-                        '\n3. View this gif: https://user-images.githubusercontent.com/47635037/96715154-be80b580-13d5-11eb-9bd5-39613f600f6d.gif'
+                        '\n1. Go to their profile page.' +
+                        '\n2. Go to https://steamid.uk/' +
+                        '\n3. View this gif: https://github.com/TF2-Price-DB/tf2autobot-pricedb/blob/5.15.2-TestBranch/img/steam_id.gif'
                 );
             }
 
@@ -59,9 +59,9 @@ export default class MessageCommand {
                     steamID,
                     `❌ "${steamIDString}" is not a valid SteamID.` +
                         "\n\nHow to get the targeted user's SteamID?" +
-                        '\n1. Go to his/her profile page.' +
-                        '\n2. Go to https://steamrep.com/' +
-                        '\n3. View this gif: https://user-images.githubusercontent.com/47635037/96715154-be80b580-13d5-11eb-9bd5-39613f600f6d.gif'
+                        '\n1. Go to their profile page.' +
+                        '\n2. Go to https://steamid.uk/' +
+                        '\n3. View this gif: https://github.com/TF2-Price-DB/tf2autobot-pricedb/blob/5.15.2-TestBranch/img/steam_id.gif'
                 );
             } else if (!this.bot.friends.isFriend(recipientSteamID)) {
                 return this.bot.sendMessage(steamID, `❌ I am not friends with the user.`);

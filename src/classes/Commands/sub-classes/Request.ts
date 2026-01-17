@@ -124,7 +124,7 @@ export default class RequestCommands {
 
             this.bot.sendMessage(
                 steamID,
-                `🔎 ${name}:\n• Buy  : ${currBuy.toString()}\n• Sell : ${currSell.toString()}\nhttps://autobot.tf/items/${sku}`
+                `🔎 ${name}:\n• Buy  : ${currBuy.toString()}\n• Sell : ${currSell.toString()}\nhttps://pricedb.io/item/${sku}`
             );
         } catch (err) {
             return this.bot.sendMessage(

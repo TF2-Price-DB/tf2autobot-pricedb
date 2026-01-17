@@ -346,7 +346,7 @@ export default class MyHandler extends Handler {
                 `because no longer in stock or exceed the threshold:\n\n• ${bulkResetPartiallyPriced
                     .map(sku => {
                         const name = this.bot.schema.getName(SKU.fromString(sku), this.opt.tradeSummary.showProperName);
-                        return `${isDwEnabled ? `[${name}](https://autobot.tf/items/${sku})` : name} (${sku})`;
+                        return `${isDwEnabled ? `[${name}](https://pricedb.io/item/${sku})` : name} (${sku})`;
                     })
                     .join('\n• ')}`;
 
@@ -407,12 +407,25 @@ export default class MyHandler extends Handler {
                             return resolve();
                         }
 
+                        // Remove backpack.tf listings first and then store.pricedb.io listings
                         this.bot.listings
                             .removeAll()
                             .catch((err: Error) =>
                                 log.warn('Failed to remove all listings on shutdown (autokeys was enabled): ', err)
                             )
-                            .finally(() => resolve());
+                            .finally(() => {
+                                // Remove store.pricedb.io listings
+                                if (this.bot.pricedbStoreManager) {
+                                    this.bot.pricedbStoreManager
+                                        .deleteAllListings()
+                                        .catch((err: Error) =>
+                                            log.warn('Failed to remove pricedb.io listings on shutdown: ', err)
+                                        )
+                                        .finally(() => resolve());
+                                } else {
+                                    resolve();
+                                }
+                            });
                     });
             } else {
                 if (!this.bot.listingManager || this.bot.listingManager.ready !== true) {
@@ -420,10 +433,23 @@ export default class MyHandler extends Handler {
                     return resolve();
                 }
 
+                // Remove backpack.tf listings
                 this.bot.listings
                     .removeAll()
                     .catch((err: Error) => log.warn('Failed to remove all listings on shutdown: ', err))
-                    .finally(() => resolve());
+                    .finally(() => {
+                        // Remove store.pricedb.io listings
+                        if (this.bot.pricedbStoreManager) {
+                            this.bot.pricedbStoreManager
+                                .deleteAllListings()
+                                .catch((err: Error) =>
+                                    log.warn('Failed to remove store.pricedb.io listings on shutdown: ', err)
+                                )
+                                .finally(() => resolve());
+                        } else {
+                            resolve();
+                        }
+                    });
             }
         });
     }
@@ -435,24 +461,45 @@ export default class MyHandler extends Handler {
         }
     }
 
-    async onMessage(steamID: SteamID, message: string): Promise<void> {
+    onDisconnected(eresult: number, msg?: string): void {
+        log.warn('Lost connection to Steam', { eresult, msg });
+        // Connection will be handled by Bot.onDisconnected
+    }
+
+    onLoggedOff(): void {
+        log.info('Logged off from Steam');
+    }
+
+    async onMessage(steamID: SteamID, message: string, respondChat = true): Promise<void | string> {
         if (!this.opt.commands.enable) {
             if (!this.bot.isAdmin(steamID)) {
                 const custom = this.opt.commands.customDisableReply;
-                return this.bot.sendMessage(steamID, custom ? custom : '❌ Command function is disabled by the owner.');
+                const msg = custom ? custom : '❌ Command function is disabled by the owner.';
+                if (respondChat) {
+                    return this.bot.sendMessage(steamID, msg);
+                } else {
+                    return msg;
+                }
             }
         }
 
         if (this.bot.isHalted && !this.bot.isAdmin(steamID)) {
             const custom = this.opt.customMessage.halted;
-            return this.bot.sendMessage(
-                steamID,
-                custom ? custom : '❌ The bot is not operational right now. Please come back later.'
-            );
+            const msg = custom ? custom : '❌ The bot is not operational right now. Please come back later.';
+            if (respondChat) {
+                return this.bot.sendMessage(steamID, msg);
+            } else {
+                return msg;
+            }
         }
 
         if (this.isUpdating) {
-            return this.bot.sendMessage(steamID, '⚠️ The bot is updating, please wait until I am back online.');
+            const msg = '⚠️ The bot is updating, please wait until I am back online.';
+            if (respondChat) {
+                return this.bot.sendMessage(steamID, msg);
+            } else {
+                return msg;
+            }
         }
 
         if (steamID.type !== 0) {
@@ -2586,7 +2633,7 @@ export default class MyHandler extends Handler {
                 url: 'https://api.backpack.tf/api/users/info/v1',
                 method: 'GET',
                 headers: {
-                    'User-Agent': 'TF2Autobot@' + process.env.BOT_VERSION,
+                    'User-Agent': 'TF2AutobotPriceDB@' + process.env.BOT_VERSION,
                     Cookie: 'user-id=' + this.bot.userID
                 },
                 params: {

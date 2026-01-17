@@ -74,7 +74,7 @@ export default class DiscordBot {
                         admin,
                         'Failed to log in to Discord. You can still use commands in here.\n' +
                             `If https://discordstat.us doesn't indicate any problems right now, you can try to restart.\n` +
-                            `If restarting didn't fix the problem - please ask for help on TF2Autobot Discord server: https://discord.gg/4k5tmMkXjB`
+                            `If restarting didn't fix the problem - please ask for help on TF2Autobot Discord server: https://pricedb.io/discord`
                     );
                 });
             }
@@ -113,7 +113,8 @@ export default class DiscordBot {
                 // Will return default invalid value
                 const dummySteamID = new SteamID(null);
                 dummySteamID.redirectAnswerTo = message;
-                return await this.bot.handler.onMessage(dummySteamID, message.content);
+                await this.bot.handler.onMessage(dummySteamID, message.content);
+                return;
             }
 
             const adminID = this.getAdminBy(message.author.id);
@@ -180,7 +181,6 @@ export default class DiscordBot {
     }
 
     private async onClientReady() {
-        // https://github.com/TF2Autobot/tf2autobot-giveawaybot/blob/master/src/events/ready.ts
         log.info(
             `Logged in to Discord as ${String(this.client.user.tag)} to serve on ${
                 this.client.guilds.cache.size

@@ -19,10 +19,23 @@ export default async function processAccepted(
     const isDisableSKU: string[] = [];
     const theirHighValuedItems: string[] = [];
 
-    // Calculate and store profit data asynchronously
-    await calculateProfitData(offer, bot).catch(err => {
-        log.error('Failed to calculate profit data:', err);
-    });
+    // Check if this is an admin/donation/premium trade before calculating profit
+    const offerReceived = offer.data('action') as i.Action;
+    const isAdminTrade = offerReceived?.reason === 'ADMIN' || bot.isAdmin(offer.partner);
+    const isDonation = offer.data('donation');
+    const isPremium = offer.data('buyBptfPremium');
+
+    // Only calculate profit for regular trades (not admin/donation/premium)
+    if (!isAdminTrade && !isDonation && !isPremium) {
+        await calculateProfitData(offer, bot).catch(err => {
+            log.error('Failed to calculate profit data:', err);
+        });
+    } else {
+        log.debug(
+            `Skipping profit calculation for offer ${offer.id}: ` +
+                `admin=${isAdminTrade}, donation=${isDonation}, premium=${isPremium}`
+        );
+    }
 
     const accepted: Accepted = {
         invalidItems: [],
@@ -33,7 +46,6 @@ export default async function processAccepted(
         isMention: false
     };
 
-    const offerReceived = offer.data('action') as i.Action;
     const meta = offer.data('meta') as i.Meta;
     const highValue = offer.data('highValue') as i.HighValueOutput; // can be both offer received and offer sent
 
@@ -341,8 +353,6 @@ async function calculateProfitData(offer: i.TradeOffer, bot: Bot): Promise<void>
 
         let rawProfitKeys = 0;
         let rawProfitMetal = 0;
-        let overpayKeys = 0;
-        let overpayMetal = 0;
 
         // Process items we're receiving (their side) - BUY
         if (dict.their) {
@@ -529,91 +539,11 @@ async function calculateProfitData(offer: i.TradeOffer, bot: Bot): Promise<void>
             }
         }
 
-        // Calculate final trade overpay ONCE for entire trade
-        // Overpay = net currency difference between actual trade values
-        //
-        // NOTE: We recalculate totals from dict instead of using value.their/our.total
-        // because sent offers may have corrupted total values in the value object.
-        // This ensures accurate overpay calculation for both received and sent offers.
-        //
-        // Example: 8 ref for 7.33 ref item + 0.66 ref change
-        // - their total = 72 scrap (8 ref gross they gave)
-        // - our total = ~72 scrap (7.33 ref item + 0.66 ref change we gave)
-        // - Net overpay = ~0 scrap (fair trade with change)
-        //
-        // Example: 8 ref for 7 ref item (they overpay)
-        // - their total = 72 scrap (8 ref)
-        // - our total = 63 scrap (7 ref)
-        // - Net overpay = 9 scrap (1 ref overpay)
-
-        // Recalculate actual trade totals, preferring the values recorded on the offer
-        // These already reflect the real key rate used during the trade (handles change correctly)
-        const tradeValue = offer.data('value') as i.ItemsValue | undefined;
-        let ourTotalScrap = tradeValue?.our?.total ?? 0;
-        let theirTotalScrap = tradeValue?.their?.total ?? 0;
-
-        // Fallback to pricelist-based calculation only if value totals are missing
-        if (tradeValue?.our?.total === undefined || tradeValue?.their?.total === undefined) {
-            ourTotalScrap = 0;
-            theirTotalScrap = 0;
-
-            for (const sku in dict.our) {
-                const amount = dict.our[sku];
-                if (sku === '5000;6') ourTotalScrap += amount; // scrap
-                else if (sku === '5001;6') ourTotalScrap += amount * 3; // rec
-                else if (sku === '5002;6') ourTotalScrap += amount * 9; // ref
-                else if (sku === '5021;6')
-                    ourTotalScrap += amount * Currencies.toScrap(bot.pricelist.getKeyPrices.sell.metal); // keys
-                else {
-                    // Item - use pricelist value
-                    const price = itemPrices[sku];
-                    if (price) {
-                        ourTotalScrap +=
-                            Currencies.toScrap(price.sell.toValue(bot.pricelist.getKeyPrice.metal)) * amount;
-                    }
-                }
-            }
-
-            for (const sku in dict.their) {
-                const amount = dict.their[sku];
-                if (sku === '5000;6') theirTotalScrap += amount; // scrap
-                else if (sku === '5001;6') theirTotalScrap += amount * 3; // rec
-                else if (sku === '5002;6') theirTotalScrap += amount * 9; // ref
-                else if (sku === '5021;6')
-                    theirTotalScrap += amount * Currencies.toScrap(bot.pricelist.getKeyPrices.buy.metal); // keys
-                else {
-                    // Item - use pricelist value
-                    const price = itemPrices[sku];
-                    if (price) {
-                        theirTotalScrap +=
-                            Currencies.toScrap(price.buy.toValue(bot.pricelist.getKeyPrice.metal)) * amount;
-                    }
-                }
-            }
-        }
-
-        // Calculate net overpay in scrap
-        const netOverpayScrap = theirTotalScrap - ourTotalScrap;
-
-        // Convert to keys + metal for storage
-        // Use the key rate recorded on the trade (fallback to current sell price)
-        const keyPrice = tradeValue?.rate ?? bot.pricelist.getKeyPrice.metal;
-        const keyPriceScrap = Currencies.toScrap(keyPrice);
-
-        // Use Math.trunc instead of Math.floor to handle negative overpay correctly
-        // Math.floor(-0.5) = -1, but Math.trunc(-0.5) = 0 (rounds toward zero)
-        overpayKeys = Math.trunc(netOverpayScrap / keyPriceScrap);
-        overpayMetal = Currencies.toRefined(netOverpayScrap - overpayKeys * keyPriceScrap);
-
-        // Store profit data in offer
+        // Store profit data in offer (overpay removed - FIFO diff values capture all buy/sell differences)
         offer.data('tradeProfit', {
             rawProfit: {
                 keys: rawProfitKeys,
                 metal: rawProfitMetal
-            },
-            overpay: {
-                keys: overpayKeys,
-                metal: overpayMetal
             },
             hasEstimates,
             timestamp: Date.now()
@@ -621,9 +551,9 @@ async function calculateProfitData(offer: i.TradeOffer, bot: Bot): Promise<void>
 
         log.debug(
             `Profit calculated for offer ${offer.id}${hasEstimates ? ' (contains estimates)' : ''}: ` +
-                `Raw (${rawProfitKeys}k ${rawProfitMetal.toFixed(2)}r) + ` +
-                `Overpay (${overpayKeys}k ${overpayMetal.toFixed(2)}r) = ` +
-                `Total (${rawProfitKeys + overpayKeys}k ${(rawProfitMetal + overpayMetal).toFixed(2)}r)`
+                `Raw profit: ${rawProfitKeys}k ${rawProfitMetal.toFixed(
+                    2
+                )}r (FIFO diff values capture all buy/sell differences)`
         );
     } catch (err) {
         log.error(`Error calculating profit for offer ${offer.id}:`, err);

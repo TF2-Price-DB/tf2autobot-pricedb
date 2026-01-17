@@ -34,6 +34,18 @@ export default class Listings {
 
     private cancelCheckingListings = false;
 
+    /**
+     * Tracks the expected price for each listing to avoid stale cache comparison issues.
+     * Key: listing ID (440_assetid for both buy and sell listings)
+     * Value: The Currencies object we last queued for update
+     */
+    private readonly expectedListingPrices: Map<string, Currencies> = new Map();
+
+    /**
+     * Timer for debouncing cache refresh calls
+     */
+    private cacheRefreshTimer: NodeJS.Timeout | null = null;
+
     private get isCreateListing(): boolean {
         return this.bot.options.miscSettings.createListings.enable && !this.bot.isHalted;
     }
@@ -83,10 +95,19 @@ export default class Listings {
 
         let doneSomething = false;
 
-        const match =
+        let match =
             data?.enabled === false
                 ? null
                 : this.bot.pricelist.getPrice({ priceKey, onlyEnabled: true, getGenericPrice: checkGenerics });
+
+        if (!match && !isAssetId && this.bot.options.normalize.painted.our && /;p\d+/.test(priceKey)) {
+            const baseSKU = priceKey.replace(/;p\d+/, '');
+            match = this.bot.pricelist.getPrice({
+                priceKey: baseSKU,
+                onlyEnabled: true,
+                getGenericPrice: checkGenerics
+            });
+        }
 
         let hasBuyListing = false;
         let hasSellListing = false;
@@ -117,6 +138,24 @@ export default class Listings {
             }
         } else {
             listings = this.bot.listingManager.findListings(sku);
+
+            if (listings.length === 0 && this.bot.options.normalize.painted.our && !/;p\d+/.test(sku)) {
+                const allListings = this.bot.listingManager.listings;
+                const paintedListings: ListingManager.Listing[] = [];
+
+                for (const listing of Object.values(allListings)) {
+                    if (listing) {
+                        const listingSKU = listing.getSKU();
+                        if (listingSKU?.startsWith(sku + ';p')) {
+                            paintedListings.push(listing);
+                        }
+                    }
+                }
+
+                if (paintedListings.length > 0) {
+                    listings = paintedListings;
+                }
+            }
         }
         listings.forEach(listing => {
             // Skip the listing if it belongs to an asset AND we are checking a SKU
@@ -151,6 +190,10 @@ export default class Listings {
                     log.debug('We are not trading the item, remove the listing.');
                 }
                 doneSomething = true;
+
+                // Clear expected price when removing listing
+                this.expectedListingPrices.delete(listing.id);
+
                 listing.remove();
                 // Remove from pricedb.io if it's a sell listing
                 if (listing.intent === 1) {
@@ -161,6 +204,10 @@ export default class Listings {
                     log.debug(`We are not ${listing.intent === 0 ? 'buying' : 'selling'} more, remove the listing.`);
                 }
                 doneSomething = true;
+
+                // Clear expected price when removing listing
+                this.expectedListingPrices.delete(listing.id);
+
                 listing.remove();
                 // Remove from pricedb.io if it's a sell listing
                 if (listing.intent === 1) {
@@ -175,6 +222,10 @@ export default class Listings {
                     log.debug(`we can't afford to buy, remove the listing.`);
                 }
                 doneSomething = true;
+
+                // Clear expected price when removing listing
+                this.expectedListingPrices.delete(listing.id);
+
                 listing.remove();
                 // This is a buy listing (intent 0), no need to remove from pricedb.io (only sell listings)
             } else {
@@ -187,10 +238,21 @@ export default class Listings {
 
                 const keyPrice = this.bot.pricelist.getKeyPrice;
 
+                // Get the listing identifier
+                const listingId = listing.id;
+
+                // Get the expected price if we've already queued an update for this listing
+                const expectedPrice = this.expectedListingPrices.get(listingId);
+
+                // Compare against expected price if available, otherwise use cached price
+                const currentPriceValue = expectedPrice
+                    ? expectedPrice.toValue(keyPrice.metal)
+                    : listing.currencies?.toValue(keyPrice.metal);
+
+                const newPriceValue = match[listing.intent === 0 ? 'buy' : 'sell']?.toValue(keyPrice.metal);
+
                 // if listing note don't have any parameters (%price%, %amount_trade%, etc), then we check if there's any changes with currencies
-                const isCurrenciesChanged =
-                    listing.currencies?.toValue(keyPrice.metal) !==
-                    match[listing.intent === 0 ? 'buy' : 'sell']?.toValue(keyPrice.metal);
+                const isCurrenciesChanged = currentPriceValue !== newPriceValue;
 
                 const isListingDetailsChanged =
                     listing.details?.replace('[𝐀𝐮𝐭𝐨𝐤𝐞𝐲𝐬]', '') !== newDetails.replace('[𝐀𝐮𝐭𝐨𝐤𝐞𝐲𝐬]', '');
@@ -199,7 +261,10 @@ export default class Listings {
                     if (showLogs) {
                         log.debug(`Listing details don't match, update listing`, {
                             priceKey,
-                            intent: listing.intent
+                            intent: listing.intent,
+                            currentPrice: currentPriceValue,
+                            newPrice: newPriceValue,
+                            usingExpectedPrice: !!expectedPrice
                         });
                     }
 
@@ -217,6 +282,9 @@ export default class Listings {
                     //     toUpdate['quantity'] = amountCanBuy;
                     // }
 
+                    // Record the expected price BEFORE queuing the update
+                    this.expectedListingPrices.set(listingId, currencies);
+
                     listing.update(toUpdate);
                     //TODO: make promote, demote
 
@@ -224,6 +292,9 @@ export default class Listings {
                     if (listing.intent === 1) {
                         void this.createOrUpdatePriceDBListing(listing.id.replace('440_', ''), currencies);
                     }
+
+                    // Schedule a debounced cache refresh to sync expected prices
+                    this.scheduleCacheRefresh();
                 }
             }
         });
@@ -271,8 +342,12 @@ export default class Listings {
                 };
                 if (isAssetId) {
                     listing['id'] = priceKey;
+                    // Track expected price for new listing
+                    this.expectedListingPrices.set(`440_${priceKey}`, matchNew.buy);
                 } else {
                     listing['sku'] = sku;
+                    // Note: For buy listings by SKU, the listing ID will be assigned by bptf-listings
+                    // We'll track this after the listing is created and cache is refreshed
                 }
                 this.bot.listingManager.createListing(listing);
             }
@@ -281,7 +356,9 @@ export default class Listings {
 
             if (showLogs) {
                 log.debug(
-                    `Sell listing check for ${priceKey}: hasSellListing=${hasSellListing}, amountCanSell=${amountCanSell}, assetid=${assetid}`
+                    `Sell listing check for ${priceKey}: hasSellListing=${String(
+                        hasSellListing
+                    )}, amountCanSell=${amountCanSell}, assetid=${assetid}`
                 );
             }
 
@@ -297,6 +374,11 @@ export default class Listings {
                 }
 
                 doneSomething = true;
+
+                const listingId = `440_${assetid}`;
+
+                // Track expected price for new listing
+                this.expectedListingPrices.set(listingId, matchNew.sell);
 
                 this.bot.listingManager.createListing({
                     time: matchNew.time || dayjs().unix(),
@@ -484,6 +566,9 @@ export default class Listings {
         return new Promise((resolve, reject) => {
             this.removingAllListings = true;
 
+            // Clear all expected prices since we're removing everything
+            this.expectedListingPrices.clear();
+
             // Clear create queue
             this.bot.listingManager.actions.create = [];
 
@@ -529,7 +614,7 @@ export default class Listings {
                         };
                         const errorListener = err => {
                             log.error('Remove all listings individual failed', err);
-                            // it was an error, so we don't listen for success anymore
+                            // it was an error, so we don't listen for success any more
                             this.bot.listingManager.removeListener('deleteListingsSuccessful', successListener);
                             reject(err);
                         };
@@ -588,6 +673,10 @@ export default class Listings {
                         }, exponentialBackoff(checks));
                     } else {
                         log.debug("Count didn't change");
+
+                        // Sync expected prices after cache refresh
+                        this.syncExpectedPrices();
+
                         return resolve();
                     }
                 });
@@ -595,6 +684,76 @@ export default class Listings {
 
             check();
         });
+    }
+
+    /**
+     * Schedules a debounced cache refresh
+     * Multiple calls within 5 seconds will only result in one refresh
+     */
+    private scheduleCacheRefresh(): void {
+        // Clear existing timer if any
+        if (this.cacheRefreshTimer) {
+            clearTimeout(this.cacheRefreshTimer);
+        }
+
+        // Schedule new refresh
+        this.cacheRefreshTimer = setTimeout(() => {
+            this.refreshListingCache();
+            this.cacheRefreshTimer = null;
+        }, 5000);
+    }
+
+    /**
+     * Refreshes the listing cache from backpack.tf and syncs expected prices
+     */
+    private refreshListingCache(): void {
+        log.debug('Refreshing listing cache to sync expected prices...');
+        this.bot.listingManager.getListings(true, err => {
+            if (err) {
+                log.warn('Failed to refresh listing cache:', err);
+                return;
+            }
+            log.debug('Listing cache refreshed, syncing expected prices');
+            this.syncExpectedPrices();
+        });
+    }
+
+    /**
+     * Syncs expected prices with actual listing cache.
+     * Clears stale expected prices and keeps only those still in update queue.
+     * Called after getListings() refreshes the cache.
+     */
+    private syncExpectedPrices(): void {
+        const beforeSync = this.expectedListingPrices.size;
+
+        // Get all current listing IDs
+        const currentIds = new Set(this.bot.listingManager.listings.map(l => l.id));
+
+        // Remove expected prices for listings that no longer exist
+        for (const id of this.expectedListingPrices.keys()) {
+            if (!currentIds.has(id)) {
+                this.expectedListingPrices.delete(id);
+            }
+        }
+
+        // Clear expected prices that match actual cache (updates completed)
+        this.bot.listingManager.listings.forEach(listing => {
+            const expected = this.expectedListingPrices.get(listing.id);
+            if (expected && listing.currencies) {
+                const keyPrice = this.bot.pricelist.getKeyPrice;
+                if (expected.toValue(keyPrice.metal) === listing.currencies.toValue(keyPrice.metal)) {
+                    this.expectedListingPrices.delete(listing.id);
+                }
+            }
+        });
+
+        const afterSync = this.expectedListingPrices.size;
+
+        if (beforeSync > 0 || afterSync > 0) {
+            log.debug(
+                `Expected prices sync: before=${beforeSync}, after=${afterSync}, synced=${beforeSync - afterSync}`
+            );
+        }
     }
 
     /**

@@ -290,7 +290,7 @@ export default function updateListings(
                         `(+ ${priceFromOptions.keys > 0 ? `${pluralize('key', priceFromOptions.keys, true)}, ` : ''}${
                             priceFromOptions.metal
                         } ref)` +
-                        `\nItem page: https://autobot.tf/items/${priceKey}`;
+                        `\nItem page: https://pricedb.io/item/${priceKey}`;
 
                     log.debug(msg);
 
@@ -368,7 +368,7 @@ export default function updateListings(
                         `(+ ${priceFromOptions.keys > 0 ? `${pluralize('key', priceFromOptions.keys, true)}, ` : ''}${
                             priceFromOptions.metal
                         } ref)` +
-                        `\nItem page: https://autobot.tf/items/${skuNoPaint}`;
+                        `\nItem page: https://pricedb.io/item/${skuNoPaint}`;
 
                     log.debug(msg);
 
@@ -452,7 +452,7 @@ export default function updateListings(
             // from ADMINS, and opt.pricelist.autoAddInvalidUnusual is false, then notify admin.
             const msg =
                 'I have received an Unusual bought with Generic Unusual feature\n\nItem info: ' +
-                (dwEnabled ? `[${name}](https://autobot.tf/items/${priceKey}) (${priceKey})` : `${name} (${priceKey})`);
+                (dwEnabled ? `[${name}](https://pricedb.io/item/${priceKey}) (${priceKey})` : `${name} (${priceKey})`);
 
             if (opt.sendAlert.enable && opt.sendAlert.receivedUnusualNotInPricelist) {
                 if (dwEnabled) {
@@ -582,7 +582,7 @@ export default function updateListings(
                 .updatePrice({ priceKey: entry.sku, entryData: entry, emitChange: true })
                 .then(data => {
                     const msg =
-                        `${dwEnabled ? `[${name}](https://autobot.tf/items/${priceKey})` : name} (${priceKey})\n▸ ` +
+                        `${dwEnabled ? `[${name}](https://pricedb.io/item/${priceKey})` : name} (${priceKey})\n▸ ` +
                         [
                             `old: ${oldPrice.buy.toString()}/${oldPrice.sell.toString()}`,
                             `new: ${data.buy.toString()}/${data.sell.toString()}`

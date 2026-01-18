@@ -111,10 +111,10 @@
     },
     "pricelist": {
         "partialPriceUpdate": {
-            "enable": false,
+            "enable": true,
             "thresholdInSeconds": 604800,
             "excludeSKU": [],
-            "removeMaxRestriction": false,
+            "removeMaxRestriction": true,
             "maxProtectedUnits": -1,
             "minProfitScrap": 1,
             "stockGracePeriodSeconds": 3600

@@ -14,9 +14,9 @@ If you already know how to run TF2Autobot, you can treat this as a drop‑in rep
 
 All general installation and configuration steps are the same as TF2Autobot. Follow the original wiki for:
 
--   [Setup & configuration](https://github.com/idinium96/tf2autobot/wiki)
--   [Environment variables](https://github.com/idinium96/tf2autobot/wiki/Configuring-the-bot)
--   [`options.json` reference](https://github.com/idinium96/tf2autobot/wiki/Configure-your-options.json-file)
+-   [Setup & configuration](https://github.com/TF2-Price-DB/tf2autobot-pricedb/wiki)
+-   [Environment variables](https://github.com/TF2-Price-DB/tf2autobot-pricedb/wiki/Configuring-the-bot)
+-   [`options.json` reference](https://github.com/TF2-Price-DB/tf2autobot-pricedb/wiki/Configure-your-options.json-file)
 
 When the wiki tells you to clone the TF2Autobot repo, use this fork instead:
 
@@ -192,11 +192,11 @@ If key buy price is 60 ref and sell price is 61 ref:
 
 ## Links
 
-For general documentation, troubleshooting and FAQs, keep using the original TF2Autobot wiki:
+For general documentation, troubleshooting and FAQs, use the following wiki:
 
--   [Wiki home](https://github.com/idinium96/tf2autobot/wiki)
--   [Common errors](https://github.com/idinium96/tf2autobot/wiki/Common-Errors)
--   [FAQ](https://github.com/idinium96/tf2autobot/wiki/FAQ)
+-   [Wiki home](https://github.com/TF2-Price-DB/tf2autobot-pricedb/wiki)
+-   [Common errors](https://github.com/TF2-Price-DB/tf2autobot-pricedb/wiki/Common-Errors)
+-   [FAQ](https://github.com/TF2-Price-DB/tf2autobot-pricedb/wiki/FAQ)
 
 For issues or questions specific to this pricedb.io fork (or to my services), please join our Discord:
 

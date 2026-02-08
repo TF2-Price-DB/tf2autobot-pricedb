@@ -18,6 +18,19 @@ process.env.BOT_VERSION = BOT_VERSION as string;
 import fs from 'fs';
 import path from 'path';
 import genPaths from './resources/paths';
+import { createEventSource } from 'eventsource-client';
+
+async function listenToEventSource() {
+    const x = createEventSource('http://localhost:2615/event-stream');
+
+    for await (const {data, event, id} of x) {
+        console.log('Received event:', {data, event, id});
+    }
+}
+
+listenToEventSource().catch(err => {
+    console.error('Error listening to event source', err);
+});
 
 if (!fs.existsSync(path.join(__dirname, '../node_modules'))) {
     /* eslint-disable-next-line no-console */

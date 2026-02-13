@@ -18,19 +18,6 @@ process.env.BOT_VERSION = BOT_VERSION as string;
 import fs from 'fs';
 import path from 'path';
 import genPaths from './resources/paths';
-import { createEventSource } from 'eventsource-client';
-
-async function listenToEventSource() {
-    const x = createEventSource('http://localhost:2615/event-stream');
-
-    for await (const {data, event, id} of x) {
-        console.log('Received event:', {data, event, id});
-    }
-}
-
-listenToEventSource().catch(err => {
-    console.error('Error listening to event source', err);
-});
 
 if (!fs.existsSync(path.join(__dirname, '../node_modules'))) {
     /* eslint-disable-next-line no-console */
@@ -87,6 +74,7 @@ SchemaManager.prototype.getSchema = function (callback): void {
 /*eslint-enable */
 
 import BotManager from './classes/BotManager';
+import TradeRequestListener from './classes/TradeRequestListener';
 const botManager = new BotManager(
     getPricer({
         pricerUrl: options.customPricerUrl,
@@ -216,4 +204,11 @@ void botManager.start(options).asCallback(err => {
             });
         });
     }
+
+    const eventStreamUrl = process.env.TRADE_REQUEST_EVENT_STREAM_URL || 'http://localhost:2615/event-stream';
+    const tradeRequestListener = new TradeRequestListener(botManager.bot, eventStreamUrl);
+
+    void tradeRequestListener.start().catch(err => {
+        log.error('Trade request listener stopped with an error', err);
+    });
 });

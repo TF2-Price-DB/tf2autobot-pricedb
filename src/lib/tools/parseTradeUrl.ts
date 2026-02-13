@@ -27,16 +27,13 @@ export function parseTradeUrl(url: string): { steamID: SteamID; token: string } 
             throw new Error('Invalid trade URL: missing partner or token parameter');
         }
 
-        // Convert partner (account ID) to SteamID64
-        const accountId = Number.parseInt(partner, 10);
-        if (Number.isNaN(accountId)) {
+        // Validate partner account ID as digits and convert via SteamID parser
+        if (!/^\d+$/.test(partner)) {
             throw new Error('Invalid trade URL: partner must be a number');
         }
 
-        // Create SteamID from account ID
-        // SteamID64 = accountId + 76561197960265728
-        const steamID64 = String(accountId + 76561197960265728);
-        const steamID = new SteamID(steamID64);
+        // Avoid JS integer precision issues with large SteamID64 math by using account format directly
+        const steamID = new SteamID(`[U:1:${partner}]`);
 
         return {
             steamID,

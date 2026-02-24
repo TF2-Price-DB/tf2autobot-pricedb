@@ -41,6 +41,7 @@
         "@tf2autobot/tradeoffer-manager": "^2.18.3",
         "async": "^3.2.6",
         "axios": "^1.12.2",
+        "better-sqlite3": "^11.9.1",
         "bluebird": "^3.7.2",
         "bluebird-global": "^1.0.1",
         "body-parser": "^2.2.0",
@@ -82,6 +83,7 @@
     "devDependencies": {
         "@babel/preset-typescript": "^7.27.1",
         "@types/async": "^3.2.24",
+        "@types/better-sqlite3": "^7.6.12",
         "@types/bluebird-global": "^3.5.18",
         "@types/cheerio": "^0.22.35",
         "@types/death": "^1.1.5",

@@ -20,7 +20,8 @@ export default class StatusCommands {
 
     async statsCommand(steamID: SteamID): Promise<void> {
         const tradesFromEnv = this.bot.options.statistics.lastTotalTrades;
-        const pollData = loadPollData(this.bot.handler.getPaths.files.dir);
+        //cant tell me this isnt simpler
+        const pollData = loadPollData(this.bot);
 
         if (!pollData) {
             return this.bot.sendMessage(steamID, '❌ Polldata file(s) not available.');
@@ -150,8 +151,8 @@ export default class StatusCommands {
             pollData.offerData = {};
 
             this.bot.trades.setPollData(pollData);
-
-            deletePollData(this.bot.handler.getPaths.files.dir);
+            //cant tell me this isnt simpler 
+            deletePollData(this.bot);
 
             // Clear FIFO inventory cost basis to prevent zombie entries
             // Note: This only affects profit tracking, not PPU (which has its own system)

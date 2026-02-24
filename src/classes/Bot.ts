@@ -35,6 +35,7 @@ import BotManager from './BotManager';
 import MyHandler from './MyHandler/MyHandler';
 import Groups from './Groups';
 import InventoryCostBasis from './InventoryCostBasis';
+import BotDatabase from './BotDatabase';
 
 import log from '../lib/logger';
 import Bans, { IsBanned } from '../lib/bans';
@@ -121,6 +122,8 @@ export default class Bot {
     ) => void;
 
     readonly inventoryCostBasis: InventoryCostBasis;
+
+    readonly db: BotDatabase;
 
     discordBot: DiscordBot = null;
 
@@ -258,6 +261,7 @@ export default class Bot {
         this.listings = new Listings(this);
         this.tf2gc = new TF2GC(this);
 
+        this.db = new BotDatabase(path.join(__dirname, '../../files/bot.db'), options.steamAccountName);
         this.handler = new MyHandler(this, this.priceSource);
         this.inventoryCostBasis = new InventoryCostBasis(this);
         if (this.options.IPC) this.ipc = new ipcHandler(this);

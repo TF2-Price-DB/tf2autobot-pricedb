@@ -1,6 +1,4 @@
 import Bot from './Bot';
-import { promises as fs } from 'fs';
-import path from 'path';
 import log from '../lib/logger';
 
 const CURRENT_DIFF_VERSION = 2;
@@ -28,79 +26,25 @@ export default class InventoryCostBasis {
 
     private fifoEntries: FIFOEntry[] = [];
 
-    private readonly filePath: string;
-
     constructor(bot: Bot) {
         this.bot = bot;
-        this.filePath = bot.handler.getPaths.files.costBasis;
     }
 
     /**
-     * Load FIFO entries from disk
+     * Load FIFO entries from the database
      */
     async load(): Promise<void> {
-        try {
-            const data = await fs.readFile(this.filePath, 'utf8');
-            const rawEntries = JSON.parse(data);
-            let needsMigrationSave = false;
-
-            // Migrate old entries that have single 'diff' field to new diffKeys/diffMetal fields
-            this.fifoEntries = rawEntries.map((entry: any) => {
-                let normalizedEntry = entry;
-
-                if ('diff' in normalizedEntry && !('diffKeys' in normalizedEntry)) {
-                    // Very old format: convert single diff (metal) to new format
-                    normalizedEntry = {
-                        ...normalizedEntry,
-                        diffKeys: 0,
-                        diffMetal: normalizedEntry.diff
-                    };
-                    needsMigrationSave = true;
-                }
-
-                if (normalizedEntry.diffVersion !== CURRENT_DIFF_VERSION) {
-                    // Version 1 had the sign backwards (pricelist - actual); flip it to match spec (actual - pricelist)
-                    normalizedEntry = {
-                        ...normalizedEntry,
-                        diffKeys: -(normalizedEntry.diffKeys ?? 0),
-                        diffMetal: -(normalizedEntry.diffMetal ?? 0),
-                        diffVersion: CURRENT_DIFF_VERSION
-                    };
-                    needsMigrationSave = true;
-                }
-
-                return normalizedEntry;
-            });
-
-            if (needsMigrationSave) {
-                await this.save();
-            }
-
-            log.debug(`Loaded ${this.fifoEntries.length} FIFO entries from ${this.filePath}`);
-        } catch (err) {
-            if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
-                log.debug('No existing cost basis file found, starting fresh');
-                this.fifoEntries = [];
-            } else {
-                log.error('Failed to load cost basis:', err);
-                throw err;
-            }
-        }
+        this.fifoEntries = this.bot.db.getCostBasisEntries();
+        log.debug(`Loaded ${this.fifoEntries.length} FIFO entries from SQLite (${this.bot.db.accountName})`);
     }
 
     /**
-     * Save FIFO entries to disk
+     * Persist the current in-memory FIFO entries to the database.
+     * better-sqlite3 is synchronous so no await is needed internally.
      */
-    private async save(): Promise<void> {
-        try {
-            const dir = path.dirname(this.filePath);
-            await fs.mkdir(dir, { recursive: true });
-            await fs.writeFile(this.filePath, JSON.stringify(this.fifoEntries, null, 2), 'utf8');
-            log.debug(`Saved ${this.fifoEntries.length} FIFO entries to ${this.filePath}`);
-        } catch (err) {
-            log.error('Failed to save cost basis:', err);
-            throw err;
-        }
+    private save(): void {
+        this.bot.db.saveCostBasisEntries(this.fifoEntries);
+        log.debug(`Saved ${this.fifoEntries.length} FIFO entries to SQLite`);
     }
 
     /**
@@ -132,7 +76,7 @@ export default class InventoryCostBasis {
         };
 
         this.fifoEntries.push(entry);
-        await this.save();
+        this.save();
 
         log.debug(
             `Added FIFO entry: ${sku} @ ${costKeys}k ${costMetal}r (diff: ${diffKeys}k ${diffMetal}r) [${tradeId}]`
@@ -198,7 +142,7 @@ export default class InventoryCostBasis {
 
         if (removed.length > 0 && !hasEstimates) {
             // Only save if we actually removed real entries (not just estimates)
-            await this.save();
+            this.save();
             log.debug(`Removed ${removed.length} FIFO entries for ${sku}`);
         }
 
@@ -252,7 +196,7 @@ export default class InventoryCostBasis {
      */
     async clear(): Promise<void> {
         this.fifoEntries = [];
-        await this.save();
+        this.save();
         log.warn('Cleared all FIFO entries');
     }
 }

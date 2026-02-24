@@ -11,7 +11,8 @@ import loadPollData from '../../lib/tools/polldata';
 export default async function sendStats(bot: Bot, forceSend = false, steamID?: SteamID): Promise<void> {
     const optDW = bot.options.discordWebhook;
     const botInfo = bot.handler.getBotInfo;
-    const pollData = loadPollData(bot.handler.getPaths.files.dir);
+    //cant tell me this isnt simpler
+    const pollData = loadPollData(bot);
 
     if (!pollData) {
         return;

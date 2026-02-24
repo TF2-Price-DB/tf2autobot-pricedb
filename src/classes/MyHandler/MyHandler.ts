@@ -21,11 +21,11 @@ import processDeclined from './offer/processDeclined';
 import { sendReview } from './offer/review/export-review';
 import { keepMetalSupply, craftDuplicateWeapons, craftClassWeapons } from './utils/export-utils';
 
-import { Blocked, BPTFGetUserInfo } from './interfaces';
+import { BPTFGetUserInfo } from './interfaces';
 
 import Handler, { OnRun } from '../Handler';
 import Bot from '../Bot';
-import Pricelist, { Entry, PricesDataObject, PricesObject } from '../Pricelist';
+import Pricelist, { Entry, PricesObject } from '../Pricelist';
 import Commands from '../Commands/Commands';
 import CartQueue from '../Carts/CartQueue';
 import Inventory from '../Inventory';
@@ -2726,6 +2726,12 @@ export default class MyHandler extends Handler {
 
     onPriceChange(priceKey: string, entry: Entry): void {
         this.bot.listings.checkByPriceKey({ priceKey, data: entry, checkGenerics: false, showLogs: true });
+
+        if (this.bot.pricelist.hasPrice({ priceKey })) {
+            this.bot.db.upsertPricelistEntry(priceKey, entry);
+        } else {
+            this.bot.db.deletePricelistEntry(priceKey);
+        }
     }
 
     saveBlockedUser(steamID: string, reason: string): void {

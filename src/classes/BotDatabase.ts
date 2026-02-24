@@ -7,6 +7,30 @@ import type { EntryData, PricesDataObject, PricesObject } from './Pricelist';
 import type TradeOfferManager from '@tf2autobot/tradeoffer-manager';
 import type { Blocked } from './MyHandler/interfaces';
 import type { FIFOEntry } from './InventoryCostBasis';
+
+interface PricelistRow {
+    price_key: string;
+    sku: string;
+    item_id: string | null;
+    enabled: number;
+    autoprice: number;
+    min_stock: number;
+    max_stock: number;
+    intent: number;
+    buy_keys: number | null;
+    buy_metal: number | null;
+    sell_keys: number | null;
+    sell_metal: number | null;
+    promoted: number;
+    item_group: string | null;
+    note_buy: string | null;
+    note_sell: string | null;
+    is_partial_priced: number;
+    price_time: number | null;
+    purchase_history: string | null;
+    partial_price_time: number | null;
+    last_in_stock_time: number | null;
+}
 export default class BotDatabase {
     private readonly db: BetterSqlite3.Database;
 
@@ -33,11 +57,11 @@ export default class BotDatabase {
 
     private initSchema(): void {
         this.db.exec(`
-            -- One row per pricelist entry (SKU)
             CREATE TABLE IF NOT EXISTS pricelist (
                 account_name        TEXT    NOT NULL,
-                sku                 TEXT    NOT NULL,
-                item_id             TEXT,
+                price_key           TEXT    NOT NULL,  
+                sku                 TEXT    NOT NULL,  
+                item_id             TEXT,              
                 enabled             INTEGER NOT NULL DEFAULT 1,
                 autoprice           INTEGER NOT NULL DEFAULT 1,
                 min_stock           INTEGER NOT NULL DEFAULT 0,
@@ -56,7 +80,7 @@ export default class BotDatabase {
                 purchase_history    TEXT,
                 partial_price_time  INTEGER,
                 last_in_stock_time  INTEGER,
-                PRIMARY KEY (account_name, sku)
+                PRIMARY KEY (account_name, price_key)
             );
 
             -- One row per trade offer
@@ -248,14 +272,14 @@ export default class BotDatabase {
     getPricelist(): PricesDataObject | null {
         const rows = this.db
             .prepare(
-                `SELECT sku, item_id, enabled, autoprice, min_stock, max_stock, intent,
+                `SELECT price_key, sku, item_id, enabled, autoprice, min_stock, max_stock, intent,
                         buy_keys, buy_metal, sell_keys, sell_metal, promoted, item_group,
                         note_buy, note_sell, is_partial_priced, price_time,
                         purchase_history, partial_price_time, last_in_stock_time
                  FROM pricelist
                  WHERE account_name = ?`
             )
-            .all(this.accountName) as any[];
+            .all(this.accountName) as PricelistRow[];
 
         if (rows.length === 0) return null;
 
@@ -284,7 +308,7 @@ export default class BotDatabase {
             if (row.sell_keys != null && row.sell_metal != null) {
                 entry.sell = { keys: row.sell_keys, metal: row.sell_metal };
             }
-            result[row.sku] = entry;
+            result[row.price_key] = entry;
         }
         return result;
     }
@@ -294,12 +318,14 @@ export default class BotDatabase {
         const deleteStmt = this.db.prepare(`DELETE FROM pricelist WHERE account_name = ?`);
         const insertStmt = this.db.prepare(`
             INSERT INTO pricelist (
-                account_name, sku, item_id, enabled, autoprice, min_stock, max_stock, intent,
+                account_name, price_key, sku, item_id, enabled, autoprice,
+                min_stock, max_stock, intent,
                 buy_keys, buy_metal, sell_keys, sell_metal, promoted, item_group,
                 note_buy, note_sell, is_partial_priced, price_time,
                 purchase_history, partial_price_time, last_in_stock_time
-            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-            ON CONFLICT(account_name, sku) DO UPDATE SET
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            ON CONFLICT(account_name, price_key) DO UPDATE SET
+                sku                = excluded.sku,
                 item_id            = excluded.item_id,
                 enabled            = excluded.enabled,
                 autoprice          = excluded.autoprice,
@@ -323,10 +349,11 @@ export default class BotDatabase {
 
         const tx = this.db.transaction((entries: [string, EntryData][]) => {
             deleteStmt.run(this.accountName);
-            for (const [, e] of entries) {
+            for (const [priceKey, e] of entries) {
                 insertStmt.run(
                     this.accountName,
-                    e.sku,
+                    priceKey, // price_key: may be assetId for id-keyed entries
+                    e.sku, // canonical TF2 SKU
                     e.id ?? null,
                     e.enabled ? 1 : 0,
                     e.autoprice ? 1 : 0,
@@ -351,6 +378,74 @@ export default class BotDatabase {
         });
 
         tx(Object.entries(data));
+    }
+
+    upsertPricelistEntry(priceKey: string, entry: EntryData): void {
+        this.db
+            .prepare(
+                `INSERT INTO pricelist (
+                    account_name, price_key, sku, item_id, enabled, autoprice,
+                    min_stock, max_stock, intent,
+                    buy_keys, buy_metal, sell_keys, sell_metal, promoted, item_group,
+                    note_buy, note_sell, is_partial_priced, price_time,
+                    purchase_history, partial_price_time, last_in_stock_time
+                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                ON CONFLICT(account_name, price_key) DO UPDATE SET
+                    sku                = excluded.sku,
+                    item_id            = excluded.item_id,
+                    enabled            = excluded.enabled,
+                    autoprice          = excluded.autoprice,
+                    min_stock          = excluded.min_stock,
+                    max_stock          = excluded.max_stock,
+                    intent             = excluded.intent,
+                    buy_keys           = excluded.buy_keys,
+                    buy_metal          = excluded.buy_metal,
+                    sell_keys          = excluded.sell_keys,
+                    sell_metal         = excluded.sell_metal,
+                    promoted           = excluded.promoted,
+                    item_group         = excluded.item_group,
+                    note_buy           = excluded.note_buy,
+                    note_sell          = excluded.note_sell,
+                    is_partial_priced  = excluded.is_partial_priced,
+                    price_time         = excluded.price_time,
+                    purchase_history   = excluded.purchase_history,
+                    partial_price_time = excluded.partial_price_time,
+                    last_in_stock_time = excluded.last_in_stock_time`
+            )
+            .run(
+                this.accountName,
+                priceKey,
+                entry.sku,
+                entry.id ?? null,
+                entry.enabled ? 1 : 0,
+                entry.autoprice ? 1 : 0,
+                entry.min,
+                entry.max,
+                entry.intent,
+                entry.buy?.keys ?? null,
+                entry.buy?.metal ?? null,
+                entry.sell?.keys ?? null,
+                entry.sell?.metal ?? null,
+                entry.promoted ?? 0,
+                entry.group ?? null,
+                entry.note?.buy ?? null,
+                entry.note?.sell ?? null,
+                entry.isPartialPriced ? 1 : 0,
+                entry.time ?? null,
+                entry.purchaseHistory?.length ? JSON.stringify(entry.purchaseHistory) : null,
+                entry.partialPriceTime ?? null,
+                entry.lastInStockTime ?? null
+            );
+    }
+
+    /**
+     * Removes a single pricelist entry by its price key.
+     * Called from onPriceChange when an entry is deleted from the pricelist.
+     */
+    deletePricelistEntry(priceKey: string): void {
+        this.db
+            .prepare(`DELETE FROM pricelist WHERE account_name = ? AND price_key = ?`)
+            .run(this.accountName, priceKey);
     }
 
     getPollData(): TradeOfferManager.PollData | null {
@@ -398,8 +493,7 @@ export default class BotDatabase {
     }
 
     savePollData(data: TradeOfferManager.PollData): void {
-        const deletePollStmt = this.db.prepare(`DELETE FROM poll_data WHERE account_name = ?`);
-        const insertPollStmt = this.db.prepare(`
+        const upsertOfferStmt = this.db.prepare(`
             INSERT INTO poll_data (account_name, offer_id, direction, state, ts, offer_data)
             VALUES (?, ?, ?, ?, ?, ?)
             ON CONFLICT(account_name, offer_id) DO UPDATE SET
@@ -414,10 +508,9 @@ export default class BotDatabase {
         `);
 
         const tx = this.db.transaction(() => {
-            deletePollStmt.run(this.accountName);
             upsertMetaStmt.run(this.accountName, data.offersSince ?? 0);
 
-            // Merge sent + received — an offer ID appears in only one of the two
+            // An offer ID appears in either sent or received, never both
             const allIds = new Set([...Object.keys(data.sent ?? {}), ...Object.keys(data.received ?? {})]);
 
             for (const offerId of allIds) {
@@ -427,7 +520,21 @@ export default class BotDatabase {
                 const ts = data.timestamps?.[offerId] ?? null;
                 const offerDataJson =
                     data.offerData?.[offerId] != null ? JSON.stringify(data.offerData[offerId]) : null;
-                insertPollStmt.run(this.accountName, offerId, direction, state, ts, offerDataJson);
+                upsertOfferStmt.run(this.accountName, offerId, direction, state, ts, offerDataJson);
+            }
+
+            if (allIds.size > 0) {
+                const placeholders = Array.from(allIds).fill('?').join(',');
+                this.db
+                    .prepare(
+                        `DELETE FROM poll_data
+                         WHERE account_name = ?
+                           AND offer_id NOT IN (${placeholders})`
+                    )
+                    .run(this.accountName, ...Array.from(allIds));
+            } else {
+                // Manager cleared all offers (e.g. after deletePollData)
+                this.db.prepare(`DELETE FROM poll_data WHERE account_name = ?`).run(this.accountName);
             }
         });
 

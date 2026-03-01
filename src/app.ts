@@ -74,7 +74,6 @@ SchemaManager.prototype.getSchema = function (callback): void {
 /*eslint-enable */
 
 import BotManager from './classes/BotManager';
-import TradeRequestListener from './classes/TradeRequestListener';
 const botManager = new BotManager(
     getPricer({
         pricerUrl: options.customPricerUrl,
@@ -86,6 +85,7 @@ import ON_DEATH from 'death';
 import * as inspect from 'util';
 import { Webhook } from './classes/DiscordWebhook/interfaces';
 import { uptime } from './lib/tools/time';
+import { enableTradeRequestListener } from './classes/PriceDBEventStream/enableTradeRequestListener';
 
 ON_DEATH({ uncaughtException: true })((signalOrErr, origin: string | Error) => {
     const crashed = !['SIGINT', 'SIGTERM'].includes(signalOrErr as 'SIGINT' | 'SIGTERM' | 'SIGQUIT');
@@ -205,10 +205,5 @@ void botManager.start(options).asCallback(err => {
         });
     }
 
-    const eventStreamUrl = process.env.TRADE_REQUEST_EVENT_STREAM_URL || 'http://localhost:2615/event-stream';
-    const tradeRequestListener = new TradeRequestListener(botManager.bot, eventStreamUrl);
-
-    void tradeRequestListener.start().catch(err => {
-        log.error('Trade request listener stopped with an error', err);
-    });
+    enableTradeRequestListener(botManager.bot);
 });

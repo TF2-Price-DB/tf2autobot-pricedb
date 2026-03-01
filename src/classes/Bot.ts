@@ -1222,7 +1222,8 @@ export default class Bot {
 
                                     this.pricedbStoreManager = new PriceDBStoreManager(
                                         this.options.pricedbStoreApiKey,
-                                        this.client.steamID.getSteamID64()
+                                        this.client.steamID.getSteamID64(),
+                                        process.env.PRICE_DB_STORE_API_URL
                                     );
 
                                     this.pricedbStoreManager.on('listingCreated', (listing: PriceDBListingEvent) => {

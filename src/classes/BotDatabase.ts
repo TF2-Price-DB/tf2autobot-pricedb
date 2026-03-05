@@ -27,9 +27,27 @@ interface PricelistRow {
     note_sell: string | null;
     is_partial_priced: number;
     price_time: number | null;
-    purchase_history: string | null;
     partial_price_time: number | null;
     last_in_stock_time: number | null;
+}
+
+interface PurchaseHistoryRow {
+    id: number;
+    sku: string;
+    quantity: number;
+    price_keys: number;
+    price_metal: number;
+    // (Math.floor(Date.now() / 1000)) I hate this but autobot handles date time like this so why reinvent the wheel
+    timestamp: number;
+}
+
+interface BotRow {
+    account_name: string;
+    steam_id64: string | null;
+    display_name: string | null;
+    // See above comments for my anger on the issue
+    created_at: number;
+    last_seen_at: number | null;
 }
 export default class BotDatabase {
     private readonly db: BetterSqlite3.Database;
@@ -53,22 +71,32 @@ export default class BotDatabase {
         this.initSchema();
     }
 
-    //This is a straight rip from the original files to sqlite and might need refining as we will end up storing json within the rows
-
+    //This is the creation of the tables. If ever changed a migration needs to be put in for the next version
+    //removed on the following major version
     private initSchema(): void {
         this.db.exec(`
+            -- one row per bot
+            CREATE TABLE IF NOT EXISTS bots (
+                account_name  TEXT    NOT NULL PRIMARY KEY,
+                steam_id64    TEXT,                          
+                display_name  TEXT,
+                created_at    INTEGER NOT NULL DEFAULT (CAST(strftime('%s', 'now') AS INTEGER)),
+                last_seen_at  INTEGER                        
+            );
+
+            -- One row per price list entry
             CREATE TABLE IF NOT EXISTS pricelist (
                 account_name        TEXT    NOT NULL,
-                price_key           TEXT    NOT NULL,  
-                sku                 TEXT    NOT NULL,  
-                item_id             TEXT,              
+                price_key           TEXT    NOT NULL,   
+                sku                 TEXT    NOT NULL,   
+                item_id             TEXT,               
                 enabled             INTEGER NOT NULL DEFAULT 1,
                 autoprice           INTEGER NOT NULL DEFAULT 1,
                 min_stock           INTEGER NOT NULL DEFAULT 0,
                 max_stock           INTEGER NOT NULL DEFAULT 1,
-                intent              INTEGER NOT NULL DEFAULT 2,
-                buy_keys            INTEGER,
-                buy_metal           REAL,
+                intent              INTEGER NOT NULL DEFAULT 2,  
+                buy_keys            INTEGER,            
+                buy_metal           REAL,               
                 sell_keys           INTEGER,
                 sell_metal          REAL,
                 promoted            INTEGER NOT NULL DEFAULT 0,
@@ -76,38 +104,49 @@ export default class BotDatabase {
                 note_buy            TEXT,
                 note_sell           TEXT,
                 is_partial_priced   INTEGER NOT NULL DEFAULT 0,
-                price_time          INTEGER,
-                purchase_history    TEXT,
-                partial_price_time  INTEGER,
-                last_in_stock_time  INTEGER,
+                price_time          INTEGER,            
+                partial_price_time  INTEGER,            
+                last_in_stock_time  INTEGER,            
                 PRIMARY KEY (account_name, price_key)
             );
 
-            -- One row per trade offer
+            -- One row per purchase record related by sku
+            -- TODO: how will we handle the cases of assetids instead of sku in the pricelist?
+            CREATE TABLE IF NOT EXISTS purchase_history (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                account_name    TEXT    NOT NULL,
+                sku             TEXT    NOT NULL,   
+                quantity        INTEGER NOT NULL,
+                price_keys      INTEGER NOT NULL DEFAULT 0,  -- has to be whole
+                price_metal     REAL    NOT NULL DEFAULT 0,  
+                timestamp       INTEGER NOT NULL             
+            );
+
+            -- Polldata Migration this might be the biggest breaking change time will tell if this is controversial 
             CREATE TABLE IF NOT EXISTS poll_data (
                 account_name TEXT    NOT NULL,
                 offer_id     TEXT    NOT NULL,
-                direction    TEXT    NOT NULL,  -- 'sent' | 'received'
+                direction    TEXT    NOT NULL,   
                 state        INTEGER NOT NULL,
                 ts           INTEGER,
-                offer_data   TEXT,              -- JSON blob
+                offer_data   TEXT,               
                 PRIMARY KEY (account_name, offer_id)
             );
 
-            -- One row per account: stores offersSince
+            -- One row per account: stores offersSince cursor
             CREATE TABLE IF NOT EXISTS poll_meta (
                 account_name TEXT    NOT NULL PRIMARY KEY,
                 offers_since INTEGER NOT NULL DEFAULT 0
             );
 
-            -- One row per login-attempt Unix timestamp
+            -- One row per
             CREATE TABLE IF NOT EXISTS login_attempts (
                 account_name TEXT    NOT NULL,
                 ts           INTEGER NOT NULL,
                 PRIMARY KEY (account_name, ts)
             );
 
-            -- One row per blocked SteamID
+            -- One row per blocked user can now be shared across bots thankfully
             CREATE TABLE IF NOT EXISTS blocked_users (
                 account_name TEXT NOT NULL,
                 steam_id     TEXT NOT NULL,
@@ -115,7 +154,7 @@ export default class BotDatabase {
                 PRIMARY KEY (account_name, steam_id)
             );
 
-            -- One row per FIFO cost-basis acquisition
+            -- for profit tracking this stored per entry as we can have multiple instances of the same sku
             CREATE TABLE IF NOT EXISTS cost_basis (
                 row_id       INTEGER PRIMARY KEY AUTOINCREMENT,
                 account_name TEXT    NOT NULL,
@@ -125,18 +164,23 @@ export default class BotDatabase {
                 diff_keys    REAL    NOT NULL DEFAULT 0,
                 diff_metal   REAL    NOT NULL DEFAULT 0,
                 trade_id     TEXT    NOT NULL,
-                timestamp    INTEGER NOT NULL,
+                timestamp    INTEGER NOT NULL, 
                 diff_version INTEGER NOT NULL DEFAULT 2
             );
 
-            CREATE INDEX IF NOT EXISTS idx_pricelist_account   ON pricelist      (account_name);
-            CREATE INDEX IF NOT EXISTS idx_poll_data_account   ON poll_data      (account_name);
-            CREATE INDEX IF NOT EXISTS idx_login_attempts_acct ON login_attempts (account_name);
-            CREATE INDEX IF NOT EXISTS idx_blocked_users_acct  ON blocked_users  (account_name);
-            CREATE INDEX IF NOT EXISTS idx_cost_basis_account  ON cost_basis     (account_name);
+            -- Index overkill
+            CREATE INDEX IF NOT EXISTS idx_pricelist_account         ON pricelist        (account_name);
+            CREATE INDEX IF NOT EXISTS idx_purchase_history_acct_sku ON purchase_history (account_name, sku);
+            CREATE INDEX IF NOT EXISTS idx_purchase_history_ts       ON purchase_history (timestamp);
+            CREATE INDEX IF NOT EXISTS idx_poll_data_account         ON poll_data        (account_name);
+            CREATE INDEX IF NOT EXISTS idx_login_attempts_acct       ON login_attempts   (account_name);
+            CREATE INDEX IF NOT EXISTS idx_blocked_users_acct        ON blocked_users    (account_name);
+            CREATE INDEX IF NOT EXISTS idx_cost_basis_account        ON cost_basis       (account_name);
+            CREATE INDEX IF NOT EXISTS idx_cost_basis_account_sku    ON cost_basis       (account_name, sku);
         `);
 
         this.migrateFromBotData();
+        this.migratePurchaseHistoryColumn();
     }
 
     // literally just take whats in the json and throw it in the db
@@ -183,6 +227,74 @@ export default class BotDatabase {
         log.info(`[DB] In-DB migration from bot_data complete for ${this.accountName}`);
     }
 
+    //Migration will be removed on future versions and changed to a seperate script 
+    private migratePurchaseHistoryColumn(): void {
+        // Check whether the legacy column still exists
+        const cols = this.db.pragma(`table_info(pricelist)`) as { name: string }[];
+        const hasLegacyCol = cols.some(c => c.name === 'purchase_history');
+        if (!hasLegacyCol) return;
+
+        log.info('[DB] Migrating pricelist.purchase_history JSON blobs → purchase_history table…');
+
+        const rows = this.db
+            .prepare(
+                `SELECT account_name, sku, purchase_history
+                 FROM pricelist
+                 WHERE purchase_history IS NOT NULL AND purchase_history != '[]'`
+            )
+            .all() as { account_name: string; sku: string; purchase_history: string }[];
+
+        if (rows.length > 0) {
+            const insertStmt = this.db.prepare(`
+                INSERT OR IGNORE INTO purchase_history
+                    (account_name, sku, quantity, price_keys, price_metal, timestamp)
+                VALUES (?, ?, ?, ?, ?, ?)
+            `);
+
+            const tx = this.db.transaction(() => {
+                let rowsInserted = 0;
+                for (const row of rows) {
+                    try {
+                        const records: {
+                            quantity: number;
+                            pricePaid: { keys: number; metal: number };
+                            timestamp: number;
+                        }[] = JSON.parse(row.purchase_history);
+
+                        for (const rec of records) {
+                            insertStmt.run(
+                                row.account_name,
+                                row.sku,
+                                rec.quantity,
+                                rec.pricePaid?.keys ?? 0,
+                                rec.pricePaid?.metal ?? 0,
+                                rec.timestamp
+                            );
+                            rowsInserted++;
+                        }
+                    } catch {
+                        // Ignore malformed JSON — better to lose history than crash
+                    }
+                }
+                log.info(`[DB] Migrated ${rowsInserted} purchase_history record(s) from pricelist blob.`);
+            });
+            tx();
+        }
+
+        // Drop the legacy column (requires SQLite 3.35+; gracefully skip on older builds)
+        try {
+            this.db.exec(`ALTER TABLE pricelist DROP COLUMN purchase_history`);
+            log.info('[DB] Dropped legacy pricelist.purchase_history column.');
+        } catch (err) {
+            log.warn(
+                '[DB] Could not drop pricelist.purchase_history column (SQLite < 3.35?). ' +
+                    'The column will remain but will no longer be written to.',
+                err
+            );
+        }
+    }
+
+    // part of the migration to be removed in the future
     migrateFromFiles(filesDir: string): void {
         let migrated = 0;
 
@@ -275,13 +387,37 @@ export default class BotDatabase {
                 `SELECT price_key, sku, item_id, enabled, autoprice, min_stock, max_stock, intent,
                         buy_keys, buy_metal, sell_keys, sell_metal, promoted, item_group,
                         note_buy, note_sell, is_partial_priced, price_time,
-                        purchase_history, partial_price_time, last_in_stock_time
+                        partial_price_time, last_in_stock_time
                  FROM pricelist
                  WHERE account_name = ?`
             )
             .all(this.accountName) as PricelistRow[];
 
         if (rows.length === 0) return null;
+
+        // Load all purchase history 
+        const historyRows = this.db
+            .prepare(
+                `SELECT sku, quantity, price_keys, price_metal, timestamp
+                 FROM purchase_history
+                 WHERE account_name = ?
+                 ORDER BY sku, id ASC`
+            )
+            .all(this.accountName) as PurchaseHistoryRow[];
+
+        // Group history rows
+        const historyBySku: Record<
+            string,
+            { quantity: number; pricePaid: { keys: number; metal: number }; timestamp: number }[]
+        > = {};
+        for (const h of historyRows) {
+            if (!historyBySku[h.sku]) historyBySku[h.sku] = [];
+            historyBySku[h.sku].push({
+                quantity: h.quantity,
+                pricePaid: { keys: h.price_keys, metal: h.price_metal },
+                timestamp: h.timestamp
+            });
+        }
 
         const result: PricesDataObject = {};
         for (const row of rows) {
@@ -297,7 +433,7 @@ export default class BotDatabase {
                 note: { buy: row.note_buy ?? null, sell: row.note_sell ?? null },
                 isPartialPriced: row.is_partial_priced === 1,
                 time: row.price_time ?? null,
-                purchaseHistory: row.purchase_history ? JSON.parse(row.purchase_history) : [],
+                purchaseHistory: historyBySku[row.sku] ?? [],
                 partialPriceTime: row.partial_price_time ?? null,
                 lastInStockTime: row.last_in_stock_time ?? null
             };
@@ -313,17 +449,19 @@ export default class BotDatabase {
         return result;
     }
 
-    //literally the same as above old method converted to save to sqlite
+    // startup magic this bound to change
     savePricelist(data: PricesObject | PricesDataObject): void {
-        const deleteStmt = this.db.prepare(`DELETE FROM pricelist WHERE account_name = ?`);
-        const insertStmt = this.db.prepare(`
+        const deletePricelistStmt = this.db.prepare(`DELETE FROM pricelist WHERE account_name = ?`);
+        const deleteHistoryStmt = this.db.prepare(`DELETE FROM purchase_history WHERE account_name = ?`);
+
+        const insertPricelistStmt = this.db.prepare(`
             INSERT INTO pricelist (
                 account_name, price_key, sku, item_id, enabled, autoprice,
                 min_stock, max_stock, intent,
                 buy_keys, buy_metal, sell_keys, sell_metal, promoted, item_group,
                 note_buy, note_sell, is_partial_priced, price_time,
-                purchase_history, partial_price_time, last_in_stock_time
-            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                partial_price_time, last_in_stock_time
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
             ON CONFLICT(account_name, price_key) DO UPDATE SET
                 sku                = excluded.sku,
                 item_id            = excluded.item_id,
@@ -342,18 +480,25 @@ export default class BotDatabase {
                 note_sell          = excluded.note_sell,
                 is_partial_priced  = excluded.is_partial_priced,
                 price_time         = excluded.price_time,
-                purchase_history   = excluded.purchase_history,
                 partial_price_time = excluded.partial_price_time,
                 last_in_stock_time = excluded.last_in_stock_time
         `);
 
+        const insertHistoryStmt = this.db.prepare(`
+            INSERT INTO purchase_history
+                (account_name, sku, quantity, price_keys, price_metal, timestamp)
+            VALUES (?, ?, ?, ?, ?, ?)
+        `);
+
         const tx = this.db.transaction((entries: [string, EntryData][]) => {
-            deleteStmt.run(this.accountName);
+            deletePricelistStmt.run(this.accountName);
+            deleteHistoryStmt.run(this.accountName);
+
             for (const [priceKey, e] of entries) {
-                insertStmt.run(
+                insertPricelistStmt.run(
                     this.accountName,
                     priceKey, // price_key: may be assetId for id-keyed entries
-                    e.sku, // canonical TF2 SKU
+                    e.sku, // canonical TF2 SKU TODO: We need to ensure this is never null
                     e.id ?? null,
                     e.enabled ? 1 : 0,
                     e.autoprice ? 1 : 0,
@@ -370,16 +515,30 @@ export default class BotDatabase {
                     e.note?.sell ?? null,
                     e.isPartialPriced ? 1 : 0,
                     e.time ?? null,
-                    e.purchaseHistory?.length ? JSON.stringify(e.purchaseHistory) : null,
                     e.partialPriceTime ?? null,
                     e.lastInStockTime ?? null
                 );
+
+                // Persist purchase history rows in FIFO insertion order
+                if (e.purchaseHistory?.length) {
+                    for (const rec of e.purchaseHistory) {
+                        insertHistoryStmt.run(
+                            this.accountName,
+                            e.sku,
+                            rec.quantity,
+                            rec.pricePaid?.keys ?? 0,
+                            rec.pricePaid?.metal ?? 0,
+                            rec.timestamp
+                        );
+                    }
+                }
             }
         });
 
         tx(Object.entries(data));
     }
 
+    // adds to the pricelist table enough said
     upsertPricelistEntry(priceKey: string, entry: EntryData): void {
         this.db
             .prepare(
@@ -388,8 +547,8 @@ export default class BotDatabase {
                     min_stock, max_stock, intent,
                     buy_keys, buy_metal, sell_keys, sell_metal, promoted, item_group,
                     note_buy, note_sell, is_partial_priced, price_time,
-                    purchase_history, partial_price_time, last_in_stock_time
-                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                    partial_price_time, last_in_stock_time
+                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                 ON CONFLICT(account_name, price_key) DO UPDATE SET
                     sku                = excluded.sku,
                     item_id            = excluded.item_id,
@@ -408,7 +567,6 @@ export default class BotDatabase {
                     note_sell          = excluded.note_sell,
                     is_partial_priced  = excluded.is_partial_priced,
                     price_time         = excluded.price_time,
-                    purchase_history   = excluded.purchase_history,
                     partial_price_time = excluded.partial_price_time,
                     last_in_stock_time = excluded.last_in_stock_time`
             )
@@ -432,20 +590,130 @@ export default class BotDatabase {
                 entry.note?.sell ?? null,
                 entry.isPartialPriced ? 1 : 0,
                 entry.time ?? null,
-                entry.purchaseHistory?.length ? JSON.stringify(entry.purchaseHistory) : null,
                 entry.partialPriceTime ?? null,
                 entry.lastInStockTime ?? null
             );
     }
 
-    /**
-     * Removes a single pricelist entry by its price key.
-     * Called from onPriceChange when an entry is deleted from the pricelist.
-     */
+    // removed from pricelist table enough also said
     deletePricelistEntry(priceKey: string): void {
         this.db
             .prepare(`DELETE FROM pricelist WHERE account_name = ? AND price_key = ?`)
             .run(this.accountName, priceKey);
+    }
+
+    // Adds a bot to the table simple as
+    upsertBot(steamId64?: string | null, displayName?: string | null): void {
+        this.db
+            .prepare(
+                `INSERT INTO bots (account_name, steam_id64, display_name, last_seen_at)
+                 VALUES (?, ?, ?, CAST(strftime('%s', 'now') AS INTEGER))
+                 ON CONFLICT(account_name) DO UPDATE SET
+                     steam_id64   = COALESCE(excluded.steam_id64,  bots.steam_id64),
+                     display_name = COALESCE(excluded.display_name, bots.display_name),
+                     last_seen_at = excluded.last_seen_at`
+            )
+            .run(this.accountName, steamId64 ?? null, displayName ?? null);
+    }
+
+    getBot(): BotRow | null {
+        return (
+            (this.db.prepare(`SELECT * FROM bots WHERE account_name = ?`).get(this.accountName) as
+                | BotRow
+                | undefined) ?? null
+        );
+    }
+
+    // Adds entries to the purchase history table I forsee issues with assetids and no sku
+    addPurchaseHistoryRecord(
+        sku: string,
+        quantity: number,
+        priceKeys: number,
+        priceMetal: number,
+        timestamp: number
+    ): void {
+        this.db
+            .prepare(
+                `INSERT INTO purchase_history
+                     (account_name, sku, quantity, price_keys, price_metal, timestamp)
+                 VALUES (?, ?, ?, ?, ?, ?)`
+            )
+            .run(this.accountName, sku, quantity, priceKeys, priceMetal, timestamp);
+    }
+
+    // remove this entry based on FIFO this is used for PPU and needs reviewing for edge cases mostly relating to assetids and
+    // related orphan records
+    removePurchaseHistoryRecords(sku: string, quantity: number): void {
+        const tx = this.db.transaction(() => {
+            let remaining = quantity;
+
+            while (remaining > 0) {
+                const row = this.db
+                    .prepare(
+                        `SELECT id, quantity FROM purchase_history
+                         WHERE account_name = ? AND sku = ?
+                         ORDER BY id ASC LIMIT 1`
+                    )
+                    .get(this.accountName, sku) as { id: number; quantity: number } | undefined;
+
+                if (!row) break; // No more records — already depleted
+
+                if (row.quantity <= remaining) {
+                    // Consume entire record
+                    remaining -= row.quantity;
+                    this.db.prepare(`DELETE FROM purchase_history WHERE id = ?`).run(row.id);
+                } else {
+                    // Partial consumption — reduce quantity in place
+                    this.db
+                        .prepare(`UPDATE purchase_history SET quantity = quantity - ? WHERE id = ?`)
+                        .run(remaining, row.id);
+                    remaining = 0;
+                }
+            }
+        });
+        tx();
+    }
+
+    // This removed after the ppu date. It might be cleaner long term to hold them but ignore after the time incase of extending
+    // the time with in the config at a later date 
+    deleteExpiredPurchaseHistory(sku: string, thresholdSeconds: number): void {
+        const cutoff = Math.floor(Date.now() / 1000) - thresholdSeconds;
+        this.db
+            .prepare(
+                `DELETE FROM purchase_history
+                 WHERE account_name = ? AND sku = ? AND timestamp <= ?`
+            )
+            .run(this.accountName, sku, cutoff);
+    }
+
+    // Just a getter for the price history
+    getPurchaseHistoryForSku(
+        sku: string
+    ): { quantity: number; pricePaid: { keys: number; metal: number }; timestamp: number }[] {
+        const rows = this.db
+            .prepare(
+                `SELECT quantity, price_keys, price_metal, timestamp
+                 FROM purchase_history
+                 WHERE account_name = ? AND sku = ?
+                 ORDER BY id ASC`
+            )
+            .all(this.accountName, sku) as {
+            quantity: number;
+            price_keys: number;
+            price_metal: number;
+            timestamp: number;
+        }[];
+
+        return rows.map(r => ({
+            quantity: r.quantity,
+            pricePaid: { keys: r.price_keys, metal: r.price_metal },
+            timestamp: r.timestamp
+        }));
+    }
+
+    /** Remove all purchase history for a SKU (e.g. when the item is removed from pricelist). */
+    deleteAllPurchaseHistoryForSku(sku: string): void {
+        this.db.prepare(`DELETE FROM purchase_history WHERE account_name = ? AND sku = ?`).run(this.accountName, sku);
     }
 
     getPollData(): TradeOfferManager.PollData | null {

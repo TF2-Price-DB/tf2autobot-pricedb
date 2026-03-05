@@ -239,6 +239,14 @@ export default class MyHandler extends Handler {
 
         this.botSteamID = this.bot.client.steamID;
 
+        // Register / update this bot in the tble
+        // discover which accounts share the DB file. Not used yet but could be used in future if multibot features
+        // are added such as cross bot banking or storage spread
+        this.bot.db.upsertBot(
+            this.bot.client.steamID?.getSteamID64() ?? null,
+            null 
+        );
+
         // Get Premium info from backpack.tf
         this.getBPTFAccountInfo().catch(() => {
             // Ignore error
@@ -2647,6 +2655,8 @@ export default class MyHandler extends Handler {
                     this.botName = user.name;
                     this.botAvatarURL = user.avatar;
                     this.isPremium = user.premium ? user.premium === 1 : false;
+                    // Woo display name time
+                    this.bot.db.upsertBot(steamID64, user.name);
                     return resolve();
                 })
                 .catch(err => {

@@ -227,7 +227,7 @@ export default class BotDatabase {
         log.info(`[DB] In-DB migration from bot_data complete for ${this.accountName}`);
     }
 
-    //Migration will be removed on future versions and changed to a seperate script 
+    //Migration will be removed on future versions and changed to a seperate script
     private migratePurchaseHistoryColumn(): void {
         // Check whether the legacy column still exists
         const cols = this.db.pragma(`table_info(pricelist)`) as { name: string }[];
@@ -395,7 +395,7 @@ export default class BotDatabase {
 
         if (rows.length === 0) return null;
 
-        // Load all purchase history 
+        // Load all purchase history
         const historyRows = this.db
             .prepare(
                 `SELECT sku, quantity, price_keys, price_metal, timestamp
@@ -675,7 +675,7 @@ export default class BotDatabase {
     }
 
     // This removed after the ppu date. It might be cleaner long term to hold them but ignore after the time incase of extending
-    // the time with in the config at a later date 
+    // the time with in the config at a later date
     deleteExpiredPurchaseHistory(sku: string, thresholdSeconds: number): void {
         const cutoff = Math.floor(Date.now() / 1000) - thresholdSeconds;
         this.db

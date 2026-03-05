@@ -242,10 +242,7 @@ export default class MyHandler extends Handler {
         // Register / update this bot in the tble
         // discover which accounts share the DB file. Not used yet but could be used in future if multibot features
         // are added such as cross bot banking or storage spread
-        this.bot.db.upsertBot(
-            this.bot.client.steamID?.getSteamID64() ?? null,
-            null 
-        );
+        this.bot.db.upsertBot(this.bot.client.steamID?.getSteamID64() ?? null, null);
 
         // Get Premium info from backpack.tf
         this.getBPTFAccountInfo().catch(() => {

@@ -776,7 +776,10 @@ export default class BotDatabase {
                 direction  = excluded.direction,
                 state      = excluded.state,
                 ts         = excluded.ts,
-                offer_data = excluded.offer_data
+                offer_data = CASE WHEN excluded.offer_data IS NOT NULL
+                                  THEN excluded.offer_data
+                                  ELSE offer_data
+                             END
         `);
         const upsertMetaStmt = this.db.prepare(`
             INSERT INTO poll_meta (account_name, offers_since) VALUES (?, ?)
@@ -931,6 +934,36 @@ export default class BotDatabase {
     }
 
     // Helpers credits goes to claude for converting the sql to useable functions here
+
+    /**
+     * Return all poll_data rows with their offer_data parsed, ordered oldest-first (by ts).
+     * Used by stats() to replace the in-memory pollData.offerData iteration so that
+     * historical records beyond the 7-day memory window are still counted.
+     * Rows with null offer_data are skipped.
+     */
+    getStatsRows(): Array<{
+        ts: number | null;
+        offerData: Record<string, unknown>;
+    }> {
+        const rows = this.db
+            .prepare(
+                `SELECT ts, offer_data
+                 FROM poll_data
+                 WHERE account_name = ? AND offer_data IS NOT NULL
+                 ORDER BY ts ASC`
+            )
+            .all(this.accountName) as { ts: number | null; offer_data: string }[];
+
+        const result: ReturnType<BotDatabase['getStatsRows']> = [];
+        for (const row of rows) {
+            try {
+                result.push({ ts: row.ts, offerData: JSON.parse(row.offer_data) });
+            } catch {
+                // Skip malformed rows
+            }
+        }
+        return result;
+    }
 
     // ─── Per-operation cost_basis helpers (replaces the bulk DELETE+reinsert) ───
 

@@ -2,7 +2,8 @@ import SteamTradeOfferManager from '@tf2autobot/tradeoffer-manager';
 import dayjs from 'dayjs';
 import Bot from '../../classes/Bot';
 
-export default function stats(bot: Bot, pollData: SteamTradeOfferManager.PollData): Stats {
+// Stats updated use sqlite
+export default function stats(bot: Bot, _pollData?: SteamTradeOfferManager.PollData): Stats {
     const now = dayjs();
     const aDayAgo = dayjs().subtract(24, 'hour');
     const startOfDay = dayjs().startOf('day');
@@ -41,20 +42,19 @@ export default function stats(bot: Bot, pollData: SteamTradeOfferManager.PollDat
     let isInvalid24Hours = 0;
     let isInvalidToday = 0;
 
-    const oldestId = pollData.offerData === undefined ? undefined : Object.keys(pollData.offerData)[0];
+    // Query all data in SQLite instead
+    const rows = bot.db.getStatsRows();
+
     const timeSince =
         +bot.options.statistics.startingTimeInUnix === 0
-            ? pollData.timestamps[oldestId]
+            ? rows.length > 0
+                ? rows[0].ts ?? undefined
+                : undefined
             : +bot.options.statistics.startingTimeInUnix;
     const totalDays = !timeSince ? 0 : now.diff(dayjs.unix(timeSince), 'day');
 
-    const offerData = pollData.offerData;
-    for (const offerID in offerData) {
-        if (!Object.prototype.hasOwnProperty.call(offerData, offerID)) {
-            continue;
-        }
-
-        const offer = offerData[offerID];
+    for (const row of rows) {
+        const offer = row.offerData as unknown as SteamTradeOfferManager.OfferData;
 
         if (offer.handledByUs === true && offer.action !== undefined) {
             // action not undefined means offer received

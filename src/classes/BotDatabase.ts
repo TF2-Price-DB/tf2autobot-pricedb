@@ -745,10 +745,18 @@ export default class BotDatabase {
             offerData: {}
         };
 
+        // lets limit what we hold in memory to only active offers not all data
+        const activeStates = new Set([2, 4, 9, 11]); // Active, Countered, NeedsConfirmation, InEscrow
+        const sevenDaysAgoSecs = Math.floor(Date.now() / 1000) - 7 * 24 * 60 * 60;
+
         for (const row of offerRows) {
             result[row.direction][row.offer_id] = row.state;
             if (row.ts != null) result.timestamps[row.offer_id] = row.ts;
-            if (row.offer_data != null) {
+
+            // might need to revert if not used as I suspect
+            const isActive = activeStates.has(row.state);
+            const isRecent = row.ts != null && row.ts >= sevenDaysAgoSecs;
+            if (row.offer_data != null && (isActive || isRecent)) {
                 try {
                     result.offerData[row.offer_id] = JSON.parse(row.offer_data);
                 } catch {
@@ -920,6 +928,232 @@ export default class BotDatabase {
         });
 
         tx(entries);
+    }
+
+    // Helpers credits goes to claude for converting the sql to useable functions here
+
+    // ─── Per-operation cost_basis helpers (replaces the bulk DELETE+reinsert) ───
+
+    /**
+     * Insert a single FIFO cost basis entry.
+     * Called once per item on every buy trade.
+     * @param entry - The FIFO entry to persist
+     */
+    addCostBasisEntry(entry: FIFOEntry): void {
+        this.db
+            .prepare(
+                `INSERT INTO cost_basis
+                    (account_name, sku, cost_keys, cost_metal, diff_keys, diff_metal, trade_id, timestamp, diff_version)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+            )
+            .run(
+                this.accountName,
+                entry.sku,
+                entry.costKeys,
+                entry.costMetal,
+                entry.diffKeys,
+                entry.diffMetal,
+                entry.tradeId,
+                entry.timestamp,
+                entry.diffVersion ?? 2
+            );
+    }
+
+    /**
+     * Remove and return the oldest (lowest row_id) FIFO entry for a SKU.
+     * Returns null if no entry exists for that SKU.
+     * @param sku - Item SKU
+     */
+    removeOldestCostBasisEntry(sku: string): FIFOEntry | null {
+        const row = this.db
+            .prepare(
+                `SELECT row_id, sku, cost_keys, cost_metal, diff_keys, diff_metal,
+                        trade_id, timestamp, diff_version
+                 FROM cost_basis
+                 WHERE account_name = ? AND sku = ?
+                 ORDER BY row_id ASC
+                 LIMIT 1`
+            )
+            .get(this.accountName, sku) as
+            | {
+                  row_id: number;
+                  sku: string;
+                  cost_keys: number;
+                  cost_metal: number;
+                  diff_keys: number;
+                  diff_metal: number;
+                  trade_id: string;
+                  timestamp: number;
+                  diff_version: number;
+              }
+            | undefined;
+
+        if (!row) return null;
+
+        this.db.prepare(`DELETE FROM cost_basis WHERE row_id = ?`).run(row.row_id);
+
+        return {
+            sku: row.sku,
+            costKeys: row.cost_keys,
+            costMetal: row.cost_metal,
+            diffKeys: row.diff_keys,
+            diffMetal: row.diff_metal,
+            tradeId: row.trade_id,
+            timestamp: row.timestamp,
+            diffVersion: row.diff_version
+        };
+    }
+
+    /**
+     * Return the oldest FIFO cost basis entry for a SKU without removing it.
+     * @param sku - Item SKU
+     */
+    peekCostBasisEntry(sku: string): FIFOEntry | null {
+        const row = this.db
+            .prepare(
+                `SELECT sku, cost_keys, cost_metal, diff_keys, diff_metal,
+                        trade_id, timestamp, diff_version
+                 FROM cost_basis
+                 WHERE account_name = ? AND sku = ?
+                 ORDER BY row_id ASC
+                 LIMIT 1`
+            )
+            .get(this.accountName, sku) as
+            | {
+                  sku: string;
+                  cost_keys: number;
+                  cost_metal: number;
+                  diff_keys: number;
+                  diff_metal: number;
+                  trade_id: string;
+                  timestamp: number;
+                  diff_version: number;
+              }
+            | undefined;
+
+        if (!row) return null;
+
+        return {
+            sku: row.sku,
+            costKeys: row.cost_keys,
+            costMetal: row.cost_metal,
+            diffKeys: row.diff_keys,
+            diffMetal: row.diff_metal,
+            tradeId: row.trade_id,
+            timestamp: row.timestamp,
+            diffVersion: row.diff_version
+        };
+    }
+
+    /**
+     * Count how many FIFO entries exist for a specific SKU.
+     * @param sku - Item SKU
+     */
+    getCostBasisCountForSku(sku: string): number {
+        const row = this.db
+            .prepare(`SELECT COUNT(*) AS cnt FROM cost_basis WHERE account_name = ? AND sku = ?`)
+            .get(this.accountName, sku) as { cnt: number };
+        return row.cnt;
+    }
+
+    /**
+     * Delete all cost basis entries for this account.
+     */
+    clearCostBasisEntries(): void {
+        this.db.prepare(`DELETE FROM cost_basis WHERE account_name = ?`).run(this.accountName);
+    }
+
+    /**
+     * Get the total unrealised cost basis value across all inventory.
+     * Actual cost per item = cost - diff (matching InventoryCostBasis.getInventoryValue convention).
+     */
+    getCostBasisInventoryValue(): { keys: number; metal: number } {
+        const row = this.db
+            .prepare(
+                `SELECT COALESCE(SUM(cost_keys - diff_keys), 0) AS total_keys,
+                        COALESCE(SUM(cost_metal - diff_metal), 0) AS total_metal
+                 FROM cost_basis
+                 WHERE account_name = ?`
+            )
+            .get(this.accountName) as { total_keys: number; total_metal: number };
+        return { keys: row.total_keys, metal: row.total_metal };
+    }
+
+    // ─── Queries for in-memory savings: profit and friend-trade counts ─────────
+
+    /**
+     * Return all offer-data rows that contain FIFO profit records, ordered oldest-first.
+     * Used by profit() to avoid keeping all historical offerData in memory.
+     * The caller is responsible for admin/donation filtering.
+     */
+    getProfitRows(): Array<{
+        partner?: string;
+        handledByUs?: boolean;
+        isAccepted?: boolean;
+        action?: { reason?: string };
+        donation?: boolean;
+        buyBptfPremium?: boolean;
+        handleTimestamp?: number;
+        tradeProfit?: {
+            rawProfit: { keys: number; metal: number };
+            hasEstimates?: boolean;
+            timestamp?: number;
+        };
+    }> {
+        const rows = this.db
+            .prepare(
+                `SELECT offer_data
+                 FROM poll_data
+                 WHERE account_name = ?
+                   AND offer_data IS NOT NULL
+                   AND json_extract(offer_data, '$.tradeProfit') IS NOT NULL
+                 ORDER BY ts ASC`
+            )
+            .all(this.accountName) as { offer_data: string }[];
+
+        const result: ReturnType<BotDatabase['getProfitRows']> = [];
+        for (const row of rows) {
+            try {
+                result.push(JSON.parse(row.offer_data));
+            } catch {
+                // Skip malformed rows
+            }
+        }
+        return result;
+    }
+
+    /**
+     * Count how many trades exist with each of the given partner SteamID64s.
+     * Uses SQLite json_extract so partner does not need to be a top-level column.
+     * @param steamID64s - Partner SteamID64 strings to count trades for
+     */
+    getTradeCountsByPartner(steamID64s: string[]): Record<string, number> {
+        const result: Record<string, number> = {};
+        steamID64s.forEach(id => {
+            result[id] = 0;
+        });
+
+        if (steamID64s.length === 0) return result;
+
+        const rows = this.db
+            .prepare(
+                `SELECT json_extract(offer_data, '$.partner') AS partner,
+                        COUNT(*) AS cnt
+                 FROM poll_data
+                 WHERE account_name = ?
+                   AND offer_data IS NOT NULL
+                   AND json_extract(offer_data, '$.partner') IS NOT NULL
+                 GROUP BY partner`
+            )
+            .all(this.accountName) as { partner: string; cnt: number }[];
+
+        for (const row of rows) {
+            if (Object.prototype.hasOwnProperty.call(result, row.partner)) {
+                result[row.partner] = row.cnt;
+            }
+        }
+
+        return result;
     }
 
     //I was stupid dont ask

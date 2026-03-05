@@ -208,26 +208,9 @@ export default class Trades {
     }
 
     getTradesWithPeople(steamIDs: SteamID[] | string[]): UnknownDictionary<number> {
-        const tradesBySteamID = {};
-
-        steamIDs.forEach((steamID: SteamID | string) => {
-            tradesBySteamID[steamID.toString()] = 0;
-        });
-
-        for (const offerID in this.bot.manager.pollData.offerData) {
-            if (!Object.prototype.hasOwnProperty.call(this.bot.manager.pollData.offerData, offerID)) {
-                continue;
-            }
-
-            const offerData = this.bot.manager.pollData.offerData[offerID];
-            if (!offerData.partner || tradesBySteamID[offerData.partner] === undefined) {
-                continue;
-            }
-
-            tradesBySteamID[offerData.partner]++;
-        }
-
-        return tradesBySteamID;
+        // SQLite means we dont need to perform this operation in memory
+        const ids = steamIDs.map(id => id.toString());
+        return this.bot.db.getTradeCountsByPartner(ids);
     }
 
     getOffers(includeInactive = false): Promise<{

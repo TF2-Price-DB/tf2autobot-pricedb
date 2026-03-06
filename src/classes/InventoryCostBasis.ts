@@ -58,7 +58,7 @@ export default class InventoryCostBasis {
             diffKeys,
             diffMetal,
             tradeId,
-            timestamp: Date.now(),
+            timestamp: Math.floor(Date.now() / 1000), // Unix seconds — consistent with cost_basis schema
             diffVersion: CURRENT_DIFF_VERSION
         };
 
@@ -105,7 +105,7 @@ export default class InventoryCostBasis {
                             diffKeys: 0,
                             diffMetal: 0,
                             tradeId: 'ESTIMATE',
-                            timestamp: Date.now(),
+                            timestamp: Math.floor(Date.now() / 1000), // Unix seconds — consistent with cost_basis schema
                             diffVersion: CURRENT_DIFF_VERSION
                         });
                     }

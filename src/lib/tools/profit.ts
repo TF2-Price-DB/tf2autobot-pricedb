@@ -79,9 +79,12 @@ export default async function profit(
                 continue;
             }
 
-            // Capture timestamp of first SQLite row instead 
+            // Capture timestamp of first SQLite row instead.
+            // handleTimestamp and tradeProfit.timestamp are both in milliseconds (Date.now() / dayjs().valueOf()).
+            // Convert to seconds here so it is consistent with profitDataSinceInUnix and dayjs.unix() below.
             if (earliestTradeTs === undefined) {
-                earliestTradeTs = trade.handleTimestamp ?? tradeProfit.timestamp;
+                const rawTs = trade.handleTimestamp ?? tradeProfit.timestamp;
+                earliestTradeTs = Math.floor(rawTs / 1000);
             }
 
             totalRawKeys += tradeProfit.rawProfit.keys;

@@ -1,13 +1,9 @@
 import path from 'path';
-import fs from 'fs';
 
 interface FilePaths {
     refreshToken: string;
-    pollData: string;
-    loginAttempts: string;
-    pricelist: string;
-    blockedList: string;
-    costBasis: string;
+    /** Legacy per-bot data directory.  Kept so migration code can locate old
+     *  JSON files.  No new JSON data files are written here. */
     dir: string;
 }
 
@@ -20,34 +16,20 @@ interface LogPaths {
 export interface Paths {
     files: FilePaths;
     logs: LogPaths;
+    db: string;
 }
 
-function generatePollDataPath(steamAccountName: string, increment: number) {
-    return path.join(__dirname, `../../files/${steamAccountName}/polldata${increment > 0 ? increment : ''}.json`);
-}
-
-export default function genPaths(steamAccountName: string, maxPollDataSizeMB = 5): Paths {
-    let increment = 0;
-    let pollDataPath = generatePollDataPath(steamAccountName, increment);
-
-    while (fs.existsSync(pollDataPath) && fs.statSync(pollDataPath).size / (1024 * 1024) > maxPollDataSizeMB) {
-        pollDataPath = generatePollDataPath(steamAccountName, ++increment);
-    }
-
+export default function genPaths(steamAccountName: string): Paths {
     return {
         files: {
             refreshToken: path.join(__dirname, `../../files/${steamAccountName}/refreshToken.txt`),
-            pollData: pollDataPath,
-            loginAttempts: path.join(__dirname, `../../files/${steamAccountName}/loginattempts.json`),
-            pricelist: path.join(__dirname, `../../files/${steamAccountName}/pricelist.json`),
-            blockedList: path.join(__dirname, `../../files/${steamAccountName}/blockedList.json`),
-            costBasis: path.join(__dirname, `../../files/${steamAccountName}/costBasis.json`),
             dir: path.join(__dirname, `../../files/${steamAccountName}/`)
         },
         logs: {
             log: path.join(__dirname, `../../logs/${steamAccountName}-%DATE%.log`),
             trade: path.join(__dirname, `../../logs/${steamAccountName}.trade.log`),
             error: path.join(__dirname, `../../logs/${steamAccountName}.error.log`)
-        }
+        },
+        db: path.join(__dirname, '../../files/bot.db')
     };
 }

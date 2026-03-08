@@ -109,20 +109,32 @@ export default function updateListings(
 
         // Track purchase/sale for PPU cost basis
         if (existsInPricelist && priceListEntry.autoprice && opt.pricelist.partialPriceUpdate?.enable) {
-            const quantityChanged = Math.abs(diff[priceKey]);
+            // eslint-disable-next-line @typescript-eslint/no-unsafe-argument
+            const quantityChanged = Math.abs(diff[priceKey] as number);
 
             if (diff[priceKey] > 0) {
                 // We received items (we bought them)
                 const pricePaid = priceListEntry.buy;
                 if (pricePaid) {
+                    const purchaseTimestamp = Math.floor(Date.now() / 1000);
                     priceListEntry.addPurchaseRecord(quantityChanged, pricePaid);
                     // Set lastInStockTime immediately when item is purchased
-                    priceListEntry.lastInStockTime = Math.floor(Date.now() / 1000);
+                    priceListEntry.lastInStockTime = purchaseTimestamp;
+                    // hopefully better than holding in memory but alot more work is needed
+                    bot.db.addPurchaseHistoryRecord(
+                        priceListEntry.sku,
+                        quantityChanged,
+                        pricePaid.keys,
+                        pricePaid.metal,
+                        purchaseTimestamp
+                    );
                     log.debug(`PPU: Recorded purchase of ${quantityChanged}x ${name} at ${pricePaid.toString()}`);
                 }
             } else if (diff[priceKey] < 0) {
                 // We gave away items (we sold them)
                 priceListEntry.removePurchaseRecord(quantityChanged);
+                // Same as above but related to FIFO
+                bot.db.removePurchaseHistoryRecords(priceListEntry.sku, quantityChanged);
                 log.debug(`PPU: Removed ${quantityChanged}x ${name} from purchase history (FIFO)`);
             }
         }

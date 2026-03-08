@@ -1,8 +1,8 @@
 import Bot from '../../classes/Bot';
 import dayjs from 'dayjs';
-import SteamTradeOfferManager, { OfferData } from '@tf2autobot/tradeoffer-manager';
+import SteamTradeOfferManager from '@tf2autobot/tradeoffer-manager';
 
-// New FIFO-based profit calculation system
+// FIFO-based profit calculation — reads directly from SQLite, not from in-memory pollData.
 
 interface Profit {
     rawProfit: {
@@ -17,28 +17,31 @@ interface Profit {
     hasEstimates?: boolean; // True if FIFO fallback or legacy calculation was used
 }
 
-interface OfferDataWithTime extends OfferData {
-    time: number;
-}
-
 /**
- * Calculate profit from polldata using FIFO-based TradeProfitData
- * Returns profit in scrap for backward compatibility
+ * Calculate profit using FIFO-based TradeProfitData stored in SQLite.
+ * The pollData parameter is accepted but unused — it exists only for backward compatibility
+ * with existing call sites. Pass undefined or omit it.
  */
-export default async function profit(bot: Bot, pollData: SteamTradeOfferManager.PollData, start = 0): Promise<Profit> {
+export default async function profit(
+    bot: Bot,
+    _pollData?: SteamTradeOfferManager.PollData,
+    start = 0
+): Promise<Profit> {
     return new Promise(resolve => {
         const now = dayjs();
         const twentyFourHoursAgo = now.subtract(24, 'hour').valueOf();
 
-        // Initialize profit trackers (keys and metal separate)
         let totalRawKeys = 0;
         let totalRawMetal = 0;
         let timedRawKeys = 0;
         let timedRawMetal = 0;
-        let hasEstimates = false; // Track if any estimates were used
+        let hasEstimates = false;
+        let earliestTradeTs: number | undefined;
 
-        if (!pollData.offerData) {
-            // No trade data - use previous values if available
+        // Query DB for all offers that have FIFO profit data, ordered oldest-first.
+        const rows = bot.db.getProfitRows();
+
+        if (rows.length === 0) {
             const fromPrevious = {
                 made: bot.options.statistics.lastTotalProfitMadeInRef,
                 since: bot.options.statistics.profitDataSinceInUnix
@@ -53,40 +56,13 @@ export default async function profit(bot: Bot, pollData: SteamTradeOfferManager.
             });
         }
 
-        // Convert pollData to array of trades
-        const trades = Object.keys(pollData.offerData).map(offerID => {
-            const ret = pollData.offerData[offerID] as OfferDataWithTime;
-            ret.time = pollData.timestamps[offerID];
-            return ret;
-        });
-
-        // Sort by time
-        trades.sort((a, b) => {
-            const aTime = a.handleTimestamp;
-            const bTime = b.handleTimestamp;
-
-            if ((!aTime || isNaN(aTime)) && !(!bTime || isNaN(bTime))) return -1;
-            if (!(!aTime || isNaN(aTime)) && (!bTime || isNaN(bTime))) return 1;
-            if ((!aTime || isNaN(aTime)) && (!bTime || isNaN(bTime))) return 0;
-            return aTime - bTime;
-        });
-
-        // Get first trade timestamp
-        const timeSince =
-            +bot.options.statistics.profitDataSinceInUnix === 0
-                ? pollData.timestamps[Object.keys(pollData.offerData)[0]]
-                : +bot.options.statistics.profitDataSinceInUnix;
-
-        const keyPrice = bot.pricelist.getKeyPrice.metal;
-
-        // Process each trade
-        for (const trade of trades) {
-            // Skip trades that weren't accepted or handled by us
+        for (const trade of rows) {
+            // skips rows the bot didnt directly handle or where not accepted yet
             if (!(trade.handledByUs && trade.isAccepted)) {
                 continue;
             }
 
-            // Skip admin/donation/premium trades
+            // Skip admin / premium-buy / donation trades
             if (trade.action?.reason === 'ADMIN' || bot.isAdmin(trade.partner)) {
                 continue;
             }
@@ -95,26 +71,29 @@ export default async function profit(bot: Bot, pollData: SteamTradeOfferManager.
                 continue;
             }
 
-            // Get profit data from new system
             const tradeProfit = trade.tradeProfit;
 
             if (!tradeProfit) {
-                // Old trade without new FIFO profit tracking - skip it
-                // We cannot accurately calculate FIFO-based raw profit from legacy trades
-                // New system will accumulate accurate data going forward
+                // Old trade without FIFO profit tracking — skip.
+                // Accurate FIFO data only exists for trades processed after the new system.
                 continue;
             }
 
-            // Accumulate raw profit (keep keys and metal separate)
+            // Capture timestamp of first SQLite row instead.
+            // handleTimestamp and tradeProfit.timestamp are both in milliseconds (Date.now() / dayjs().valueOf()).
+            // Convert to seconds here so it is consistent with profitDataSinceInUnix and dayjs.unix() below.
+            if (earliestTradeTs === undefined) {
+                const rawTs = trade.handleTimestamp ?? tradeProfit.timestamp;
+                earliestTradeTs = Math.floor(rawTs / 1000);
+            }
+
             totalRawKeys += tradeProfit.rawProfit.keys;
             totalRawMetal += tradeProfit.rawProfit.metal;
 
-            // Track if this trade has estimates
             if (tradeProfit.hasEstimates) {
                 hasEstimates = true;
             }
 
-            // Add to 24h totals if within timeframe
             const tradeTime = trade.handleTimestamp || tradeProfit.timestamp;
             if (tradeTime && tradeTime >= twentyFourHoursAgo) {
                 timedRawKeys += tradeProfit.rawProfit.keys;
@@ -122,24 +101,16 @@ export default async function profit(bot: Bot, pollData: SteamTradeOfferManager.
             }
         }
 
-        // Don't include previous values - only count new FIFO-tracked trades
-        // Legacy trades cannot be accurately recalculated with FIFO methodology
-        const fromPrevious = {
-            madeKeys: 0,
-            madeMetal: 0
-        };
+        const timeSince =
+            +bot.options.statistics.profitDataSinceInUnix === 0
+                ? earliestTradeTs
+                : +bot.options.statistics.profitDataSinceInUnix;
 
         resolve({
-            rawProfit: {
-                keys: totalRawKeys + fromPrevious.madeKeys, // Include keys from previous runs
-                metal: totalRawMetal + fromPrevious.madeMetal
-            },
-            rawProfitTimed: {
-                keys: timedRawKeys,
-                metal: timedRawMetal
-            },
+            rawProfit: { keys: totalRawKeys, metal: totalRawMetal },
+            rawProfitTimed: { keys: timedRawKeys, metal: timedRawMetal },
             since: !timeSince ? 0 : now.diff(dayjs.unix(timeSince), 'day'),
-            hasEstimates // Include flag indicating if any estimates were used
+            hasEstimates
         });
     });
 }

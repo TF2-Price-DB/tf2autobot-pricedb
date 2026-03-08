@@ -810,15 +810,18 @@ export default class OptionsCommands {
     backupPricelistCommand(steamID: SteamID): void {
         const opt = this.bot.options;
         const filesPath = getFilesPath(opt.steamAccountName);
-        const pricelistPath = path.resolve(filesPath, 'pricelist.json');
         const currentTime = dayjs().tz(opt.timezone ? opt.timezone : 'UTC');
         const dateString = currentTime.format('MM_DD_YYYY');
         const timeString = 'pricelist_' + currentTime.format('HH_mm_ss');
+        const backupFilePath = path.resolve(filesPath, 'backups', dateString, timeString + '.json');
+
+        // Export the current in-memory pricelist to a JSON backup file
+        const pricelistData = JSON.stringify(this.bot.pricelist.getPrices, null, 4);
 
         // Check if the backup folder exists
         fsp.mkdir(path.resolve(filesPath, 'backups', dateString), { recursive: true })
             .then(() => {
-                fsp.copyFile(pricelistPath, path.resolve(filesPath, 'backups', dateString, timeString + '.json'))
+                fsp.writeFile(backupFilePath, pricelistData, { encoding: 'utf8' })
                     .then(() => {
                         this.bot.sendMessage(
                             steamID,

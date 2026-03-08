@@ -1196,7 +1196,12 @@ export default class Pricelist extends EventEmitter {
 
                 //use partial price update conditions
                 // Clean up expired purchases from history first
+                // TODO: Do we really need 2 functions for this?
                 const hadExpiredPurchases = currPrice.removeExpiredPurchases(ppu.thresholdInSeconds);
+                if (hadExpiredPurchases) {
+                    // Sync the DB: remove all purchase_history rows for this SKU that are now expired
+                    this.bot.db.deleteExpiredPurchaseHistory(currPrice.sku, ppu.thresholdInSeconds);
+                }
 
                 // Use oldest purchase time for threshold - we want to protect based on when items were purchased
                 const oldestPurchaseTime = currPrice.getOldestPurchaseTime();
@@ -1449,7 +1454,12 @@ export default class Pricelist extends EventEmitter {
                 : false;
 
             // Clean up expired purchases from history first
+            // TODO: Same issue as above do we really need 2 functions for this?
             const hadExpiredPurchases = match.removeExpiredPurchases(ppu.thresholdInSeconds);
+            if (hadExpiredPurchases) {
+                // Sync the DB: remove all purchase_history rows for this SKU that are now expired
+                this.bot.db.deleteExpiredPurchaseHistory(match.sku, ppu.thresholdInSeconds);
+            }
 
             // Use oldest purchase time for threshold - we want to protect based on when items were purchased
             const oldestPurchaseTime = match.getOldestPurchaseTime();

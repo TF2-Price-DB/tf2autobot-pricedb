@@ -107,15 +107,15 @@ export default class CustomPricerApi {
     }
 
     requestCheck(sku: string): Promise<CustomPricerPricesRequestCheckResponse> {
-        return this.apiRequest('POST', `/autob/items/${sku}`, { source: 'bptf' });
+        return this.apiRequest('POST', `/items/${sku}`, { source: 'bptf' });
     }
 
     getPrice(sku: string): Promise<CustomPricesGetItemPriceResponse> {
-        return this.apiRequest('GET', `/autob/items/${sku}`, { src: 'bptf' });
+        return this.apiRequest('GET', `/items/${sku}`, { src: 'bptf' });
     }
 
     getPricelist(): Promise<CustomPricesGetPricelistResponse> {
-        return this.apiRequest('GET', '/autob/items', { src: 'bptf' });
+        return this.apiRequest('GET', '/items', { src: 'bptf' });
     }
 
     getOptions(): PricerOptions {

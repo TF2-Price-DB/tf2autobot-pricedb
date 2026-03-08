@@ -8,7 +8,6 @@ export class OnHeartBeat {
 
     async process(_: HeartBeatEventEnvelope) {
         if (!(await this.bot.pricedbStoreManager.sendDeadMansRequest())) {
-            this.logger.warn('Connection is not okay');
             throw new RestartConnectionError();
         }
 

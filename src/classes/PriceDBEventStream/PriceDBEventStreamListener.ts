@@ -23,9 +23,7 @@ export class PriceDBEventStreamListener {
             try {
                 await this.hotLoop();
             } catch (e) {
-                if (e instanceof RestartConnectionError) {
-                    this.logger.debug('Refreshing connection as requested.');
-                } else {
+                if (!(e instanceof RestartConnectionError)) {
                     this.logger.error(
                         'Creating a new connection in 15 seconds because something went very wrong...',
                         e

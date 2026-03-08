@@ -288,9 +288,18 @@ export default class Listings {
                     listing.update(toUpdate);
                     //TODO: make promote, demote
 
-                    // Update pricedb.io listing if it's a sell listing
+                    // Update pricedb.io listings if it's a sell listing - update ALL asset IDs for this SKU
                     if (listing.intent === 1) {
-                        void this.createOrUpdatePriceDBListing(listing.id.replace('440_', ''), currencies);
+                        const allAssetIds = isAssetId
+                            ? [listing.id.replace('440_', '')]
+                            : inventory
+                                  .findBySKU(sku, true)
+                                  .filter(
+                                      assetId => !this.bot.pricelist.hasPrice({ priceKey: assetId, onlyEnabled: false })
+                                  );
+                        for (const id of allAssetIds) {
+                            void this.createOrUpdatePriceDBListing(id, currencies);
+                        }
                     }
 
                     // Schedule a debounced cache refresh to sync expected prices
@@ -394,8 +403,10 @@ export default class Listings {
                     currencies: matchNew.sell
                 });
 
-                // Also create listing on pricedb.io store (only sell listings supported)
-                void this.createOrUpdatePriceDBListing(assetid, matchNew.sell);
+                // Also create listings on pricedb.io store for ALL asset IDs (only sell listings supported)
+                for (const id of assetids) {
+                    void this.createOrUpdatePriceDBListing(id, matchNew.sell);
+                }
             }
         }
 

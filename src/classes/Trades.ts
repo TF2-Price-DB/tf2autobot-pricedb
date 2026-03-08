@@ -1214,11 +1214,12 @@ export default class Trades {
 
     private acceptOfferRetry(offer: TradeOffer, attempts = 0): Promise<string> {
         return new Promise((resolve, reject) => {
-            offer.accept((err: CustomError, status) => {
+            offer.accept((err, status) => {
+                const customError = err as CustomError;
                 attempts++;
 
                 if (err) {
-                    if (attempts > 5 || err.eresult !== undefined || err.cause !== undefined) {
+                    if (attempts > 5 || customError.eresult !== undefined || err.cause !== undefined) {
                         return reject(err);
                     }
 
@@ -1318,7 +1319,8 @@ export default class Trades {
 
     private sendOfferRetry(offer: TradeOffer, attempts = 0): Promise<string> {
         return new Promise((resolve, reject) => {
-            offer.send((err: CustomError, status) => {
+            offer.send((err, status) => {
+                const customError = err as CustomError;
                 attempts++;
 
                 if (err) {
@@ -1335,12 +1337,12 @@ export default class Trades {
                         return reject(err);
                     }
 
-                    if (err.eresult === TradeOfferManager.EResult['Revoked']) {
+                    if (customError.eresult === TradeOfferManager.EResult['Revoked']) {
                         // One or more of the items does not exist in the inventories, refresh our inventory and return the error
                         return void this.bot.inventoryManager.getInventory.fetch().finally(() => {
                             reject(err);
                         });
-                    } else if (err.eresult === TradeOfferManager.EResult['Timeout']) {
+                    } else if (customError.eresult === TradeOfferManager.EResult['Timeout']) {
                         // The offer may or may not have been made, will wait some time and check if if we can find a matching offer
                         return void timersPromises.setTimeout(exponentialBackoff(attempts, 4000)).then(() => {
                             // Done waiting, try and find matching offer
@@ -1382,7 +1384,7 @@ export default class Trades {
                                 })
                                 .catch((err: Error) => reject(err));
                         });
-                    } else if (err.eresult !== undefined) {
+                    } else if (customError.eresult !== undefined) {
                         return reject(err);
                     }
 

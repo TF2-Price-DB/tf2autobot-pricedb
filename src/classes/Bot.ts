@@ -1226,19 +1226,41 @@ export default class Bot {
 
                                     this.pricedbStoreManager = new PriceDBStoreManager(
                                         this.options.pricedbStoreApiKey,
-                                        this.client.steamID.getSteamID64()
+                                        this.client.steamID.getSteamID64(),
+                                        process.env.PRICE_DB_STORE_API_URL
                                     );
 
-                                    this.pricedbStoreManager.on('listingCreated', (listing: PriceDBListingEvent) => {
-                                        log.debug('PriceDB Store listing created:', listing.id);
+                                    const _pricedbBatch = { created: 0, updated: 0, deleted: 0 };
+                                    let _pricedbBatchTimer: ReturnType<typeof setTimeout> | null = null;
+                                    const _flushPricedbBatch = (): void => {
+                                        const parts: string[] = [];
+                                        if (_pricedbBatch.created > 0) parts.push(`${_pricedbBatch.created} created`);
+                                        if (_pricedbBatch.updated > 0) parts.push(`${_pricedbBatch.updated} updated`);
+                                        if (_pricedbBatch.deleted > 0) parts.push(`${_pricedbBatch.deleted} deleted`);
+                                        if (parts.length > 0) log.debug(`PriceDB Store listings: ${parts.join(', ')}`);
+                                        _pricedbBatch.created = 0;
+                                        _pricedbBatch.updated = 0;
+                                        _pricedbBatch.deleted = 0;
+                                        _pricedbBatchTimer = null;
+                                    };
+                                    const _schedulePricedbFlush = (): void => {
+                                        if (_pricedbBatchTimer) clearTimeout(_pricedbBatchTimer);
+                                        _pricedbBatchTimer = setTimeout(_flushPricedbBatch, 2000);
+                                    };
+
+                                    this.pricedbStoreManager.on('listingCreated', () => {
+                                        _pricedbBatch.created++;
+                                        _schedulePricedbFlush();
                                     });
 
-                                    this.pricedbStoreManager.on('listingUpdated', (listing: PriceDBListingEvent) => {
-                                        log.debug('PriceDB Store listing updated:', listing.id);
+                                    this.pricedbStoreManager.on('listingUpdated', () => {
+                                        _pricedbBatch.updated++;
+                                        _schedulePricedbFlush();
                                     });
 
-                                    this.pricedbStoreManager.on('listingDeleted', (assetId: string) => {
-                                        log.debug('PriceDB Store listing deleted:', assetId);
+                                    this.pricedbStoreManager.on('listingDeleted', () => {
+                                        _pricedbBatch.deleted++;
+                                        _schedulePricedbFlush();
                                     });
 
                                     this.pricedbStoreManager.on(

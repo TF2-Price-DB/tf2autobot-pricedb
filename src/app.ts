@@ -85,6 +85,7 @@ import ON_DEATH from 'death';
 import * as inspect from 'util';
 import { Webhook } from './classes/DiscordWebhook/interfaces';
 import { uptime } from './lib/tools/time';
+import { enableTradeRequestListener } from './classes/PriceDBEventStream/enableTradeRequestListener';
 
 ON_DEATH({ uncaughtException: true })((signalOrErr, origin: string | Error) => {
     const crashed = !['SIGINT', 'SIGTERM'].includes(signalOrErr as 'SIGINT' | 'SIGTERM' | 'SIGQUIT');
@@ -203,4 +204,6 @@ void botManager.start(options).asCallback(err => {
             });
         });
     }
+
+    enableTradeRequestListener(botManager.bot);
 });

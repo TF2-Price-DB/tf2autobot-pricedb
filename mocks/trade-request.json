@@ -1,0 +1,19 @@
+{
+    "kind": "trade_request",
+    "trade_request": {
+        "trade_offer_url": "https://steamcommunity.com/tradeoffer/new/?partner=123456789&token=abcdefg",
+        "items_to_give": [
+            {
+                "kind": "sku",
+                "sku": "5021;6"
+            }
+        ],
+        "items_to_receive": [
+            {
+                "kind": "assetid",
+                "assetid": "123456"
+            }
+        ],
+        "reserved_assets": ["123456", "654321"]
+    }
+}

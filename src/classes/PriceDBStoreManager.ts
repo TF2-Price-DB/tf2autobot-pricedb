@@ -166,9 +166,9 @@ interface QueuedRequest {
 export default class PriceDBStoreManager extends EventEmitter {
     private readonly apiKey: string;
 
-    private readonly baseURL: string = 'https://store.pricedb.io/api/v2';
+    private static readonly DEFAULT_BASE_URI = 'https://store.pricedb.io/api/v2';
 
-    private readonly axiosInstance: AxiosInstance;
+    private axiosInstance: AxiosInstance;
 
     private steamID: string;
 
@@ -190,19 +190,15 @@ export default class PriceDBStoreManager extends EventEmitter {
 
     private readonly requestDelayMs: number = 100; // 100ms delay between requests = max 10 requests/second
 
-    constructor(apiKey: string, steamID?: string) {
+    private priceDbStoreApiUrl: string;
+
+    constructor(apiKey: string, steamID: string, priceDbStoreApiUrl: string | null | undefined) {
         super();
         this.apiKey = apiKey;
         this.steamID = steamID;
+        this.priceDbStoreApiUrl = priceDbStoreApiUrl || PriceDBStoreManager.DEFAULT_BASE_URI;
 
-        this.axiosInstance = axios.create({
-            baseURL: this.baseURL,
-            headers: {
-                'X-API-Key': this.apiKey,
-                'Content-Type': 'application/json'
-            },
-            timeout: 30000
-        });
+        this.axiosInstance = this.createAxiosClient(undefined);
     }
 
     /**
@@ -258,7 +254,13 @@ export default class PriceDBStoreManager extends EventEmitter {
     async init(): Promise<void> {
         try {
             log.debug('Initialising PriceDB Store Manager...');
+            await this.getAuthToken();
             await this.fetchMyListings();
+
+            if (this.listings.size > 0) {
+                log.debug(`Clearing ${this.listings.size} pre-existing pricedb.io listings on startup...`);
+                await this.deleteAllListings();
+            }
 
             // Fetch group info to cache the store slug for friendly URLs
             try {
@@ -277,6 +279,28 @@ export default class PriceDBStoreManager extends EventEmitter {
             log.error('Failed to initialize PriceDB Store Manager:', err);
             this.emit('error', err);
             throw err;
+        }
+    }
+
+    async getAuthToken() {
+        const errReturn = { ok: false, reason: 'Could not get PriceDB AuthToken' } as const;
+
+        try {
+            const response = await this.axiosInstance.get<{ ok: true; token: string } | { ok: false; reason: string }>(
+                '/bot-api/auth-token'
+            );
+
+            if (response.status !== 200 || !response.data.ok) {
+                log.error('Could not get PriceDB AuthToken', response);
+                return errReturn;
+            }
+
+            this.axiosInstance = this.createAxiosClient(response.data.token);
+            return response.data;
+        } catch (e) {
+            const error = filterAxiosError(e as AxiosError);
+            log.error('Failed to fetch Auth Token from pricedb.io:', error);
+            return errReturn;
         }
     }
 
@@ -319,7 +343,6 @@ export default class PriceDBStoreManager extends EventEmitter {
 
                 if (response.data.success && response.data.listing) {
                     this.listings.set(assetId, response.data.listing);
-                    log.debug(`Created listing on pricedb.io for asset ${assetId}`);
                     this.emit('listingCreated', response.data.listing);
                     return response.data.listing;
                 }
@@ -358,7 +381,6 @@ export default class PriceDBStoreManager extends EventEmitter {
                 if (response.data.success && response.data.listing) {
                     const updatedListing = { ...existingListing, ...response.data.listing };
                     this.listings.set(assetId, updatedListing);
-                    log.debug(`Updated listing on pricedb.io for asset ${assetId}`);
                     this.emit('listingUpdated', updatedListing);
                     return updatedListing;
                 }
@@ -390,7 +412,6 @@ export default class PriceDBStoreManager extends EventEmitter {
 
                 if (response.data.success) {
                     this.listings.delete(assetId);
-                    log.debug(`Deleted listing on pricedb.io for asset ${assetId}`);
                     this.emit('listingDeleted', assetId);
                     return true;
                 }
@@ -745,5 +766,26 @@ export default class PriceDBStoreManager extends EventEmitter {
         }
 
         return null;
+    }
+
+    async sendDeadMansRequest() {
+        try {
+            const result = await this.axiosInstance.post('/bot-api/alive', { alive: true });
+            return result.status === 200;
+        } catch {
+            return false;
+        }
+    }
+
+    private createAxiosClient(shortLivedToken: string | undefined) {
+        return axios.create({
+            baseURL: this.priceDbStoreApiUrl || PriceDBStoreManager.DEFAULT_BASE_URI,
+            headers: {
+                'X-API-Key': this.apiKey,
+                'X-Short-Lived-Token': shortLivedToken,
+                'Content-Type': 'application/json'
+            },
+            timeout: 30000
+        });
     }
 }

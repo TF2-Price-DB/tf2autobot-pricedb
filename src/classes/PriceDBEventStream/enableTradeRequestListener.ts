@@ -6,7 +6,7 @@ import { PriceDBEventStreamLogger } from './PriceDBEventStreamLogger';
 
 export function enableTradeRequestListener(bot: Bot) {
     const logger = new PriceDBEventStreamLogger();
-    const eventStreamUrl = process.env.TRADE_REQUEST_EVENT_STREAM_URL;
+    const eventStreamUrl = process.env.TRADE_REQUEST_EVENT_STREAM_URL ?? 'https://events.pricedb.io/event-stream';
     if (!eventStreamUrl) {
         logger.warn('Not starting because TRADE_REQUEST_EVENT_STREAM_URL not configured.');
         return;

@@ -330,23 +330,64 @@ export default class PriceDBStoreManager extends EventEmitter {
     /**
      * Create a new listing on pricedb.io (queued with rate limiting)
      */
+    /**
+     * Create a new listing directly without going through the request queue.
+     * Used by createOrUpdatePriceDBListing for concurrent operation.
+     */
+    async createListingDirect(assetId: string, currencies: Currencies): Promise<PriceDBListing | null> {
+        const listing: Omit<PriceDBListing, 'id' | 'steam_id' | 'item_name' | 'created_at'> = {
+            asset_id: assetId,
+            price_keys: currencies.keys,
+            price_metal: currencies.metal
+        };
+
+        const response = await this.axiosInstance.post<PriceDBListingResponse>('/listings', listing);
+
+        if (response.data.success && response.data.listing) {
+            this.listings.set(assetId, response.data.listing);
+            this.emit('listingCreated', response.data.listing);
+            return response.data.listing;
+        }
+        return null;
+    }
+
+    /**
+     * Update an existing listing directly without going through the request queue.
+     * Used by createOrUpdatePriceDBListing for concurrent operation.
+     */
+    async updateListingDirect(assetId: string, currencies: Currencies): Promise<PriceDBListing | null> {
+        const existingListing = this.listings.get(assetId);
+        if (!existingListing || !existingListing.id) {
+            log.warn(`Cannot update listing for asset ${assetId}: listing not found`);
+            return null;
+        }
+
+        const update = {
+            price_keys: currencies.keys,
+            price_metal: currencies.metal
+        };
+
+        const response = await this.axiosInstance.put<PriceDBListingResponse>(
+            `/listings/${existingListing.id}`,
+            update
+        );
+
+        if (response.data.success && response.data.listing) {
+            const updatedListing = { ...existingListing, ...response.data.listing };
+            this.listings.set(assetId, updatedListing);
+            this.emit('listingUpdated', updatedListing);
+            return updatedListing;
+        }
+        return null;
+    }
+
+    /**
+     * Create a new listing on pricedb.io (queued with rate limiting)
+     */
     async createListing(assetId: string, currencies: Currencies): Promise<PriceDBListing | null> {
         return this.queueRequest(async () => {
             try {
-                const listing: Omit<PriceDBListing, 'id' | 'steam_id' | 'item_name' | 'created_at'> = {
-                    asset_id: assetId,
-                    price_keys: currencies.keys,
-                    price_metal: currencies.metal
-                };
-
-                const response = await this.axiosInstance.post<PriceDBListingResponse>('/listings', listing);
-
-                if (response.data.success && response.data.listing) {
-                    this.listings.set(assetId, response.data.listing);
-                    this.emit('listingCreated', response.data.listing);
-                    return response.data.listing;
-                }
-                return null;
+                return await this.createListingDirect(assetId, currencies);
             } catch (err) {
                 const error = filterAxiosError(err as AxiosError);
                 log.error(`Failed to create listing on pricedb.io for asset ${assetId}:`, error);
@@ -362,29 +403,7 @@ export default class PriceDBStoreManager extends EventEmitter {
     async updateListing(assetId: string, currencies: Currencies): Promise<PriceDBListing | null> {
         return this.queueRequest(async () => {
             try {
-                const existingListing = this.listings.get(assetId);
-                if (!existingListing || !existingListing.id) {
-                    log.warn(`Cannot update listing for asset ${assetId}: listing not found`);
-                    return null;
-                }
-
-                const update = {
-                    price_keys: currencies.keys,
-                    price_metal: currencies.metal
-                };
-
-                const response = await this.axiosInstance.put<PriceDBListingResponse>(
-                    `/listings/${existingListing.id}`,
-                    update
-                );
-
-                if (response.data.success && response.data.listing) {
-                    const updatedListing = { ...existingListing, ...response.data.listing };
-                    this.listings.set(assetId, updatedListing);
-                    this.emit('listingUpdated', updatedListing);
-                    return updatedListing;
-                }
-                return null;
+                return await this.updateListingDirect(assetId, currencies);
             } catch (err) {
                 const error = filterAxiosError(err as AxiosError);
                 log.error(`Failed to update listing on pricedb.io for asset ${assetId}:`, error);

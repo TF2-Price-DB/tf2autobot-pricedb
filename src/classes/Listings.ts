@@ -827,10 +827,10 @@ export default class Listings {
 
             if (existingListing) {
                 // Update existing listing
-                await this.bot.pricedbStoreManager.updateListing(assetId, currencies);
+                await this.bot.pricedbStoreManager.updateListingDirect(assetId, currencies);
             } else {
                 // Create new listing
-                await this.bot.pricedbStoreManager.createListing(assetId, currencies);
+                await this.bot.pricedbStoreManager.createListingDirect(assetId, currencies);
             }
         } catch (err: any) {
             const isItemNotFoundError =

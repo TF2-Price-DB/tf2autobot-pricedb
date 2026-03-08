@@ -1,5 +1,6 @@
 import Bot from '../Bot';
 import { PriceDBEventStreamLogger } from './PriceDBEventStreamLogger';
+import { RestartConnectionError } from './RestartConnectionError';
 import { HeartBeatEventEnvelope } from './types';
 
 export class OnHeartBeat {
@@ -8,7 +9,7 @@ export class OnHeartBeat {
     async process(_: HeartBeatEventEnvelope) {
         if (!(await this.bot.pricedbStoreManager.sendDeadMansRequest())) {
             this.logger.warn('Connection is not okay');
-            return;
+            throw new RestartConnectionError();
         }
 
         this.logger.debug('The connection is okay');

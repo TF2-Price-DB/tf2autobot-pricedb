@@ -767,8 +767,12 @@ export default class PriceDBStoreManager extends EventEmitter {
     }
 
     async sendDeadMansRequest() {
-        const result = await this.axiosInstance.post('/bot-api/alive', { alive: true });
-        return result.status === 200;
+        try {
+            const result = await this.axiosInstance.post('/bot-api/alive', { alive: true });
+            return result.status === 200;
+        } catch {
+            return false;
+        }
     }
 
     private createAxiosClient(shortLivedToken: string | undefined) {

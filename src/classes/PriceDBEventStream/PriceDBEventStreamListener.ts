@@ -3,6 +3,7 @@ import { createEventSource } from 'eventsource-client';
 import { PriceDBEventStreamLogger } from './PriceDBEventStreamLogger';
 import { HeartBeatEventEnvelope, TradeRequestEventEnvelope } from './types';
 import { Handler as Processor } from './Processor';
+import { RestartConnectionError } from './RestartConnectionError';
 
 export class PriceDBEventStreamListener {
     private onTradeRequest: Set<Processor<TradeRequestEventEnvelope>> = new Set();
@@ -21,10 +22,16 @@ export class PriceDBEventStreamListener {
             try {
                 await this.hotLoop();
             } catch (e) {
-                this.logger.error('Creating a new connection in 15 seconds...', e);
+                if (e instanceof RestartConnectionError) {
+                    this.logger.debug('Refreshing connection as requested.');
+                } else {
+                    this.logger.error(
+                        'Creating a new connection in 15 seconds because something went very wrong...',
+                        e
+                    );
+                    await new Promise(res => setTimeout(res, 15_000));
+                }
             }
-
-            await new Promise(res => setTimeout(res, 15_000));
         }
     }
 
@@ -79,6 +86,9 @@ export class PriceDBEventStreamListener {
                     this.logger.warn('Unknown event type encountered, an upgrade may be required...', event);
             }
         } catch (e) {
+            if (e instanceof RestartConnectionError) {
+                throw e;
+            }
             this.logger.error(`Could not handle event ${event}, an error occurred`, e);
         }
     }

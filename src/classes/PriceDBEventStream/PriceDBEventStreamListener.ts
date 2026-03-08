@@ -7,6 +7,7 @@ import { RestartConnectionError } from './RestartConnectionError';
 
 export class PriceDBEventStreamListener {
     private onTradeRequest: Set<Processor<TradeRequestEventEnvelope>> = new Set();
+
     private onHeartBeat: Set<Processor<HeartBeatEventEnvelope>> = new Set();
 
     constructor(
@@ -66,7 +67,7 @@ export class PriceDBEventStreamListener {
 
         try {
             for await (const { data, event } of eventSource) {
-                this.process(JSON.parse(data), event);
+                await this.process(JSON.parse(data), event);
             }
         } finally {
             eventSource.close();

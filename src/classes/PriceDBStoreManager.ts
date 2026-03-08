@@ -257,6 +257,11 @@ export default class PriceDBStoreManager extends EventEmitter {
             await this.getAuthToken();
             await this.fetchMyListings();
 
+            if (this.listings.size > 0) {
+                log.debug(`Clearing ${this.listings.size} pre-existing pricedb.io listings on startup...`);
+                await this.deleteAllListings();
+            }
+
             // Fetch group info to cache the store slug for friendly URLs
             try {
                 const group = await this.getMyGroup();
@@ -338,7 +343,6 @@ export default class PriceDBStoreManager extends EventEmitter {
 
                 if (response.data.success && response.data.listing) {
                     this.listings.set(assetId, response.data.listing);
-                    log.debug(`Created listing on pricedb.io for asset ${assetId}`);
                     this.emit('listingCreated', response.data.listing);
                     return response.data.listing;
                 }
@@ -377,7 +381,6 @@ export default class PriceDBStoreManager extends EventEmitter {
                 if (response.data.success && response.data.listing) {
                     const updatedListing = { ...existingListing, ...response.data.listing };
                     this.listings.set(assetId, updatedListing);
-                    log.debug(`Updated listing on pricedb.io for asset ${assetId}`);
                     this.emit('listingUpdated', updatedListing);
                     return updatedListing;
                 }
@@ -409,7 +412,6 @@ export default class PriceDBStoreManager extends EventEmitter {
 
                 if (response.data.success) {
                     this.listings.delete(assetId);
-                    log.debug(`Deleted listing on pricedb.io for asset ${assetId}`);
                     this.emit('listingDeleted', assetId);
                     return true;
                 }

@@ -14,6 +14,7 @@ import { PaintedNames } from './Options';
 import ListingManager from '@tf2autobot/bptf-listings';
 import getAttachmentName from '../lib/tools/getAttachmentName';
 import filterAxiosError from '@tf2autobot/filter-axios-error';
+import { AxiosError } from 'axios';
 
 /**
  * used when remove all listings has failed once
@@ -834,9 +835,12 @@ export default class Listings {
                 await this.bot.pricedbStoreManager.createListingDirect(assetId, currencies);
             }
         } catch (err: any) {
+            const responseStatus: number | undefined = err?.response?.status;
+            const responseData: any = err?.response?.data;
+
             const isItemNotFoundError =
-                err?.status === 400 &&
-                (err?.data?.error === 'Item not found' || err?.data?.message?.includes('Item not found'));
+                responseStatus === 400 &&
+                (responseData?.error === 'Item not found' || responseData?.message?.includes('Item not found'));
 
             if (isItemNotFoundError) {
                 log.warn(`Item ${assetId} not found in pricedb.io inventory. Attempting to refresh inventory...`);
@@ -854,10 +858,19 @@ export default class Listings {
                         );
                     }
                 } catch (error_) {
-                    log.error(`Failed to refresh inventory after item not found error:`, error_);
+                    log.error(
+                        `Failed to refresh inventory after item not found error:`,
+                        filterAxiosError(error_ as AxiosError)
+                    );
                 }
             } else {
-                log.error(`Failed to create/update pricedb.io listing for ${assetId}:`, err);
+                const apiMessage = responseData?.message ?? responseData?.error ?? responseData ?? '(no response body)';
+                log.error(
+                    `Failed to create/update pricedb.io listing for ${assetId} (HTTP ${
+                        responseStatus ?? 'unknown'
+                    }): ${JSON.stringify(apiMessage)}`,
+                    filterAxiosError(err)
+                );
             }
         }
     }

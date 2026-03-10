@@ -5,6 +5,18 @@ import { createLogger } from '../lib/logger';
 const log = createLogger('PriceDBStoreManager');
 import filterAxiosError from '@tf2autobot/filter-axios-error';
 
+/**
+ * Wraps a promise and logs a "still waiting" message every `intervalMs` if it has
+ * not resolved yet. Clears the interval whether the promise resolves or rejects.
+ */
+function withProgressLog<T>(label: string, promise: Promise<T>, intervalMs = 20000): Promise<T> {
+    const timer = setInterval(() => log.debug(`Waiting for ${label}...`), intervalMs);
+    return promise.finally(() => {
+        log.debug(`${label} completed`);
+        clearInterval(timer);
+    });
+}
+
 export interface PriceDBListing {
     id?: number;
     steam_id?: string;
@@ -259,7 +271,7 @@ export default class PriceDBStoreManager extends EventEmitter {
             await this.fetchMyListings();
 
             if (this.listings.size > 0) {
-                log.debug(`Clearing ${this.listings.size} pre-existing pricedb.io listings on startup...`);
+                log.info(`Clearing ${this.listings.size} pre-existing pricedb.io listings on startup...`);
                 await this.deleteAllListings();
             }
 
@@ -274,7 +286,7 @@ export default class PriceDBStoreManager extends EventEmitter {
                 log.debug('No group found or failed to fetch group info (this is normal if not in a group)');
             }
 
-            log.info('Itialized successfully');
+            log.info('Initialized successfully');
             this.emit('ready');
         } catch (err) {
             log.error('Failed to initialize:', err);
@@ -372,7 +384,6 @@ export default class PriceDBStoreManager extends EventEmitter {
             `/listings/${existingListing.id}`,
             update
         );
-
         if (response.data.success && response.data.listing) {
             const updatedListing = { ...existingListing, ...response.data.listing };
             this.listings.set(assetId, updatedListing);
@@ -449,7 +460,10 @@ export default class PriceDBStoreManager extends EventEmitter {
             return false;
         }
 
-        const response = await this.axiosInstance.delete<PriceDBListingResponse>(`/listings/${existingListing.id}`);
+        const response = await withProgressLog(
+            `DELETE /listings/${existingListing.id} (asset ${assetId})`,
+            this.axiosInstance.delete<PriceDBListingResponse>(`/listings/${existingListing.id}`)
+        );
 
         // axios only resolves for 2xx responses, so trust the HTTP status.
         // Some endpoints return 200 with success:false in the body — ignore that field.
@@ -471,9 +485,12 @@ export default class PriceDBStoreManager extends EventEmitter {
     }
 
     /**
-     * Delete all listings from pricedb.io, serialised through the rate-limited queue.
+     * Delete all listings from pricedb.io using a concurrent worker pool.
+     * Bypasses the per-request rate-limit queue — bulk startup cleanup should be
+     * as fast as the API allows, not serialised at 100ms/request.
+     * priedb has a rate limit 600 requests for minute. 50 should be safe
      */
-    async deleteAllListings(): Promise<{ deleted: number; failed: number }> {
+    async deleteAllListings(concurrency = 50): Promise<{ deleted: number; failed: number }> {
         const results = { deleted: 0, failed: 0 };
         const assetIds = Array.from(this.listings.keys());
 
@@ -482,20 +499,42 @@ export default class PriceDBStoreManager extends EventEmitter {
             return results;
         }
 
-        log.debug(`Deleting ${assetIds.length} listings (serialised, ${this.requestDelayMs}ms between each)...`);
+        log.info(`Deleting ${assetIds.length} listings from pricedb.io (concurrency: ${concurrency})...`);
 
-        for (const [i, assetId] of assetIds.entries()) {
-            try {
-                const deleted = await this.queueRequest(() => this.deleteListingDirect(assetId));
-                if (deleted) {
-                    results.deleted++;
-                } else {
-                    results.failed++;
+        // Periodic progress ticker so startup logs show the bot is still alive.
+        const progressInterval = setInterval(() => {
+            const done = results.deleted + results.failed;
+            log.info(
+                `pricedb.io startup cleanup: ${done} / ${assetIds.length} listings processed (${results.deleted} deleted, ${results.failed} failed)...`
+            );
+        }, 30000);
+
+        try {
+            // Work-stealing pool: each worker grabs the next asset from the shared
+            // queue until it's empty, so concurrency workers run simultaneously.
+            const workQueue = [...assetIds];
+
+            const worker = async (): Promise<void> => {
+                while (workQueue.length > 0) {
+                    const assetId = workQueue.shift();
+                    if (!assetId) return;
+                    try {
+                        const deleted = await this.deleteListingDirect(assetId);
+                        if (deleted) {
+                            results.deleted++;
+                        } else {
+                            results.failed++;
+                        }
+                    } catch (err) {
+                        results.failed++;
+                        log.warn(`Delete threw for asset ${assetId}:`, err);
+                    }
                 }
-            } catch (err) {
-                results.failed++;
-                log.warn(`Delete threw for asset ${assetId} (${i + 1}/${assetIds.length}):`, err);
-            }
+            };
+
+            await Promise.all(Array.from({ length: Math.min(concurrency, assetIds.length) }, () => worker()));
+        } finally {
+            clearInterval(progressInterval);
         }
 
         log.info(`Deleted ${results.deleted} listings${results.failed > 0 ? `, ${results.failed} failed` : ''}`);

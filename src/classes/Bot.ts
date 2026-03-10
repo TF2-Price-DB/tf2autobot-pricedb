@@ -1865,6 +1865,14 @@ export default class Bot {
 
         this.reconnectTimeout = setTimeout(() => {
             void (async () => {
+                // Steam may have auto-reconnected on its own during the delay window.
+                // If steamID is already set, we're already logged in — don't call logOn again.
+                if (this.client.steamID) {
+                    log.info('Steam already reconnected on its own, resetting reconnection state...');
+                    this.resetReconnectionState();
+                    return;
+                }
+
                 try {
                     log.info('Reconnecting to Steam...');
                     await this.login(await this.getRefreshToken());

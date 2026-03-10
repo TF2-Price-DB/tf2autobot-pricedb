@@ -1,7 +1,8 @@
 import axios, { AxiosInstance, AxiosError } from 'axios';
 import Currencies from '@tf2autobot/tf2-currencies';
 import { EventEmitter } from 'events';
-import log from '../lib/logger';
+import { createLogger } from '../lib/logger';
+const log = createLogger('PriceDBStoreManager');
 import filterAxiosError from '@tf2autobot/filter-axios-error';
 
 export interface PriceDBListing {

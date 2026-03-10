@@ -1,5 +1,6 @@
 import Bot from './Bot';
-import log from '../lib/logger';
+import { createLogger } from '../lib/logger';
+const log = createLogger('InventoryCostBasis');
 
 const CURRENT_DIFF_VERSION = 2;
 

@@ -41,7 +41,8 @@ dotenv.config({ path: path.join(__dirname, '../.env') });
 const options = loadOptions();
 const paths = genPaths(options.steamAccountName);
 
-import log, { init } from './lib/logger';
+import { init, createLogger } from './lib/logger';
+const log = createLogger('App');
 init(paths, options);
 
 if (process.env.pm_id === undefined && process.env.DOCKER === undefined) {

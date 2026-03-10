@@ -1,7 +1,8 @@
 import SteamID from 'steamid';
 import Bot from '../../Bot';
 import CommandParser from '../../CommandParser';
-import log from '../../../lib/logger';
+import { createLogger } from '../../../lib/logger';
+const log = createLogger('Commands');
 import { generateLinks, timeNow } from '../../../lib/tools/export';
 import { sendPartnerMessage, sendAdminMessage } from '../../DiscordWebhook/export';
 

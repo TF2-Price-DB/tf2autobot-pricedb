@@ -9,7 +9,8 @@ import { stats, profit, itemStats, testPriceKey } from '../../../lib/tools/expor
 import { sendStats } from '../../DiscordWebhook/export';
 import loadPollData, { deletePollData } from '../../../lib/tools/polldata';
 import SteamTradeOfferManager from '@tf2autobot/tradeoffer-manager';
-import log from '../../../lib/logger';
+import { createLogger } from '../../../lib/logger';
+const log = createLogger('Commands');
 
 // Bot status
 

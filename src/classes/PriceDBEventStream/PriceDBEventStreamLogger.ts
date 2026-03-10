@@ -1,19 +1,29 @@
-import log from '../../lib/logger';
+import { createLogger, ServiceLogger } from '../../lib/logger';
 
-export class PriceDBEventStreamLogger {
+const _log = createLogger('PriceDBEventStream');
+
+export class PriceDBEventStreamLogger implements ServiceLogger {
     debug(message: string, ...details: unknown[]) {
-        log.debug('[PriceDBEventStream]: ' + message, ...details);
+        _log.debug(message, ...details);
+    }
+
+    verbose(message: string, ...details: unknown[]) {
+        _log.verbose(message, ...details);
     }
 
     info(message: string, ...details: unknown[]) {
-        log.info('[PriceDBEventStream]: ' + message, ...details);
+        _log.info(message, ...details);
     }
 
     warn(message: string, ...details: unknown[]) {
-        log.warn('[PriceDBEventStream]: ' + message, ...details);
+        _log.warn(message, ...details);
+    }
+
+    trade(message: string, ...details: unknown[]) {
+        _log.trade(message, ...details);
     }
 
     error(message: string, ...details: unknown[]) {
-        log.error('[PriceDBEventStream]: ' + message, ...details);
+        _log.error(message, ...details);
     }
 }

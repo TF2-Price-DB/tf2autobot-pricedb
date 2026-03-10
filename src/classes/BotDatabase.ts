@@ -2,7 +2,8 @@ import BetterSqlite3 from 'better-sqlite3';
 import path from 'path';
 import fs from 'fs';
 
-import log from '../lib/logger';
+import { createLogger } from '../lib/logger';
+const log = createLogger('BotDatabase');
 import type { EntryData, PricesDataObject, PricesObject } from './Pricelist';
 import type TradeOfferManager from '@tf2autobot/tradeoffer-manager';
 import type { Blocked } from './MyHandler/interfaces';

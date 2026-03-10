@@ -5,7 +5,8 @@ import * as timersPromises from 'timers/promises';
 import { UnknownDictionary } from '../../types/common';
 import { Webhook, sendWebhook } from './export';
 
-import log from '../../lib/logger';
+import { createLogger } from '../../lib/logger';
+const log = createLogger('DiscordWebhook');
 import { BuyAndSell } from '../Pricelist';
 import Options from '../Options';
 import { WebhookError } from './utils';

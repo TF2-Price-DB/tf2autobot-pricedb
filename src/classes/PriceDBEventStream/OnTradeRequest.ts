@@ -1,6 +1,7 @@
 import Bot from '../Bot';
 import UserCart from '../Carts/UserCart';
-import log from '../../lib/logger';
+import { createLogger } from '../../lib/logger';
+const log = createLogger('PriceDBEventStream');
 import { parseTradeUrl } from '../../lib/tools/parseTradeUrl';
 import Inventory from '../Inventory';
 import { assertUnreachable } from '../../lib/assertUnreachable';

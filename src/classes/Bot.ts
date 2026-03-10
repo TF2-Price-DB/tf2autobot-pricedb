@@ -37,7 +37,8 @@ import Groups from './Groups';
 import InventoryCostBasis from './InventoryCostBasis';
 import BotDatabase from './BotDatabase';
 
-import log from '../lib/logger';
+import { createLogger } from '../lib/logger';
+const log = createLogger('Bot');
 import Bans, { IsBanned } from '../lib/bans';
 import { sendStats } from './DiscordWebhook/export';
 

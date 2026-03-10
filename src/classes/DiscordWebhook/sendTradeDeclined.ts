@@ -2,7 +2,8 @@ import { Action, TradeOffer } from '@tf2autobot/tradeoffer-manager';
 import { getPartnerDetails, quickLinks, sendWebhook } from './utils';
 import Bot from '../Bot';
 import * as t from '../../lib/tools/export';
-import log from '../../lib/logger';
+import { createLogger } from '../../lib/logger';
+const log = createLogger('DiscordWebhook');
 import { Webhook } from './export';
 import { sendToAdmin } from '../MyHandler/offer/processDeclined';
 

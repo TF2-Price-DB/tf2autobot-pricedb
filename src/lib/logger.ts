@@ -99,6 +99,41 @@ const logger = winston.createLogger({
 //     return this.error(`${prefix}${message}, stack ${stack}`) as BetterLogger;
 // };
 
+/**
+ * A minimal logger interface exposing the levels used across the codebase.
+ */
+export interface ServiceLogger {
+    debug: (message: string, ...args: unknown[]) => void;
+    verbose: (message: string, ...args: unknown[]) => void;
+    info: (message: string, ...args: unknown[]) => void;
+    warn: (message: string, ...args: unknown[]) => void;
+    trade: (message: string, ...args: unknown[]) => void;
+    error: (message: string, ...args: unknown[]) => void;
+}
+
+/**
+ * Returns a logger that prefixes every message with `[name]: `.
+ * Drop-in replacement for the raw `log` default export in service/class files.
+ *
+ * @example
+ * ```ts
+ * import { createLogger } from '../lib/logger';
+ * const log = createLogger('Listings');
+ * log.info('Refreshing...'); // → "[Listings]: Refreshing..."
+ * ```
+ */
+export function createLogger(name: string): ServiceLogger {
+    const prefix = `[${name}]: `;
+    return {
+        debug: (msg: string, ...args: unknown[]) => logger.debug(prefix + msg, ...args),
+        verbose: (msg: string, ...args: unknown[]) => logger.verbose(prefix + msg, ...args),
+        info: (msg: string, ...args: unknown[]) => logger.info(prefix + msg, ...args),
+        warn: (msg: string, ...args: unknown[]) => logger.warn(prefix + msg, ...args),
+        trade: (msg: string, ...args: unknown[]) => logger.log('trade', prefix + msg, ...args),
+        error: (msg: string, ...args: unknown[]) => logger.error(prefix + msg, ...args)
+    };
+}
+
 export function init(paths: Paths, options: Options): void {
     const debugConsole = options.debug;
     // Debug to file is enabled by default

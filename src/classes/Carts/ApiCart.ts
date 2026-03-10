@@ -2,7 +2,8 @@ import SteamID from 'steamid';
 import SKU from '@tf2autobot/tf2-sku';
 import pluralize from 'pluralize';
 import Cart from './Cart';
-import log from '../../lib/logger';
+import { createLogger } from '../../lib/logger';
+const log = createLogger('ApiCart');
 import Bot from '../Bot';
 
 interface ApiCartItem {

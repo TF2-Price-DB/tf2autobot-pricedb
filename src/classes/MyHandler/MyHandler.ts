@@ -33,7 +33,8 @@ import TF2Inventory from '../TF2Inventory';
 import Autokeys from '../Autokeys/Autokeys';
 
 import { Paths } from '../../resources/paths';
-import log from '../../lib/logger';
+import { createLogger } from '../../lib/logger';
+const log = createLogger('MyHandler');
 import * as files from '../../lib/files';
 import { exponentialBackoff } from '../../lib/helpers';
 
@@ -2265,7 +2266,8 @@ export default class MyHandler extends Handler {
 
                         offer.getExchangeDetails(true, (err, status, tradeInitTime, receivedItems, sentItems) => {
                             if (err) {
-                                return log.error(err);
+                                log.error('Failed to get exchange details:', err);
+                                return;
                             }
 
                             if (Array.isArray(sentItems)) {

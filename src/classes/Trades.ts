@@ -19,7 +19,8 @@ import { UnknownDictionaryKnownValues, UnknownDictionary } from '../types/common
 import Bot from './Bot';
 import Inventory, { Dict } from './Inventory';
 
-import log from '../lib/logger';
+import { createLogger } from '../lib/logger';
+const log = createLogger('Trades');
 import { exponentialBackoff } from '../lib/helpers';
 import { sendAlert } from './DiscordWebhook/export';
 import { isBptfBanned } from '../lib/bans';

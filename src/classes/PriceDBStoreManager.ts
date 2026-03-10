@@ -436,54 +436,69 @@ export default class PriceDBStoreManager extends EventEmitter {
      */
     private async deleteListingDirect(assetId: string): Promise<boolean> {
         const existingListing = this.listings.get(assetId);
-        if (!existingListing || !existingListing.id) {
-            log.warn(`Cannot delete listing for asset ${assetId}: listing not found`);
+        if (!existingListing) {
+            log.warn(`Cannot delete asset ${assetId}: not in local listings map`);
+            return false;
+        }
+        if (!existingListing.id) {
+            log.warn(
+                `Cannot delete asset ${assetId}: listing has no server-side id (data: ${JSON.stringify(
+                    existingListing
+                )})`
+            );
             return false;
         }
 
         const response = await this.axiosInstance.delete<PriceDBListingResponse>(`/listings/${existingListing.id}`);
 
-        // axios only resolves for 2xx responses, so reaching here means HTTP success.
-        // Some endpoints return 200 without a `success` flag in the body, so trust the status code.
+        // axios only resolves for 2xx responses, so trust the HTTP status.
+        // Some endpoints return 200 with success:false in the body — ignore that field.
         if (response.status >= 200 && response.status < 300) {
+            log.debug(
+                `Deleted listing ${existingListing.id} (asset ${assetId}), ` +
+                    `HTTP ${response.status}, body: ${JSON.stringify(response.data)}`
+            );
             this.listings.delete(assetId);
             this.emit('listingDeleted', assetId);
             return true;
         }
+
+        log.warn(
+            `Unexpected HTTP ${response.status} deleting listing ${existingListing.id}, ` +
+                `body: ${JSON.stringify(response.data)}`
+        );
         return false;
     }
 
     /**
-     * Delete all listings from pricedb.io concurrently (bypasses the serial queue).
+     * Delete all listings from pricedb.io, serialised through the rate-limited queue.
      */
     async deleteAllListings(): Promise<{ deleted: number; failed: number }> {
         const results = { deleted: 0, failed: 0 };
         const assetIds = Array.from(this.listings.keys());
 
         if (assetIds.length === 0) {
-            log.debug('No store.pricedb.io listings to delete');
+            log.debug('No listings to delete');
             return results;
         }
 
-        log.debug(`Deleting ${assetIds.length} listings from store.pricedb.io...`);
-        const outcomes = await Promise.allSettled(assetIds.map(assetId => this.deleteListingDirect(assetId)));
+        log.debug(`Deleting ${assetIds.length} listings (serialised, ${this.requestDelayMs}ms between each)...`);
 
-        for (const outcome of outcomes) {
-            if (outcome.status === 'fulfilled' && outcome.value) {
-                results.deleted++;
-            } else {
-                if (outcome.status === 'rejected') {
-                    log.warn('Failed to delete a store.pricedb.io listing:', outcome.reason);
+        for (const [i, assetId] of assetIds.entries()) {
+            try {
+                const deleted = await this.queueRequest(() => this.deleteListingDirect(assetId));
+                if (deleted) {
+                    results.deleted++;
+                } else {
+                    results.failed++;
                 }
+            } catch (err) {
                 results.failed++;
+                log.warn(`Delete threw for asset ${assetId} (${i + 1}/${assetIds.length}):`, err);
             }
         }
 
-        log.info(
-            `Deleted ${results.deleted} store.pricedb.io listings${
-                results.failed > 0 ? `, ${results.failed} failed` : ''
-            }`
-        );
+        log.info(`Deleted ${results.deleted} listings${results.failed > 0 ? `, ${results.failed} failed` : ''}`);
         return results;
     }
 

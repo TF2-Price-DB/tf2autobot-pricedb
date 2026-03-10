@@ -254,7 +254,7 @@ export default class PriceDBStoreManager extends EventEmitter {
      */
     async init(): Promise<void> {
         try {
-            log.debug('Initialising PriceDB Store Manager...');
+            log.debug('Initialising...');
             await this.getAuthToken();
             await this.fetchMyListings();
 
@@ -274,10 +274,10 @@ export default class PriceDBStoreManager extends EventEmitter {
                 log.debug('No group found or failed to fetch group info (this is normal if not in a group)');
             }
 
-            log.info('PriceDB Store Manager initialized successfully');
+            log.info('Itialized successfully');
             this.emit('ready');
         } catch (err) {
-            log.error('Failed to initialize PriceDB Store Manager:', err);
+            log.error('Failed to initialize:', err);
             this.emit('error', err);
             throw err;
         }

@@ -442,7 +442,9 @@ export default class PriceDBStoreManager extends EventEmitter {
 
         const response = await this.axiosInstance.delete<PriceDBListingResponse>(`/listings/${existingListing.id}`);
 
-        if (response.data.success) {
+        // axios only resolves for 2xx responses, so reaching here means HTTP success.
+        // Some endpoints return 200 without a `success` flag in the body, so trust the status code.
+        if (response.status >= 200 && response.status < 300) {
             this.listings.delete(assetId);
             this.emit('listingDeleted', assetId);
             return true;
@@ -807,7 +809,8 @@ export default class PriceDBStoreManager extends EventEmitter {
             headers: {
                 'X-API-Key': this.apiKey,
                 'X-Short-Lived-Token': shortLivedToken,
-                'Content-Type': 'application/json'
+                'Content-Type': 'application/json',
+                'User-Agent': 'TF2AutobotPriceDB@' + process.env.BOT_VERSION
             },
             timeout: 30000
         });

@@ -48,6 +48,10 @@ export default class Listings {
      */
     private cacheRefreshTimer: NodeJS.Timeout | null = null;
 
+    // Deduplicates concurrent inventory-refresh attempts when items come back as "not found".
+    // All concurrent callers await the same promise; only the first one triggers the refresh.
+    private pricedbInventoryRefreshPromise: Promise<void> | null = null;
+
     private get isCreateListing(): boolean {
         return this.bot.options.miscSettings.createListings.enable && !this.bot.isHalted;
     }
@@ -843,26 +847,35 @@ export default class Listings {
                 (responseData?.error === 'Item not found' || responseData?.message?.includes('Item not found'));
 
             if (isItemNotFoundError) {
-                log.warn(`Item ${assetId} not found in pricedb.io inventory. Attempting to refresh inventory...`);
+                log.debug(`Item ${assetId} not found in pricedb.io inventory.`);
 
-                // Attempt to refresh inventory (respects rate limits)
-                try {
-                    const refreshed = await this.bot.pricedbStoreManager.refreshInventory();
-                    if (refreshed) {
-                        log.info(
-                            `Inventory refreshed. The listing for ${assetId} will be created on the next update cycle.`
-                        );
-                    } else {
-                        log.debug(
-                            `Inventory refresh skipped (rate limited). The listing for ${assetId} will be retried later.`
-                        );
-                    }
-                } catch (error_) {
-                    log.error(
-                        `Failed to refresh inventory after item not found error:`,
-                        filterAxiosError(error_ as AxiosError)
-                    );
+                if (this.pricedbInventoryRefreshPromise === null) {
+                    // First caller — trigger refresh and share the promise.
+                    log.warn('One or more items not found in pricedb.io inventory. Refreshing inventory...');
+                    this.pricedbInventoryRefreshPromise = (async () => {
+                        try {
+                            const refreshed = await this.bot.pricedbStoreManager.refreshInventory();
+                            if (refreshed) {
+                                log.info(
+                                    'pricedb.io inventory refreshed. Affected listings will be created on the next update cycle.'
+                                );
+                            } else {
+                                log.debug(
+                                    'pricedb.io inventory refresh skipped (rate limited). Affected listings will be retried later.'
+                                );
+                            }
+                        } catch (error_) {
+                            log.error(
+                                'Failed to refresh pricedb.io inventory after item-not-found errors:',
+                                filterAxiosError(error_ as AxiosError)
+                            );
+                        } finally {
+                            this.pricedbInventoryRefreshPromise = null;
+                        }
+                    })();
                 }
+
+                await this.pricedbInventoryRefreshPromise;
             } else {
                 const apiMessage = responseData?.message ?? responseData?.error ?? responseData ?? '(no response body)';
                 log.error(

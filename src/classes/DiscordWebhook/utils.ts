@@ -1,7 +1,8 @@
 import TradeOfferManager, { TradeOffer } from '@tf2autobot/tradeoffer-manager';
 import { Webhook } from './interfaces';
 import Bot from '../Bot';
-import log from '../../lib/logger';
+import { createLogger } from '../../lib/logger';
+const log = createLogger('DiscordWebhook');
 import { AxiosError } from 'axios';
 import { ErrorFiltered } from '@tf2autobot/filter-axios-error';
 import { apiRequest } from '../../lib/apiRequest';

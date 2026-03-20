@@ -1,6 +1,7 @@
 import { sendWebhook } from './utils';
 import { Webhook } from './interfaces';
-import log from '../../lib/logger';
+import { createLogger } from '../../lib/logger';
+const log = createLogger('DiscordWebhook');
 import { GetItemPriceResponse } from '../IPricer';
 import * as timersPromises from 'timers/promises';
 import { UnknownDictionary } from '../../types/common';

@@ -3,8 +3,9 @@ import SKU from '@tf2autobot/tf2-sku';
 import Currencies from '@tf2autobot/tf2-currencies';
 import * as timersPromises from 'timers/promises';
 import Bot from '../../../Bot';
-import { KeyPrices } from '../../../Pricelist';
-import log from '../../../../lib/logger';
+import Pricelist, { KeyPrices } from '../../../Pricelist';
+import { createLogger } from '../../../../lib/logger';
+const log = createLogger('MyHandler');
 import * as t from '../../../../lib/tools/export';
 import { sendTradeSummary } from '../../../DiscordWebhook/export';
 import { FIFOEntry } from '../../../InventoryCostBasis';
@@ -451,6 +452,12 @@ async function calculateProfitData(offer: i.TradeOffer, bot: Bot): Promise<void>
                     }
                 }
 
+                // Over looked that asset ids can be the pricekey when the initial design was implemented wonder how no one
+                // noticed are assetid based listings (painted etc) actually used or over complication for the stake of it
+                const resolvedSku = Pricelist.isAssetId(sku)
+                    ? bot.pricelist.getPrice({ priceKey: sku, onlyEnabled: false })?.sku ?? sku
+                    : sku;
+
                 const quantity = dict.their[sku];
                 const priceData = itemPrices[sku];
 
@@ -465,7 +472,7 @@ async function calculateProfitData(offer: i.TradeOffer, bot: Bot): Promise<void>
                 // Add each item to FIFO with distributed diff in BOTH keys and metal
                 for (let i = 0; i < quantity; i++) {
                     await bot.inventoryCostBasis.addItem(
-                        sku,
+                        resolvedSku,
                         pricelistBuyKeys,
                         pricelistBuyMetal,
                         diffPerItemKeys,
@@ -508,8 +515,13 @@ async function calculateProfitData(offer: i.TradeOffer, bot: Bot): Promise<void>
                     }
                 }
 
+                // refer to above repeated code oh dear
+                const resolvedSku = Pricelist.isAssetId(sku)
+                    ? bot.pricelist.getPrice({ priceKey: sku, onlyEnabled: false })?.sku ?? sku
+                    : sku;
+
                 const quantity = dict.our[sku];
-                const priceData = itemPrices[sku];
+                const priceData = itemPrices[sku]; 
 
                 if (!priceData) {
                     log.warn(`No price data for SKU ${sku} in offer ${offer.id}`);
@@ -521,8 +533,8 @@ async function calculateProfitData(offer: i.TradeOffer, bot: Bot): Promise<void>
                 const pricelistSellMetal = priceData.sell.metal;
 
                 // Remove items from FIFO (oldest first) with fallback to pricelist
-                const result = await bot.inventoryCostBasis.removeItem(sku, quantity, priceData.buy);
-                removedEntriesBySku[sku] = result.entries; // Store for diff recovery
+                const result = await bot.inventoryCostBasis.removeItem(resolvedSku, quantity, priceData.buy);
+                removedEntriesBySku[resolvedSku] = result.entries; // Store for diff recovery
                 if (result.hasEstimates) {
                     hasEstimates = true;
                 }

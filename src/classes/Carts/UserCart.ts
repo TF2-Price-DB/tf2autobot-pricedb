@@ -6,7 +6,8 @@ import Cart from './Cart';
 import Inventory, { getSkuAmountCanTrade, DictItem } from '../Inventory';
 import Pricelist from '../Pricelist';
 import TF2Inventory from '../TF2Inventory';
-import log from '../../lib/logger';
+import { createLogger } from '../../lib/logger';
+const log = createLogger('UserCart');
 import { noiseMakers } from '../../lib/data';
 import { pure } from '../../lib/tools/export';
 

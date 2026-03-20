@@ -1,10 +1,10 @@
 import { BPTFGetUserInfo } from '../classes/MyHandler/interfaces';
-import log from '../lib/logger';
+import { createLogger } from '../lib/logger';
 import Bot from '../classes/Bot';
 import { ReputationCheck } from '../classes/Options';
-import { LeveledLogMethod } from 'winston';
 import { axiosAbortSignal } from './helpers';
 import { apiRequest } from './apiRequest';
+const log = createLogger('Bans');
 
 export type Contents = { [website: string]: string };
 export interface IsBanned {
@@ -181,11 +181,11 @@ export default class Bans {
     /** may or may not print results depending on showLog setting and ban result */
     private logIsBanned(result: IsBanned) {
         if (this.showLog) {
-            let _log: LeveledLogMethod;
+            let _log: ((msg: string, ...args: unknown[]) => void) | undefined;
             if (result.isBanned) {
-                _log = log['warn'];
+                _log = log.warn.bind(log);
             } else if (this.showLog === 'all') {
-                _log = log['debug'];
+                _log = log.debug.bind(log);
             }
             if (_log) {
                 _log(`Bans result for ${this.steamID}:`, result.contents);
@@ -227,7 +227,7 @@ export default class Bans {
                 })
                 .catch(err => {
                     log.warn('Failed to get data from backpack.tf');
-                    log.debug(err);
+                    log.debug('Error:', err);
                     return resolve(undefined);
                 });
         });
@@ -318,7 +318,7 @@ export default class Bans {
                         return this.isListedUntrusted('retry');
                     }
                     log.warn('Failed to get data from Github');
-                    log.debug(err);
+                    log.debug('Error:', err);
                     resolve(undefined);
                 });
         });

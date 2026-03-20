@@ -19,7 +19,8 @@ import CartQueue from '../Carts/CartQueue';
 import IPricer from '../IPricer';
 import { fixItem } from '../../lib/items';
 import { UnknownDictionary } from '../../types/common';
-import log from '../../lib/logger';
+import { createLogger } from '../../lib/logger';
+const log = createLogger('Commands');
 import { testPriceKey } from '../../lib/tools/export';
 import { apiRequest } from '../../lib/apiRequest';
 

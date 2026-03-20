@@ -21,11 +21,11 @@ import processDeclined from './offer/processDeclined';
 import { sendReview } from './offer/review/export-review';
 import { keepMetalSupply, craftDuplicateWeapons, craftClassWeapons } from './utils/export-utils';
 
-import { Blocked, BPTFGetUserInfo } from './interfaces';
+import { BPTFGetUserInfo } from './interfaces';
 
 import Handler, { OnRun } from '../Handler';
 import Bot from '../Bot';
-import Pricelist, { Entry, PricesDataObject, PricesObject } from '../Pricelist';
+import Pricelist, { Entry, PricesObject } from '../Pricelist';
 import Commands from '../Commands/Commands';
 import CartQueue from '../Carts/CartQueue';
 import Inventory from '../Inventory';
@@ -33,7 +33,8 @@ import TF2Inventory from '../TF2Inventory';
 import Autokeys from '../Autokeys/Autokeys';
 
 import { Paths } from '../../resources/paths';
-import log from '../../lib/logger';
+import { createLogger } from '../../lib/logger';
+const log = createLogger('MyHandler');
 import * as files from '../../lib/files';
 import { exponentialBackoff } from '../../lib/helpers';
 
@@ -44,7 +45,6 @@ import { summarize, uptime, getHighValueItems, testPriceKey } from '../../lib/to
 import genPaths from '../../resources/paths';
 import IPricer from '../IPricer';
 import Options, { OfferType } from '../Options';
-import SteamTradeOfferManager from '@tf2autobot/tradeoffer-manager';
 import filterAxiosError from '@tf2autobot/filter-axios-error';
 
 import sendTf2SystemMessage from '../DiscordWebhook/sendTf2SystemMessage';
@@ -194,8 +194,6 @@ export default class MyHandler extends Handler {
 
     private classWeaponsTimeout: NodeJS.Timeout;
 
-    private pollDataInterval: NodeJS.Timeout;
-
     constructor(public bot: Bot, private priceSource: IPricer) {
         super(bot);
 
@@ -214,16 +212,16 @@ export default class MyHandler extends Handler {
             this.recentlySentMessage = {};
         }, 1000);
 
-        return Promise.all([
-            files.readFile(this.paths.files.pricelist, true),
-            files.readFile(this.paths.files.loginAttempts, true),
-            files.readFile(this.paths.files.pollData, true),
-            files.readFile(this.paths.files.blockedList, true)
-        ]).then(
-            ([pricelist, loginAttempts, pollData, blockedList]: [PricesDataObject, number[], PollData, Blocked]) => {
-                return { pricelist, loginAttempts, pollData, blockedList };
-            }
-        );
+        //TODO: remove this in future versions after migrations are done
+        this.bot.db.migrateFromFiles(this.paths.files.dir);
+
+        //This is so much cleaner
+        const pricelist = this.bot.db.getPricelist();
+        const loginAttempts = this.bot.db.getLoginAttempts();
+        const pollData = this.bot.db.getPollData();
+        const blockedList = this.bot.db.getBlockedList();
+
+        return Promise.resolve({ pricelist, loginAttempts, pollData, blockedList });
     }
 
     onReady(): void {
@@ -241,6 +239,11 @@ export default class MyHandler extends Handler {
         this.bot.client.setPersona(EPersonaState.Online);
 
         this.botSteamID = this.bot.client.steamID;
+
+        // Register / update this bot in the tble
+        // discover which accounts share the DB file. Not used yet but could be used in future if multibot features
+        // are added such as cross bot banking or storage spread
+        this.bot.db.upsertBot(this.bot.client.steamID?.getSteamID64() ?? null, null);
 
         // Get Premium info from backpack.tf
         this.getBPTFAccountInfo().catch(() => {
@@ -285,8 +288,6 @@ export default class MyHandler extends Handler {
         this.refreshTimeout = setTimeout(() => {
             this.bot.startAutoRefreshListings();
         }, 5 * 60 * 1000);
-
-        this.pollDataInterval = setInterval(this.refreshPollDataPath.bind(this), 24 * 60 * 60 * 1000);
 
         // Send notification to admin/Discord Webhook if there's any item failed to go through updateOldPrices
         const failedToUpdateOldPrices = this.bot.pricelist.failedUpdateOldPrices;
@@ -389,11 +390,7 @@ export default class MyHandler extends Handler {
             clearInterval(this.bot.periodicCheckAdmin);
         }
 
-        if (this.pollDataInterval) {
-            clearInterval(this.pollDataInterval);
-        }
-
-        return new Promise(resolve => {
+        return new Promise<void>(resolve => {
             if (this.opt.autokeys.enable) {
                 log.debug('Disabling Autokeys and disabling key entry in the pricelist...');
                 this.autokeys
@@ -451,6 +448,8 @@ export default class MyHandler extends Handler {
                         }
                     });
             }
+        }).finally(() => {
+            this.bot.db.close();
         });
     }
 
@@ -548,9 +547,7 @@ export default class MyHandler extends Handler {
     }
 
     onLoginAttempts(attempts: number[]): void {
-        files.writeFile(this.paths.files.loginAttempts, attempts, true).catch(err => {
-            log.warn('Failed to save login attempts: ', err);
-        });
+        this.bot.db.saveLoginAttempts(attempts);
     }
 
     onFriendRelationship(steamID: SteamID, relationship: number): void {
@@ -2269,7 +2266,8 @@ export default class MyHandler extends Handler {
 
                         offer.getExchangeDetails(true, (err, status, tradeInitTime, receivedItems, sentItems) => {
                             if (err) {
-                                return log.error(err);
+                                log.error('Failed to get exchange details:', err);
+                                return;
                             }
 
                             if (Array.isArray(sentItems)) {
@@ -2656,6 +2654,8 @@ export default class MyHandler extends Handler {
                     this.botName = user.name;
                     this.botAvatarURL = user.avatar;
                     this.isPremium = user.premium ? user.premium === 1 : false;
+                    // Woo display name time
+                    this.bot.db.upsertBot(steamID64, user.name);
                     return resolve();
                 })
                 .catch(err => {
@@ -2718,9 +2718,7 @@ export default class MyHandler extends Handler {
     }
 
     onPollData(pollData: PollData): void {
-        files.writeFile(this.paths.files.pollData, pollData, true).catch(err => {
-            log.warn('Failed to save polldata: ', err);
-        });
+        this.bot.db.savePollData(pollData);
     }
 
     async onPricelist(pricelist: PricesObject): Promise<void> {
@@ -2732,38 +2730,30 @@ export default class MyHandler extends Handler {
             });
         }
 
-        /*
-         * was: Failed to save pricelist:  The "data" argument must be of type string or an instance of Buffer, TypedArray, or
-         * DataView. Received undefined {"code":"ERR_INVALID_ARG_TYPE"}
-         *
-         * This will also save the "name" property. I think it's okay.
-         */
-        files.writeFile(this.paths.files.pricelist, pricelist, true).catch(err => {
-            log.warn('Failed to save pricelist: ', err);
-        });
+        this.bot.db.savePricelist(pricelist);
     }
 
     onPriceChange(priceKey: string, entry: Entry): void {
         this.bot.listings.checkByPriceKey({ priceKey, data: entry, checkGenerics: false, showLogs: true });
+
+        if (this.bot.pricelist.hasPrice({ priceKey })) {
+            this.bot.db.upsertPricelistEntry(priceKey, entry);
+        } else {
+            this.bot.db.deletePricelistEntry(priceKey);
+        }
     }
 
     saveBlockedUser(steamID: string, reason: string): void {
         if (reason) {
             // Will add or replace new one, if reason is defined
             this.bot.blockedList[steamID] = reason;
-
-            files.writeFile(this.paths.files.blockedList, this.bot.blockedList, true).catch(err => {
-                log.warn('Failed to save blockedList: ', err);
-            });
+            this.bot.db.saveBlockedList(this.bot.blockedList);
         }
     }
 
     removeBlockedUser(steamID: string): void {
         delete this.bot.blockedList[steamID];
-
-        files.writeFile(this.paths.files.blockedList, this.bot.blockedList, true).catch(err => {
-            log.warn('Failed to update blockedList: ', err);
-        });
+        this.bot.db.saveBlockedList(this.bot.blockedList);
     }
 
     onUserAgent(pulse: { status: string; current_time?: number; expire_at?: number; client?: string }): void {
@@ -2842,39 +2832,7 @@ export default class MyHandler extends Handler {
     }
 
     refreshPollDataPath() {
-        const newPaths = genPaths(this.opt.steamAccountName);
-        const pathChanged = newPaths.files.pollData !== this.paths.files.pollData;
-        this.paths = newPaths;
-
-        if (!pathChanged) {
-            return;
-        }
-
-        files
-            .readFile(this.paths.files.pollData, true)
-            .then((pollDataFile: SteamTradeOfferManager.PollData | null) => {
-                const currentPollData = this.bot.manager.pollData;
-                const activeOffers = this.bot.trades.getActiveOffers(currentPollData);
-                const newPollData = pollDataFile
-                    ? pollDataFile
-                    : ({ sent: {}, received: {}, offerData: {} } as SteamTradeOfferManager.PollData);
-                Object.keys(activeOffers).forEach(intent => {
-                    (activeOffers[intent] as string[]).forEach(id => {
-                        (newPollData[intent] as Record<string, number>)[id] = (
-                            currentPollData[intent] as Record<string, number>
-                        )[id];
-
-                        newPollData.offerData[id] = currentPollData.offerData[id];
-                    });
-                });
-                this.bot.manager.pollData = newPollData;
-                // TODO: Remove duplicate entries
-                // Duplicates are already handled in src/lib/tools/polldata
-                // so this is only for optimizing storage
-            })
-            .catch(err => {
-                log.error('Failed to update polldata path:', err);
-            });
+        // No-op: poll data is now stored in SQLite — no file rotation needed.
     }
 }
 

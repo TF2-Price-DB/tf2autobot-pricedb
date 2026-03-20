@@ -1,17 +1,24 @@
 import { TradeOffer } from '@tf2autobot/tradeoffer-manager';
 
-import log from '../../logger';
+import { createLogger, ServiceLogger } from '../../logger';
+
+const log = createLogger('Trades');
 
 export = function (level: string, message: string): void {
     const self = this as TradeOffer;
 
-    // eslint-disable-next-line @typescript-eslint/no-unsafe-call
-    log[level](
+    const text =
         'Offer' +
-            (self.id ? ' #' + self.id : '') +
-            (self.isOurOffer ? ' with ' : ' from ') +
-            self.partner.getSteamID64() +
-            ' ' +
-            message
-    );
+        (self.id ? ' #' + self.id : '') +
+        (self.isOurOffer ? ' with ' : ' from ') +
+        self.partner.getSteamID64() +
+        ' ' +
+        message;
+
+    const logger = log as unknown as ServiceLogger & Record<string, (msg: string) => void>;
+    if (typeof logger[level] === 'function') {
+        logger[level](text);
+    } else {
+        log.info(text);
+    }
 };

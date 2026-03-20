@@ -10,7 +10,8 @@ import {
     ApplicationCommandType,
     TextChannel
 } from 'discord.js';
-import log from '../lib/logger';
+import { createLogger } from '../lib/logger';
+const log = createLogger('DiscordBot');
 import Options from './Options';
 import Bot from './Bot';
 import SteamID from 'steamid';
@@ -121,7 +122,7 @@ export default class DiscordBot {
             adminID.redirectAnswerTo = message;
             await this.bot.handler.onMessage(adminID, message.content);
         } catch (err) {
-            log.error(err);
+            log.error('Discord command handler error:', err);
             (message.channel as TextChannel)
                 .send(`❌ Error:\n${JSON.stringify(err)}`)
                 .catch(err => log.error('Failed to send error message to Discord:', err));

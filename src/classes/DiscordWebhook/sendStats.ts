@@ -3,7 +3,8 @@ import pluralize from 'pluralize';
 import SteamID from 'steamid';
 import { sendWebhook } from './utils';
 import { Webhook } from './interfaces';
-import log from '../../lib/logger';
+import { createLogger } from '../../lib/logger';
+const log = createLogger('DiscordWebhook');
 import { stats, profit, timeNow } from '../../lib/tools/export';
 import Bot from '../Bot';
 import loadPollData from '../../lib/tools/polldata';
@@ -11,7 +12,8 @@ import loadPollData from '../../lib/tools/polldata';
 export default async function sendStats(bot: Bot, forceSend = false, steamID?: SteamID): Promise<void> {
     const optDW = bot.options.discordWebhook;
     const botInfo = bot.handler.getBotInfo;
-    const pollData = loadPollData(bot.handler.getPaths.files.dir);
+    //cant tell me this isnt simpler
+    const pollData = loadPollData(bot);
 
     if (!pollData) {
         return;

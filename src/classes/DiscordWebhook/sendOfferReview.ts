@@ -1,7 +1,8 @@
 import { TradeOffer } from '@tf2autobot/tradeoffer-manager';
 import { quickLinks, sendWebhook } from './utils';
 import { Webhook } from './interfaces';
-import log from '../../lib/logger';
+import { createLogger } from '../../lib/logger';
+const log = createLogger('DiscordWebhook');
 import { pure, summarizeToChat, listItems, replace, ValueDiff } from '../../lib/tools/export';
 
 import Bot from '../Bot';

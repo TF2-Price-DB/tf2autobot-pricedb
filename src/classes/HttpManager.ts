@@ -5,7 +5,8 @@
 
 import bodyParser from 'body-parser';
 import express from 'express';
-import log from '../lib/logger';
+import { createLogger } from '../lib/logger';
+const log = createLogger('HttpManager');
 import Options from './Options';
 import Bot from './Bot';
 import ApiCart from './Carts/ApiCart';

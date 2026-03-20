@@ -1,8 +1,21 @@
 import axios, { AxiosInstance, AxiosError } from 'axios';
 import Currencies from '@tf2autobot/tf2-currencies';
 import { EventEmitter } from 'events';
-import log from '../lib/logger';
+import { createLogger } from '../lib/logger';
+const log = createLogger('PriceDBStoreManager');
 import filterAxiosError from '@tf2autobot/filter-axios-error';
+
+/**
+ * Wraps a promise and logs a "still waiting" message every `intervalMs` if it has
+ * not resolved yet. Clears the interval whether the promise resolves or rejects.
+ */
+function withProgressLog<T>(label: string, promise: Promise<T>, intervalMs = 20000): Promise<T> {
+    const timer = setInterval(() => log.debug(`Waiting for ${label}...`), intervalMs);
+    return promise.finally(() => {
+        log.debug(`${label} completed`);
+        clearInterval(timer);
+    });
+}
 
 export interface PriceDBListing {
     id?: number;
@@ -166,9 +179,9 @@ interface QueuedRequest {
 export default class PriceDBStoreManager extends EventEmitter {
     private readonly apiKey: string;
 
-    private readonly baseURL: string = 'https://store.pricedb.io/api/v2';
+    private static readonly DEFAULT_BASE_URI = 'https://store.pricedb.io/api/v2';
 
-    private readonly axiosInstance: AxiosInstance;
+    private axiosInstance: AxiosInstance;
 
     private steamID: string;
 
@@ -190,19 +203,15 @@ export default class PriceDBStoreManager extends EventEmitter {
 
     private readonly requestDelayMs: number = 100; // 100ms delay between requests = max 10 requests/second
 
-    constructor(apiKey: string, steamID?: string) {
+    private priceDbStoreApiUrl: string;
+
+    constructor(apiKey: string, steamID: string, priceDbStoreApiUrl: string | null | undefined) {
         super();
         this.apiKey = apiKey;
         this.steamID = steamID;
+        this.priceDbStoreApiUrl = priceDbStoreApiUrl || PriceDBStoreManager.DEFAULT_BASE_URI;
 
-        this.axiosInstance = axios.create({
-            baseURL: this.baseURL,
-            headers: {
-                'X-API-Key': this.apiKey,
-                'Content-Type': 'application/json'
-            },
-            timeout: 30000
-        });
+        this.axiosInstance = this.createAxiosClient(undefined);
     }
 
     /**
@@ -257,8 +266,14 @@ export default class PriceDBStoreManager extends EventEmitter {
      */
     async init(): Promise<void> {
         try {
-            log.debug('Initialising PriceDB Store Manager...');
+            log.debug('Initialising...');
+            await this.getAuthToken();
             await this.fetchMyListings();
+
+            if (this.listings.size > 0) {
+                log.info(`Clearing ${this.listings.size} pre-existing pricedb.io listings on startup...`);
+                await this.deleteAllListings();
+            }
 
             // Fetch group info to cache the store slug for friendly URLs
             try {
@@ -271,12 +286,34 @@ export default class PriceDBStoreManager extends EventEmitter {
                 log.debug('No group found or failed to fetch group info (this is normal if not in a group)');
             }
 
-            log.info('PriceDB Store Manager initialized successfully');
+            log.info('Initialized successfully');
             this.emit('ready');
         } catch (err) {
-            log.error('Failed to initialize PriceDB Store Manager:', err);
+            log.error('Failed to initialize:', err);
             this.emit('error', err);
             throw err;
+        }
+    }
+
+    async getAuthToken() {
+        const errReturn = { ok: false, reason: 'Could not get PriceDB AuthToken' } as const;
+
+        try {
+            const response = await this.axiosInstance.get<{ ok: true; token: string } | { ok: false; reason: string }>(
+                '/bot-api/auth-token'
+            );
+
+            if (response.status !== 200 || !response.data.ok) {
+                log.error('Could not get PriceDB AuthToken', response);
+                return errReturn;
+            }
+
+            this.axiosInstance = this.createAxiosClient(response.data.token);
+            return response.data;
+        } catch (e) {
+            const error = filterAxiosError(e as AxiosError);
+            log.error('Failed to fetch Auth Token from pricedb.io:', error);
+            return errReturn;
         }
     }
 
@@ -306,24 +343,63 @@ export default class PriceDBStoreManager extends EventEmitter {
     /**
      * Create a new listing on pricedb.io (queued with rate limiting)
      */
+    /**
+     * Create a new listing directly without going through the request queue.
+     * Used by createOrUpdatePriceDBListing for concurrent operation.
+     */
+    async createListingDirect(assetId: string, currencies: Currencies): Promise<PriceDBListing | null> {
+        const listing: Omit<PriceDBListing, 'id' | 'steam_id' | 'item_name' | 'created_at'> = {
+            asset_id: assetId,
+            price_keys: currencies.keys,
+            price_metal: currencies.metal
+        };
+
+        const response = await this.axiosInstance.post<PriceDBListingResponse>('/listings', listing);
+
+        if (response.data.success && response.data.listing) {
+            this.listings.set(assetId, response.data.listing);
+            this.emit('listingCreated', response.data.listing);
+            return response.data.listing;
+        }
+        return null;
+    }
+
+    /**
+     * Update an existing listing directly without going through the request queue.
+     * Used by createOrUpdatePriceDBListing for concurrent operation.
+     */
+    async updateListingDirect(assetId: string, currencies: Currencies): Promise<PriceDBListing | null> {
+        const existingListing = this.listings.get(assetId);
+        if (!existingListing || !existingListing.id) {
+            log.warn(`Cannot update listing for asset ${assetId}: listing not found`);
+            return null;
+        }
+
+        const update = {
+            price_keys: currencies.keys,
+            price_metal: currencies.metal
+        };
+
+        const response = await this.axiosInstance.put<PriceDBListingResponse>(
+            `/listings/${existingListing.id}`,
+            update
+        );
+        if (response.data.success && response.data.listing) {
+            const updatedListing = { ...existingListing, ...response.data.listing };
+            this.listings.set(assetId, updatedListing);
+            this.emit('listingUpdated', updatedListing);
+            return updatedListing;
+        }
+        return null;
+    }
+
+    /**
+     * Create a new listing on pricedb.io (queued with rate limiting)
+     */
     async createListing(assetId: string, currencies: Currencies): Promise<PriceDBListing | null> {
         return this.queueRequest(async () => {
             try {
-                const listing: Omit<PriceDBListing, 'id' | 'steam_id' | 'item_name' | 'created_at'> = {
-                    asset_id: assetId,
-                    price_keys: currencies.keys,
-                    price_metal: currencies.metal
-                };
-
-                const response = await this.axiosInstance.post<PriceDBListingResponse>('/listings', listing);
-
-                if (response.data.success && response.data.listing) {
-                    this.listings.set(assetId, response.data.listing);
-                    log.debug(`Created listing on pricedb.io for asset ${assetId}`);
-                    this.emit('listingCreated', response.data.listing);
-                    return response.data.listing;
-                }
-                return null;
+                return await this.createListingDirect(assetId, currencies);
             } catch (err) {
                 const error = filterAxiosError(err as AxiosError);
                 log.error(`Failed to create listing on pricedb.io for asset ${assetId}:`, error);
@@ -339,30 +415,7 @@ export default class PriceDBStoreManager extends EventEmitter {
     async updateListing(assetId: string, currencies: Currencies): Promise<PriceDBListing | null> {
         return this.queueRequest(async () => {
             try {
-                const existingListing = this.listings.get(assetId);
-                if (!existingListing || !existingListing.id) {
-                    log.warn(`Cannot update listing for asset ${assetId}: listing not found`);
-                    return null;
-                }
-
-                const update = {
-                    price_keys: currencies.keys,
-                    price_metal: currencies.metal
-                };
-
-                const response = await this.axiosInstance.put<PriceDBListingResponse>(
-                    `/listings/${existingListing.id}`,
-                    update
-                );
-
-                if (response.data.success && response.data.listing) {
-                    const updatedListing = { ...existingListing, ...response.data.listing };
-                    this.listings.set(assetId, updatedListing);
-                    log.debug(`Updated listing on pricedb.io for asset ${assetId}`);
-                    this.emit('listingUpdated', updatedListing);
-                    return updatedListing;
-                }
-                return null;
+                return await this.updateListingDirect(assetId, currencies);
             } catch (err) {
                 const error = filterAxiosError(err as AxiosError);
                 log.error(`Failed to update listing on pricedb.io for asset ${assetId}:`, error);
@@ -378,23 +431,7 @@ export default class PriceDBStoreManager extends EventEmitter {
     async deleteListing(assetId: string): Promise<boolean> {
         return this.queueRequest(async () => {
             try {
-                const existingListing = this.listings.get(assetId);
-                if (!existingListing || !existingListing.id) {
-                    log.warn(`Cannot delete listing for asset ${assetId}: listing not found`);
-                    return false;
-                }
-
-                const response = await this.axiosInstance.delete<PriceDBListingResponse>(
-                    `/listings/${existingListing.id}`
-                );
-
-                if (response.data.success) {
-                    this.listings.delete(assetId);
-                    log.debug(`Deleted listing on pricedb.io for asset ${assetId}`);
-                    this.emit('listingDeleted', assetId);
-                    return true;
-                }
-                return false;
+                return await this.deleteListingDirect(assetId);
             } catch (err) {
                 const error = filterAxiosError(err as AxiosError);
                 log.error(`Failed to delete listing on pricedb.io for asset ${assetId}:`, error);
@@ -405,37 +442,102 @@ export default class PriceDBStoreManager extends EventEmitter {
     }
 
     /**
-     * Delete all listings from pricedb.io
+     * Delete a listing directly without going through the request queue.
+     * Used by deleteAllListings for concurrent bulk cleanup.
      */
-    async deleteAllListings(): Promise<{ deleted: number; failed: number }> {
+    private async deleteListingDirect(assetId: string): Promise<boolean> {
+        const existingListing = this.listings.get(assetId);
+        if (!existingListing) {
+            log.warn(`Cannot delete asset ${assetId}: not in local listings map`);
+            return false;
+        }
+        if (!existingListing.id) {
+            log.warn(
+                `Cannot delete asset ${assetId}: listing has no server-side id (data: ${JSON.stringify(
+                    existingListing
+                )})`
+            );
+            return false;
+        }
+
+        const response = await withProgressLog(
+            `DELETE /listings/${existingListing.id} (asset ${assetId})`,
+            this.axiosInstance.delete<PriceDBListingResponse>(`/listings/${existingListing.id}`)
+        );
+
+        // axios only resolves for 2xx responses, so trust the HTTP status.
+        // Some endpoints return 200 with success:false in the body — ignore that field.
+        if (response.status >= 200 && response.status < 300) {
+            log.debug(
+                `Deleted listing ${existingListing.id} (asset ${assetId}), ` +
+                    `HTTP ${response.status}, body: ${JSON.stringify(response.data)}`
+            );
+            this.listings.delete(assetId);
+            this.emit('listingDeleted', assetId);
+            return true;
+        }
+
+        log.warn(
+            `Unexpected HTTP ${response.status} deleting listing ${existingListing.id}, ` +
+                `body: ${JSON.stringify(response.data)}`
+        );
+        return false;
+    }
+
+    /**
+     * Delete all listings from pricedb.io using a concurrent worker pool.
+     * Bypasses the per-request rate-limit queue — bulk startup cleanup should be
+     * as fast as the API allows, not serialised at 100ms/request.
+     * priedb has a rate limit 600 requests for minute. 50 should be safe
+     */
+    async deleteAllListings(concurrency = 50): Promise<{ deleted: number; failed: number }> {
         const results = { deleted: 0, failed: 0 };
         const assetIds = Array.from(this.listings.keys());
 
         if (assetIds.length === 0) {
-            log.debug('No store.pricedb.io listings to delete');
+            log.debug('No listings to delete');
             return results;
         }
 
-        log.debug(`Deleting ${assetIds.length} listings from store.pricedb.io...`);
-        for (const assetId of assetIds) {
-            try {
-                const success = await this.deleteListing(assetId);
-                if (success) {
-                    results.deleted++;
-                } else {
-                    results.failed++;
+        log.info(`Deleting ${assetIds.length} listings from pricedb.io (concurrency: ${concurrency})...`);
+
+        // Periodic progress ticker so startup logs show the bot is still alive.
+        const progressInterval = setInterval(() => {
+            const done = results.deleted + results.failed;
+            log.info(
+                `pricedb.io startup cleanup: ${done} / ${assetIds.length} listings processed (${results.deleted} deleted, ${results.failed} failed)...`
+            );
+        }, 30000);
+
+        try {
+            // Work-stealing pool: each worker grabs the next asset from the shared
+            // queue until it's empty, so concurrency workers run simultaneously.
+            const workQueue = [...assetIds];
+
+            const worker = async (): Promise<void> => {
+                while (workQueue.length > 0) {
+                    const assetId = workQueue.shift();
+                    if (!assetId) return;
+                    try {
+                        const deleted = await this.deleteListingDirect(assetId);
+                        if (deleted) {
+                            results.deleted++;
+                        } else {
+                            results.failed++;
+                        }
+                    } catch (err) {
+                        results.failed++;
+                        log.warn(`Delete threw for asset ${assetId}:`, err);
+                    }
                 }
-            } catch (err) {
-                log.warn(`Failed to delete store.pricedb.io listing ${assetId}:`, err);
-                results.failed++;
-            }
+            };
+
+            await Promise.all(Array.from({ length: Math.min(concurrency, assetIds.length) }, () => worker()));
+        } finally {
+            clearInterval(progressInterval);
         }
 
-        log.info(
-            `Deleted ${results.deleted} store.pricedb.io listings${
-                results.failed > 0 ? `, ${results.failed} failed` : ''
-            }`
-        );
+        log.info(`Deleted ${results.deleted} listings${results.failed > 0 ? `, ${results.failed} failed` : ''}`);
         return results;
     }
 
@@ -745,5 +847,27 @@ export default class PriceDBStoreManager extends EventEmitter {
         }
 
         return null;
+    }
+
+    async sendDeadMansRequest() {
+        try {
+            const result = await this.axiosInstance.post('/bot-api/alive', { alive: true });
+            return result.status === 200;
+        } catch {
+            return false;
+        }
+    }
+
+    private createAxiosClient(shortLivedToken: string | undefined) {
+        return axios.create({
+            baseURL: this.priceDbStoreApiUrl || PriceDBStoreManager.DEFAULT_BASE_URI,
+            headers: {
+                'X-API-Key': this.apiKey,
+                'X-Short-Lived-Token': shortLivedToken,
+                'Content-Type': 'application/json',
+                'User-Agent': 'TF2AutobotPriceDB@' + process.env.BOT_VERSION
+            },
+            timeout: 30000
+        });
     }
 }

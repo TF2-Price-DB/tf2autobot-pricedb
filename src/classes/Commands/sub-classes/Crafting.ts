@@ -3,7 +3,8 @@ import Bot from '../../Bot';
 import CommandParser from '../../CommandParser';
 import { TokenType, SubTokenType } from '../../TF2GC';
 
-import log from '../../../lib/logger';
+import { createLogger } from '../../../lib/logger';
+const log = createLogger('Commands');
 import {
     ClassesForCraftableWeapons,
     CraftWeaponsBySlot,

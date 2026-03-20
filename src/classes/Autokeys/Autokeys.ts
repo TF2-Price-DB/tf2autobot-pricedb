@@ -2,7 +2,8 @@ import Currencies from '@tf2autobot/tf2-currencies';
 import { genUserPure, genScrapAdjustment } from './userSettings';
 import Bot from '../Bot';
 import { EntryData, KeyPrices, PricelistChangedSource } from '../Pricelist';
-import log from '../../lib/logger';
+import { createLogger } from '../../lib/logger';
+const log = createLogger('Autokeys');
 import { currPure } from '../../lib/tools/pure';
 import sendAlert from '../DiscordWebhook/sendAlert';
 

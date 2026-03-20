@@ -1,6 +1,7 @@
 import { quickLinks, sendWebhook } from './utils';
 import { Webhook } from './interfaces';
-import log from '../../lib/logger';
+import { createLogger } from '../../lib/logger';
+const log = createLogger('DiscordWebhook');
 import Bot from '../Bot';
 
 export default function sendPartnerMessage(

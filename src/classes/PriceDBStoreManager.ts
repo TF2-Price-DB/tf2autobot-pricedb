@@ -432,7 +432,9 @@ export default class PriceDBStoreManager extends EventEmitter {
         }
 
         log.info(
-            `Deleted ${results.deleted} store.pricedb.io listings${results.failed > 0 ? `, ${results.failed} failed` : ''}`
+            `Deleted ${results.deleted} store.pricedb.io listings${
+                results.failed > 0 ? `, ${results.failed} failed` : ''
+            }`
         );
         return results;
     }

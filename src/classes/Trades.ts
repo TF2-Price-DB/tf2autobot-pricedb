@@ -912,12 +912,14 @@ export default class Trades {
                     const dataDict = offer.data('dict') as ItemsDict;
                     const prices = offer.data('prices') as Prices;
 
-                    const keyPriceScrap = Currencies.toScrap(values.rate);
-                    // Use separate rates for our side (sell) and their side (buy)
-                    const keyPriceSellScrap = values.rates?.sell
-                        ? Currencies.toScrap(values.rates.sell)
-                        : keyPriceScrap;
-                    const keyPriceBuyScrap = values.rates?.buy ? Currencies.toScrap(values.rates.buy) : keyPriceScrap;
+                    // Use live key prices so the counter is never based on a stale/wrong rate.
+                    // Default (useSeparateKeyRates:false): sell price for all keys.
+                    // useSeparateKeyRates:true: sell for keys bot gives, buy for keys bot receives.
+                    const liveKeyPrices = this.bot.pricelist.getKeyPrices;
+                    const keyPriceSellScrap = Currencies.toScrap(liveKeyPrices.sell.metal);
+                    const keyPriceBuyScrap = opt.miscSettings.counterOffer.useSeparateKeyRates
+                        ? Currencies.toScrap(liveKeyPrices.buy.metal)
+                        : keyPriceSellScrap;
                     const tradeValues = {
                         our: {
                             scrap: values.our.total - values.our.keys * keyPriceSellScrap,

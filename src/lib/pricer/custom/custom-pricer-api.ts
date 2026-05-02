@@ -79,7 +79,7 @@ export default class CustomPricerApi {
     ): Promise<R> {
         const options: AxiosRequestConfig = {
             method: httpMethod as Method,
-            url: `${this.url ? this.url : 'https://api.prices.tf'}${path}`,
+            url: `${this.url ? this.url : 'https://pricedb.io/api'}${path}`,
             headers: {
                 'User-Agent': 'TF2AutobotPriceDB@' + process.env.BOT_VERSION
             },

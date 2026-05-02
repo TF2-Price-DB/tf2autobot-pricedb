@@ -64,7 +64,7 @@ it('can pricecheck detect custom pricers', () => {
         steamAccountName: 'abc123',
         debug: true,
         debugFile: false,
-        customPricerUrl: 'https://api.prices.tf'
+        customPricerUrl: 'https://pricedb.io'
     });
     prices = getPricer({
         pricerUrl: options.customPricerUrl,
@@ -87,7 +87,7 @@ it('can pricecheck detect custom pricers', () => {
         steamAccountName: 'abc123',
         debug: true,
         debugFile: false,
-        customPricerUrl: 'https://api2.prices.tf'
+        customPricerUrl: 'https://pricedb.io/api'
     });
     prices = getPricer({
         pricerUrl: options.customPricerUrl,

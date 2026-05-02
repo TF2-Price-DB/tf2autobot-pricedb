@@ -1,5 +1,7 @@
 # TF2Autobot (pricedb.io fork)
 
+**[Join our Discord server here!](https://pricedb.io/discord)**
+
 This is a fork of [TF2Autobot](https://github.com/idinium96/tf2autobot), with changes made to work and use [pricedb.io](https://pricedb.io) as the default pricing source after the shutdown of prices.tf.
 
 It keeps the core behaviour and setup flow of the original project, but:
@@ -12,19 +14,11 @@ If you already know how to run TF2Autobot, you can treat this as a drop‑in rep
 
 ## Getting started
 
-All general installation and configuration steps are the same as TF2Autobot. Follow the original wiki for:
+All general installation and configuration steps are the same as TF2Autobot. Follow the new updated wiki below for:
 
 -   [Setup & configuration](https://github.com/TF2-Price-DB/tf2autobot-pricedb/wiki)
 -   [Environment variables](https://github.com/TF2-Price-DB/tf2autobot-pricedb/wiki/Configuring-the-bot)
 -   [`options.json` reference](https://github.com/TF2-Price-DB/tf2autobot-pricedb/wiki/Configure-your-options.json-file)
-
-When the wiki tells you to clone the TF2Autobot repo, use this fork instead:
-
-```bash
-git clone https://github.com/TF2-Price-DB/tf2autobot-pricedb.git
-```
-
-Then apply new settings as per below unique to this fork!
 
 ### Global Disable for Chat Messages
 
@@ -54,13 +48,13 @@ For example `!buy Burning Team Captain` becomes `buy_burning_team_captain` which
     "sell": "🔥 %price% 📦 Stock : %amount_trade% / %max_stock%. 💬 Send %ecp_item%. 👉 Visit %pricedb_store% for my store!",
 ```
 
-- `%price%` - displays the price (e.g., `14 keys`).
-- `%name%` - displays the **item name** or **itemID**.
-- `%ecp_item%` - displays the trading command (e.g., 𝘀𝗲𝗹𝗹_𝗠𝗮𝗻𝗻_𝗖𝗼_𝗦𝘂𝗽𝗽𝗹𝘆_𝗖𝗿𝗮𝘁𝗲_𝗞𝗲𝘆).
-- `%max_stock%` - displays the maximum capacity of the item in the bot's inventory.
-- `%current_stock%` - displays the current count of the item in the bot's inventory.
-- `%pricedb_store%` - displays the URL of the bot's PriceDB store.
-- `%pricedb_item%` - displays the URL of the item. 
+-   `%price%` - displays the price (e.g., `14 keys`).
+-   `%name%` - displays the **item name** or **itemID**.
+-   `%ecp_item%` - displays the trading command (e.g., sell_Mann_Co_Supply_Crate_Key).
+-   `%max_stock%` - displays the maximum capacity of the item in the bot's inventory.
+-   `%current_stock%` - displays the current count of the item in the bot's inventory.
+-   `%pricedb_store%` - displays the URL of the bot's PriceDB store.
+-   `%pricedb_item%` - displays the URL of the item.
 
 This results in listings like the below
 

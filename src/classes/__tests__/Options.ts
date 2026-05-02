@@ -154,11 +154,11 @@ test('removes cli options', () => {
     expect(testOptions).toEqual({});
 });
 
-test('loads prices.tf options', () => {
+test('loads custom pricer options', () => {
     let result = Options.loadOptions({ steamAccountName: 'abc123' });
     expect(result.customPricerUrl).toEqual('');
-    result = Options.loadOptions({ steamAccountName: 'abc123', customPricerUrl: 'alternative.tf' });
-    expect(result.customPricerUrl).toEqual('alternative.tf');
+    result = Options.loadOptions({ steamAccountName: 'abc123', customPricerUrl: 'https://custom-pricer.example.com' });
+    expect(result.customPricerUrl).toEqual('https://custom-pricer.example.com');
 });
 
 test('loads a subset of options', () => {

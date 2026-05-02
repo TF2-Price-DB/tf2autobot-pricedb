@@ -384,9 +384,9 @@ export default class Pricelist extends EventEmitter {
     get isUseCustomPricer(): boolean {
         return !(
             this.options.customPricerUrl === undefined ||
-            this.options.customPricerUrl === '' || // empty == default which is api2.prices.tf
-            this.options.customPricerUrl === 'https://api.prices.tf' ||
-            this.options.customPricerUrl === 'https://api2.prices.tf'
+            this.options.customPricerUrl === '' || // empty == default which is pricedb.io
+            this.options.customPricerUrl === 'https://pricedb.io' ||
+            this.options.customPricerUrl === 'https://pricedb.io/api'
         );
     }
 

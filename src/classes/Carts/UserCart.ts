@@ -121,6 +121,14 @@ export default class UserCart extends Cart {
         return this.useKeys;
     }
 
+    private get isPureCurrencyTrade(): boolean {
+        const currencySkus = new Set(['5021;6', '5002;6', '5001;6', '5000;6']);
+        return (
+            Object.keys(this.our).every(sku => currencySkus.has(sku)) &&
+            Object.keys(this.their).every(sku => currencySkus.has(sku))
+        );
+    }
+
     /**
      * Figure our who the buyer is and get relative currencies
      */
@@ -147,7 +155,16 @@ export default class UserCart extends Cart {
     }
 
     private getWhichCurrencies(which: 'our' | 'their'): Currencies {
-        const keyPrice = this.bot.pricelist.getKeyPrice;
+        const keyPrices = this.bot.pricelist.getKeyPrices;
+        const useSeparateKeyRates = this.bot.options.miscSettings.counterOffer.useSeparateKeyRates;
+        // For pure currency trades (key-for-metal, autokeys), always honour the correct side rate.
+        // For item trades, only use side rate when useSeparateKeyRates is explicitly enabled.
+        const keyPrice =
+            this.isPureCurrencyTrade || useSeparateKeyRates
+                ? which === 'our'
+                    ? keyPrices.sell
+                    : keyPrices.buy
+                : keyPrices.sell;
 
         let value = 0;
 
@@ -190,7 +207,7 @@ export default class UserCart extends Cart {
             value += match[which === 'our' ? 'sell' : 'buy'].toValue(keyPrice.metal) * amount;
         }
 
-        return Currencies.toCurrencies(value, this.canUseKeys ? keyPrice.metal : undefined);
+        return Currencies.toCurrencies(value, undefined);
     }
 
     private getRequired(

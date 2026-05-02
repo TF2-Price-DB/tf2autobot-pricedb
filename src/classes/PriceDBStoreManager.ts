@@ -166,7 +166,7 @@ interface QueuedRequest {
 export default class PriceDBStoreManager extends EventEmitter {
     private readonly apiKey: string;
 
-    private readonly baseURL: string = 'https://store.pricedb.io/api/v2';
+    private readonly baseURL: string = 'https://crit.tf/api/v2';
 
     private readonly axiosInstance: AxiosInstance;
 
@@ -412,11 +412,11 @@ export default class PriceDBStoreManager extends EventEmitter {
         const assetIds = Array.from(this.listings.keys());
 
         if (assetIds.length === 0) {
-            log.debug('No store.pricedb.io listings to delete');
+            log.debug('No crit.tf listings to delete');
             return results;
         }
 
-        log.debug(`Deleting ${assetIds.length} listings from store.pricedb.io...`);
+        log.debug(`Deleting ${assetIds.length} listings from crit.tf...`);
         for (const assetId of assetIds) {
             try {
                 const success = await this.deleteListing(assetId);
@@ -426,15 +426,13 @@ export default class PriceDBStoreManager extends EventEmitter {
                     results.failed++;
                 }
             } catch (err) {
-                log.warn(`Failed to delete store.pricedb.io listing ${assetId}:`, err);
+                log.warn(`Failed to delete crit.tf listing ${assetId}:`, err);
                 results.failed++;
             }
         }
 
         log.info(
-            `Deleted ${results.deleted} store.pricedb.io listings${
-                results.failed > 0 ? `, ${results.failed} failed` : ''
-            }`
+            `Deleted ${results.deleted} crit.tf listings${results.failed > 0 ? `, ${results.failed} failed` : ''}`
         );
         return results;
     }
@@ -712,10 +710,10 @@ export default class PriceDBStoreManager extends EventEmitter {
     async getStoreURL(): Promise<string> {
         const slug = await this.getStoreSlug();
         if (slug) {
-            return `https://store.pricedb.io/sf/${slug}`;
+            return `https://crit.tf/sf/${slug}`;
         }
         // Fallback to steamID-based URL
-        return `https://store.pricedb.io/store?id=${this.steamID}`;
+        return `https://crit.tf/store?id=${this.steamID}`;
     }
 
     /**
@@ -724,7 +722,7 @@ export default class PriceDBStoreManager extends EventEmitter {
      */
     getCachedStoreURL(): string | null {
         if (this.storeSlug) {
-            return `https://store.pricedb.io/sf/${this.storeSlug}`;
+            return `https://crit.tf/sf/${this.storeSlug}`;
         }
 
         // Check if we should attempt to fetch group info

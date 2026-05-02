@@ -404,8 +404,8 @@ export default class MiscCommands {
                     : '  No members yet';
 
             const storeUrl = group.custom_store_slug
-                ? `https://store.pricedb.io/sf/${group.custom_store_slug}`
-                : `https://store.pricedb.io/store?id=${this.bot.client.steamID.getSteamID64()}`;
+                ? `https://crit.tf/sf/${group.custom_store_slug}`
+                : `https://crit.tf/store?id=${this.bot.client.steamID.getSteamID64()}`;
 
             let message =
                 `📦 Store Group: ${group.group_name}\n` +
@@ -474,7 +474,7 @@ export default class MiscCommands {
 
             this.bot.sendMessage(
                 steamID,
-                `📨 Pending Invites:\n${inviteList}\n\nUse !pricedbaccept <groupId> to accept.`
+                `📨 Pending Invites:\n${inviteList}\n\nUse !crittfaccept <groupId> to accept.`
             );
         } catch (err) {
             this.bot.sendMessage(steamID, `❌ Failed to fetch invites: ${(err as Error).message}`);

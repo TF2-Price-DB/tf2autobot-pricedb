@@ -302,16 +302,16 @@ export default class Bot {
     }
 
     /**
-     * Get the pricedb.io store URL with cached slug if available, otherwise steamID-based URL
+     * Get the crit.tf store URL with cached slug if available, otherwise steamID-based URL
      */
     getPricedbStoreUrl(): string {
         if (!this.client.steamID) {
             log.warn('Cannot get PriceDB store URL: not logged in to Steam');
-            return 'https://store.pricedb.io';
+            return 'https://crit.tf';
         }
 
         const steamID = this.client.steamID.getSteamID64();
-        const fallbackUrl = `https://store.pricedb.io/store?id=${steamID}`;
+        const fallbackUrl = `https://crit.tf/store?id=${steamID}`;
 
         if (this.pricedbStoreManager) {
             const cachedUrl = this.pricedbStoreManager.getCachedStoreURL();

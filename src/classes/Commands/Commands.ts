@@ -1431,20 +1431,20 @@ export default class Commands {
                 '❌ Wrong syntax. Example: !premium months=1' +
                     '\n\n📌 Note: 📌\n- ' +
                     [
-                        '1 month = 3 keys',
-                        '2 months = 5 keys',
-                        '3 months = 8 keys',
-                        '4 months = 10 keys',
-                        '1 year (12 months) = 30 keys'
+                        '1 month = 4 keys',
+                        '2 months = 8 keys',
+                        '3 months = 10 keys',
+                        '4 months = 14 keys',
+                        '1 year (12 months) = 40 keys'
                     ].join('\n- ')
             );
         }
 
         const amountMonths = params.months;
         const numMonths = params.months;
-        const numOdds = numMonths % 2 !== 0 ? (numMonths - 1) / 2 + 1 : (numMonths - 1) / 2;
-        const numEvens = numMonths - numOdds;
-        const amountKeys = Math.round(numOdds * 3 + numEvens * 2);
+        const threeMonthBlocks = Math.floor(numMonths / 3);
+        const remainingMonths = numMonths % 3;
+        const amountKeys = threeMonthBlocks * 10 + remainingMonths * 4;
 
         const ourAmount = this.bot.inventoryManager.getInventory.getAmount({
             priceKey: '5021;6',

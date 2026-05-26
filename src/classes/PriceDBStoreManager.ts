@@ -179,7 +179,7 @@ interface QueuedRequest {
 export default class PriceDBStoreManager extends EventEmitter {
     private readonly apiKey: string;
 
-    private readonly baseURL: string = 'https://crit.tf/api/v2';
+    private static readonly baseURL: string = 'https://crit.tf/api/v2';
 
     private axiosInstance: AxiosInstance;
 
@@ -209,7 +209,7 @@ export default class PriceDBStoreManager extends EventEmitter {
         super();
         this.apiKey = apiKey;
         this.steamID = steamID;
-        this.priceDbStoreApiUrl = priceDbStoreApiUrl || PriceDBStoreManager.DEFAULT_BASE_URI;
+        this.priceDbStoreApiUrl = priceDbStoreApiUrl || PriceDBStoreManager.baseURL;
 
         this.axiosInstance = this.createAxiosClient(undefined);
     }
@@ -860,7 +860,7 @@ export default class PriceDBStoreManager extends EventEmitter {
 
     private createAxiosClient(shortLivedToken: string | undefined) {
         return axios.create({
-            baseURL: this.priceDbStoreApiUrl || PriceDBStoreManager.DEFAULT_BASE_URI,
+            baseURL: this.priceDbStoreApiUrl || PriceDBStoreManager.baseURL,
             headers: {
                 'X-API-Key': this.apiKey,
                 'X-Short-Lived-Token': shortLivedToken,

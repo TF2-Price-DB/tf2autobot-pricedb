@@ -4,7 +4,7 @@
             "name": "tf2autobot",
             "script": "dist/app.js",
             "exec_mode": "fork",
-            "shutdown_with_message": false,
+            "shutdown_with_message": true,
             "max_memory_restart": "1500M",
             "kill_retry_time": 30000,
             "kill_timeout": 60000,

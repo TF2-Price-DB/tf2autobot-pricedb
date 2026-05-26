@@ -179,7 +179,7 @@ interface QueuedRequest {
 export default class PriceDBStoreManager extends EventEmitter {
     private readonly apiKey: string;
 
-    private static readonly DEFAULT_BASE_URI = 'https://store.pricedb.io/api/v2';
+    private readonly baseURL: string = 'https://crit.tf/api/v2';
 
     private axiosInstance: AxiosInstance;
 
@@ -814,10 +814,10 @@ export default class PriceDBStoreManager extends EventEmitter {
     async getStoreURL(): Promise<string> {
         const slug = await this.getStoreSlug();
         if (slug) {
-            return `https://store.pricedb.io/sf/${slug}`;
+            return `https://crit.tf/sf/${slug}`;
         }
         // Fallback to steamID-based URL
-        return `https://store.pricedb.io/store?id=${this.steamID}`;
+        return `https://crit.tf/store?id=${this.steamID}`;
     }
 
     /**
@@ -826,7 +826,7 @@ export default class PriceDBStoreManager extends EventEmitter {
      */
     getCachedStoreURL(): string | null {
         if (this.storeSlug) {
-            return `https://store.pricedb.io/sf/${this.storeSlug}`;
+            return `https://crit.tf/sf/${this.storeSlug}`;
         }
 
         // Check if we should attempt to fetch group info

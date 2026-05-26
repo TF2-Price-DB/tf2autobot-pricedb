@@ -212,13 +212,13 @@ export default class HelpCommands {
             await timersPromises.setTimeout(2000);
             this.bot.sendMessage(
                 steamID,
-                '.\n✨=== PriceDB.io Store ===✨\n- ' +
+                '.\n✨=== crit.tf Store ===✨\n- ' +
                     [
-                        `${prefix}pricedbgroup - View your store group info, members, and friendly store URL 🏪`,
-                        `pricedbinvite <steamID> - Invite a user to your store group 📨`,
-                        `pricedbinvites - List pending group invites you've received 📬`,
-                        `pricedbaccept <groupId> - Accept a group invite ✅`,
-                        `pricedbleave <groupId> - Leave a store group 👋`
+                        `${prefix}crittfgroup - View your store group info, members, and friendly store URL 🏪`,
+                        `crittfinvite <steamID> - Invite a user to your store group 📨`,
+                        `crittfinvites - List pending group invites you've received 📬`,
+                        `crittfaccept <groupId> - Accept a group invite ✅`,
+                        `crittfleave <groupId> - Leave a store group 👋`
                     ].join(`\n- ${prefix}`) +
                     '\n\n💡 Tip: Use %pricedb_store% in your listing notes to automatically include your store URL!'
             );

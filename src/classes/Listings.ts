@@ -1031,7 +1031,7 @@ export default class Listings {
 
             // Get friendly store URL using cached slug if available
             const pricedbStoreUrl = this.bot.getPricedbStoreUrl();
-            const pricedbItemUrl = `https://store.pricedb.io/item/${entry.sku}`;
+            const pricedbItemUrl = `https://crit.tf/item/${entry.sku}`;
 
             return details
                 .replace(/%price%/g, isShowBoldOnPrice ? boldDetails(price, style) : price)

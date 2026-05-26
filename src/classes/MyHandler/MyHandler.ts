@@ -404,14 +404,14 @@ export default class MyHandler extends Handler {
                             return resolve();
                         }
 
-                        // Remove backpack.tf listings first and then store.pricedb.io listings
+                        // Remove backpack.tf listings first and then crit.tf listings
                         this.bot.listings
                             .removeAll()
                             .catch((err: Error) =>
                                 log.warn('Failed to remove all listings on shutdown (autokeys was enabled): ', err)
                             )
                             .finally(() => {
-                                // Remove store.pricedb.io listings
+                                // Remove crit.tf listings
                                 if (this.bot.pricedbStoreManager) {
                                     this.bot.pricedbStoreManager
                                         .deleteAllListings()
@@ -435,13 +435,11 @@ export default class MyHandler extends Handler {
                     .removeAll()
                     .catch((err: Error) => log.warn('Failed to remove all listings on shutdown: ', err))
                     .finally(() => {
-                        // Remove store.pricedb.io listings
+                        // Remove crit.tf listings
                         if (this.bot.pricedbStoreManager) {
                             this.bot.pricedbStoreManager
                                 .deleteAllListings()
-                                .catch((err: Error) =>
-                                    log.warn('Failed to remove store.pricedb.io listings on shutdown: ', err)
-                                )
+                                .catch((err: Error) => log.warn('Failed to remove crit.tf listings on shutdown: ', err))
                                 .finally(() => resolve());
                         } else {
                             resolve();

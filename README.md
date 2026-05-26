@@ -7,7 +7,7 @@ This is a fork of [TF2Autobot](https://github.com/idinium96/tf2autobot), with ch
 It keeps the core behaviour and setup flow of the original project, but:
 
 -   Uses [pricedb.io](https://pricedb.io) as the default pricer.
--   Integrates the [pricedb.io](https://store.pricedb.io) Store API so backpack.tf sell listings can be mirrored to pricedb.io.
+-   Integrates the [pricedb.io](https://crit.tf) Store API so backpack.tf sell listings can be mirrored to pricedb.io.
 -   Key Pricing Configuration to allow the key value context to be set (default same behaviour as autobot)
 
 If you already know how to run TF2Autobot, you can treat this as a drop‑in replacement with the extra pricedb.io integration enabled.
@@ -98,9 +98,9 @@ Look at the example [options.json](.example/options.json) for where this should 
 If upgrading, rename your existing `polldata.json` to `polldata.old.json` otherwise historical data will skew !stats (optional)
 The new stats system uses new logic to track profit by recording keys and metal separately to prevent point in time issues. These are used to provide estimated profit/loss with the !stats command. This change is backwards compatible with Autobot.
 
-### store.pricedb.io configuration
+### crit.tf configuration
 
-If you want to use store.pricedb.io follow the below
+If you want to use crit.tf follow the below
 
 1. **Environment variable**
 
@@ -125,7 +125,7 @@ If you want to use store.pricedb.io follow the below
 
 3. **Template variable for listings**
 
-    You can include your pricedb.io store URL in your backpack.tf listing notes by using the `%pricedb_store%` template variable. The bot will automatically replace it with your friendly store URL (e.g., `https://store.pricedb.io/sf/your-slug`).
+    You can include your pricedb.io store URL in your backpack.tf listing notes by using the `%pricedb_store%` template variable. The bot will automatically replace it with your friendly store URL (e.g., `https://crit.tf/sf/your-slug`).
 
     Example in your listing note:
 

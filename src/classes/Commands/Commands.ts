@@ -312,15 +312,15 @@ export default class Commands {
                 this.manager.refreshSchema(steamID);
             } else if (['crafttoken', 'ct'].includes(command) && isAdmin) {
                 this.crafting.craftTokenCommand(steamID, message);
-            } else if (command === 'pricedbgroup' && isAdmin) {
+            } else if (command === 'crittfgroup' && isAdmin) {
                 void this.misc.pricedbGroup(steamID);
-            } else if (command === 'pricedbinvite' && isAdmin) {
+            } else if (command === 'crittfinvite' && isAdmin) {
                 void this.misc.pricedbInvite(steamID, CommandParser.removeCommand(message));
-            } else if (command === 'pricedbinvites' && isAdmin) {
+            } else if (command === 'crittfinvites' && isAdmin) {
                 void this.misc.pricedbInvites(steamID);
-            } else if (command === 'pricedbaccept' && isAdmin) {
+            } else if (command === 'crittfaccept' && isAdmin) {
                 void this.misc.pricedbAccept(steamID, CommandParser.removeCommand(message));
-            } else if (command === 'pricedbleave' && isAdmin) {
+            } else if (command === 'crittfleave' && isAdmin) {
                 void this.misc.pricedbLeave(steamID, CommandParser.removeCommand(message));
             } else {
                 const custom = this.bot.options.customMessage.commandNotFound;
@@ -1432,20 +1432,20 @@ export default class Commands {
                 '❌ Wrong syntax. Example: !premium months=1' +
                     '\n\n📌 Note: 📌\n- ' +
                     [
-                        '1 month = 3 keys',
-                        '2 months = 5 keys',
-                        '3 months = 8 keys',
-                        '4 months = 10 keys',
-                        '1 year (12 months) = 30 keys'
+                        '1 month = 4 keys',
+                        '2 months = 8 keys',
+                        '3 months = 10 keys',
+                        '4 months = 14 keys',
+                        '1 year (12 months) = 40 keys'
                     ].join('\n- ')
             );
         }
 
         const amountMonths = params.months;
         const numMonths = params.months;
-        const numOdds = numMonths % 2 !== 0 ? (numMonths - 1) / 2 + 1 : (numMonths - 1) / 2;
-        const numEvens = numMonths - numOdds;
-        const amountKeys = Math.round(numOdds * 3 + numEvens * 2);
+        const threeMonthBlocks = Math.floor(numMonths / 3);
+        const remainingMonths = numMonths % 3;
+        const amountKeys = threeMonthBlocks * 10 + remainingMonths * 4;
 
         const ourAmount = this.bot.inventoryManager.getInventory.getAmount({
             priceKey: '5021;6',

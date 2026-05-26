@@ -220,7 +220,7 @@ export default class HelpCommands {
                         `crittfaccept <groupId> - Accept a group invite ✅`,
                         `crittfleave <groupId> - Leave a store group 👋`
                     ].join(`\n- ${prefix}`) +
-                    '\n\n💡 Tip: Use %pricedb_store% in your listing notes to automatically include your store URL!'
+                    '\n\n💡 Tip: Use %crittf_store% in your listing notes to automatically include your store URL!'
             );
         }
     }

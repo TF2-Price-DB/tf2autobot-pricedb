@@ -442,7 +442,7 @@ export const optionsSchema: jsonschema.Schema = {
                 createListings: {
                     $ref: '#/definitions/only-enable'
                 },
-                pricedbStore: {
+                critTFStore: {
                     type: 'object',
                     properties: {
                         enable: {

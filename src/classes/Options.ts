@@ -34,7 +34,7 @@ export const DEFAULTS: JsonOptions = {
         createListings: {
             enable: true
         },
-        pricedbStore: {
+        critTFStore: {
             enable: true,
             enableInventoryRefresh: true
         },
@@ -1247,9 +1247,9 @@ interface Counteroffer extends OnlyEnable {
     useSeparateKeyRates?: boolean;
 }
 
-// --------- PriceDB Store Settings ----------
+// --------- CritTF Store Settings ----------
 
-interface PriceDBStore extends OnlyEnable {
+interface CritTFStore extends OnlyEnable {
     enableInventoryRefresh?: boolean;
 }
 
@@ -1273,7 +1273,7 @@ interface MiscSettings {
     showOnlyMetal?: OnlyEnable;
     sortInventory?: SortInventory;
     createListings?: OnlyEnable;
-    pricedbStore?: PriceDBStore;
+    critTFStore?: CritTFStore;
     startHalted?: OnlyEnable;
     counterOffer?: Counteroffer;
     addFriends?: OnlyEnable;
@@ -2264,7 +2264,7 @@ export default interface Options extends JsonOptions {
 
     bptfAccessToken?: string;
     bptfApiKey?: string;
-    pricedbStoreApiKey?: string;
+    crittfStoreApiKey?: string;
     useragentHeaderCustom?: string;
     useragentHeaderShowVersion?: boolean;
 
@@ -2588,7 +2588,7 @@ export function loadOptions(options?: Options): Options {
 
         bptfAccessToken: getOption('bptfAccessToken', '', String, incomingOptions),
         bptfApiKey: getOption('bptfApiKey', '', String, incomingOptions),
-        pricedbStoreApiKey: getOption('pricedbStoreApiKey', '', String, incomingOptions),
+        crittfStoreApiKey: getOption('crittfStoreApiKey', '', String, incomingOptions),
         useragentHeaderCustom: getOption('useragentHeaderCustom', '', String, incomingOptions),
         useragentHeaderShowVersion: getOption('useragentHeaderShowVersion', false, jsonParseBoolean, incomingOptions),
 

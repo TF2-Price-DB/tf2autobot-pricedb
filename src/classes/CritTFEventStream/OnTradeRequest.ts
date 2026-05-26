@@ -1,17 +1,17 @@
 import Bot from '../Bot';
 import UserCart from '../Carts/UserCart';
 import { createLogger } from '../../lib/logger';
-const log = createLogger('PriceDBEventStream');
+const log = createLogger('CritTFEventStream');
 import { parseTradeUrl } from '../../lib/tools/parseTradeUrl';
 import Inventory from '../Inventory';
 import { assertUnreachable } from '../../lib/assertUnreachable';
 import { TradeRequestAssetIdItem, TradeRequestEventEnvelope, TradeRequestSkuItem } from './types';
-import { PriceDBEventStreamLogger } from './PriceDBEventStreamLogger';
+import { CritTFEventStreamLogger } from './CritTFEventStreamLogger';
 
 const CURRENCY_SKUS = new Set(['5021;6', '5002;6', '5001;6', '5000;6']);
 
 export class OnTradeRequest {
-    constructor(private readonly bot: Bot, private logger: PriceDBEventStreamLogger) {}
+    constructor(private readonly bot: Bot, private logger: CritTFEventStreamLogger) {}
 
     process(payload: TradeRequestEventEnvelope): void {
         if (!this.bot.options.commands.buy.enable) {

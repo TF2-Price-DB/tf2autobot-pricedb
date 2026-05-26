@@ -380,17 +380,17 @@ export default class MiscCommands {
         return stock;
     }
 
-    async pricedbGroup(steamID: SteamID): Promise<void> {
+    async critTFGroup(steamID: SteamID): Promise<void> {
         if (!this.bot.isAdmin(steamID)) {
             return this.bot.sendMessage(steamID, '❌ This command is only available to admins.');
         }
 
-        if (!this.bot.pricedbStoreManager) {
-            return this.bot.sendMessage(steamID, '❌ PriceDB Store Manager is not enabled.');
+        if (!this.bot.critTFStoreManager) {
+            return this.bot.sendMessage(steamID, '❌ CritTF Store Manager is not enabled.');
         }
 
         try {
-            const group = await this.bot.pricedbStoreManager.getMyGroup();
+            const group = await this.bot.critTFStoreManager.getMyGroup();
             if (!group) {
                 return this.bot.sendMessage(steamID, '❌ No store group found for this bot.');
             }
@@ -427,22 +427,22 @@ export default class MiscCommands {
         }
     }
 
-    async pricedbInvite(steamID: SteamID, targetSteamID: string): Promise<void> {
+    async critTFInvite(steamID: SteamID, targetSteamID: string): Promise<void> {
         if (!this.bot.isAdmin(steamID)) {
             return this.bot.sendMessage(steamID, '❌ This command is only available to admins.');
         }
 
-        if (!this.bot.pricedbStoreManager) {
-            return this.bot.sendMessage(steamID, '❌ PriceDB Store Manager is not enabled.');
+        if (!this.bot.critTFStoreManager) {
+            return this.bot.sendMessage(steamID, '❌ CritTF Store Manager is not enabled.');
         }
 
         try {
-            const group = await this.bot.pricedbStoreManager.getMyGroup();
+            const group = await this.bot.critTFStoreManager.getMyGroup();
             if (!group) {
                 return this.bot.sendMessage(steamID, '❌ No store group found for this bot.');
             }
 
-            const result = await this.bot.pricedbStoreManager.inviteToGroup(group.id, targetSteamID);
+            const result = await this.bot.critTFStoreManager.inviteToGroup(group.id, targetSteamID);
             if (result && result.success) {
                 this.bot.sendMessage(steamID, `✅ Invited ${targetSteamID} to the store group.`);
             } else {
@@ -453,17 +453,17 @@ export default class MiscCommands {
         }
     }
 
-    async pricedbInvites(steamID: SteamID): Promise<void> {
+    async critTFInvites(steamID: SteamID): Promise<void> {
         if (!this.bot.isAdmin(steamID)) {
             return this.bot.sendMessage(steamID, '❌ This command is only available to admins.');
         }
 
-        if (!this.bot.pricedbStoreManager) {
-            return this.bot.sendMessage(steamID, '❌ PriceDB Store Manager is not enabled.');
+        if (!this.bot.critTFStoreManager) {
+            return this.bot.sendMessage(steamID, '❌ CritTF Store Manager is not enabled.');
         }
 
         try {
-            const invites = await this.bot.pricedbStoreManager.getPendingInvites();
+            const invites = await this.bot.critTFStoreManager.getPendingInvites();
             if (invites.length === 0) {
                 return this.bot.sendMessage(steamID, 'ℹ️ No pending group invites.');
             }
@@ -481,13 +481,13 @@ export default class MiscCommands {
         }
     }
 
-    async pricedbAccept(steamID: SteamID, groupId: string): Promise<void> {
+    async critTFAccept(steamID: SteamID, groupId: string): Promise<void> {
         if (!this.bot.isAdmin(steamID)) {
             return this.bot.sendMessage(steamID, '❌ This command is only available to admins.');
         }
 
-        if (!this.bot.pricedbStoreManager) {
-            return this.bot.sendMessage(steamID, '❌ PriceDB Store Manager is not enabled.');
+        if (!this.bot.critTFStoreManager) {
+            return this.bot.sendMessage(steamID, '❌ CritTF Store Manager is not enabled.');
         }
 
         const groupIdNum = parseInt(groupId, 10);
@@ -496,7 +496,7 @@ export default class MiscCommands {
         }
 
         try {
-            const success = await this.bot.pricedbStoreManager.acceptGroupInvite(groupIdNum);
+            const success = await this.bot.critTFStoreManager.acceptGroupInvite(groupIdNum);
             if (success) {
                 this.bot.sendMessage(steamID, `✅ Accepted invite to group ${groupIdNum}.`);
             } else {
@@ -507,13 +507,13 @@ export default class MiscCommands {
         }
     }
 
-    async pricedbLeave(steamID: SteamID, groupId: string): Promise<void> {
+    async critTFLeave(steamID: SteamID, groupId: string): Promise<void> {
         if (!this.bot.isAdmin(steamID)) {
             return this.bot.sendMessage(steamID, '❌ This command is only available to admins.');
         }
 
-        if (!this.bot.pricedbStoreManager) {
-            return this.bot.sendMessage(steamID, '❌ PriceDB Store Manager is not enabled.');
+        if (!this.bot.critTFStoreManager) {
+            return this.bot.sendMessage(steamID, '❌ CritTF Store Manager is not enabled.');
         }
 
         const groupIdNum = parseInt(groupId, 10);
@@ -522,7 +522,7 @@ export default class MiscCommands {
         }
 
         try {
-            const success = await this.bot.pricedbStoreManager.leaveGroup(groupIdNum);
+            const success = await this.bot.critTFStoreManager.leaveGroup(groupIdNum);
             if (success) {
                 this.bot.sendMessage(steamID, `✅ Left group ${groupIdNum}.`);
             } else {

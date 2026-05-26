@@ -1,11 +1,11 @@
 import Bot from '../Bot';
 import { createEventSource } from 'eventsource-client';
-import { PriceDBEventStreamLogger } from './PriceDBEventStreamLogger';
+import { CritTFEventStreamLogger } from './CritTFEventStreamLogger';
 import { HeartBeatEventEnvelope, TradeRequestEventEnvelope } from './types';
 import { Handler as Processor } from './Processor';
 import { RestartConnectionError } from './RestartConnectionError';
 
-export class PriceDBEventStreamListener {
+export class CritTFEventStreamListener {
     private onTradeRequest: Set<Processor<TradeRequestEventEnvelope>> = new Set();
 
     private onHeartBeat: Set<Processor<HeartBeatEventEnvelope>> = new Set();
@@ -13,7 +13,7 @@ export class PriceDBEventStreamListener {
     constructor(
         private readonly bot: Bot,
         private readonly eventStreamUrl: string,
-        private readonly logger: PriceDBEventStreamLogger
+        private readonly logger: CritTFEventStreamLogger
     ) {}
 
     async start(): Promise<void> {
@@ -51,7 +51,7 @@ export class PriceDBEventStreamListener {
     }
 
     private async hotLoop() {
-        const authToken = await this.bot.pricedbStoreManager.getAuthToken();
+        const authToken = await this.bot.critTFStoreManager.getAuthToken();
         if (!authToken.ok) {
             throw new Error('Auth Token could not be fetched');
         }

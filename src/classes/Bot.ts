@@ -5,7 +5,7 @@ import TradeOfferManager, { CustomError, EconItem } from '@tf2autobot/tradeoffer
 import SteamCommunity from '@tf2autobot/steamcommunity';
 import SteamTotp from 'steam-totp';
 import ListingManager, { Listing } from '@tf2autobot/bptf-listings';
-import PriceDBStoreManager from './PriceDBStoreManager';
+import CritTFStoreManager from './CritTFStoreManager';
 import SchemaManager, { Effect, StrangeParts } from '@tf2autobot/tf2-schema';
 import BptfLogin from '@tf2autobot/bptf-login';
 import TF2 from '@tf2autobot/tf2';
@@ -63,8 +63,8 @@ type EasyCopyPasteInstance = {
 
 const EasyCopyPasteCtor = EasyCopyPaste as unknown as new () => EasyCopyPasteInstance;
 
-type PriceDBListingEvent = { id: string };
-type PriceDBInventoryRefreshedEvent = { itemCount: number; refreshCount: number };
+type CritTFListingEvent = { id: string };
+type CritTFInventoryRefreshedEvent = { itemCount: number; refreshCount: number };
 
 export interface SteamTokens {
     refreshToken: string;
@@ -98,7 +98,7 @@ export default class Bot {
 
     listingManager: ListingManager;
 
-    pricedbStoreManager: PriceDBStoreManager;
+    critTFStoreManager: CritTFStoreManager;
 
     readonly friends: Friends;
 
@@ -309,17 +309,17 @@ export default class Bot {
     /**
      * Get the crit.tf store URL with cached slug if available, otherwise steamID-based URL
      */
-    getPricedbStoreUrl(): string {
+    getCritTFStoreUrl(): string {
         if (!this.client.steamID) {
-            log.warn('Cannot get PriceDB store URL: not logged in to Steam');
+            log.warn('Cannot get CritTF store URL: not logged in to Steam');
             return 'https://crit.tf';
         }
 
         const steamID = this.client.steamID.getSteamID64();
         const fallbackUrl = `https://crit.tf/store?id=${steamID}`;
 
-        if (this.pricedbStoreManager) {
-            const cachedUrl = this.pricedbStoreManager.getCachedStoreURL();
+        if (this.critTFStoreManager) {
+            const cachedUrl = this.critTFStoreManager.getCachedStoreURL();
             if (cachedUrl) {
                 return cachedUrl;
             }
@@ -1209,75 +1209,75 @@ export default class Bot {
                                 },
                                 (cb: Callback): void => {
                                     if (
-                                        !this.options.pricedbStoreApiKey ||
-                                        !this.options.miscSettings.pricedbStore.enable
+                                        !this.options.crittfStoreApiKey ||
+                                        !this.options.miscSettings.critTFStore.enable
                                     ) {
                                         log.debug(
-                                            'Skipping PriceDB Store Manager initialization (not configured or disabled)'
+                                            'Skipping CritTF Store Manager initialization (not configured or disabled)'
                                         );
                                         cb(null);
                                         return;
                                     }
 
                                     if (!this.client.steamID) {
-                                        log.warn('Cannot initialize PriceDB Store Manager: not logged in to Steam');
+                                        log.warn('Cannot initialize CritTF Store Manager: not logged in to Steam');
                                         cb(null);
                                         return;
                                     }
 
-                                    this.pricedbStoreManager = new PriceDBStoreManager(
-                                        this.options.pricedbStoreApiKey,
+                                    this.critTFStoreManager = new CritTFStoreManager(
+                                        this.options.crittfStoreApiKey,
                                         this.client.steamID.getSteamID64(),
                                         process.env.PRICE_DB_STORE_API_URL
                                     );
 
-                                    const _pricedbBatch = { created: 0, updated: 0, deleted: 0 };
-                                    let _pricedbBatchTimer: ReturnType<typeof setTimeout> | null = null;
-                                    const _flushPricedbBatch = (): void => {
+                                    const _critTFBatch = { created: 0, updated: 0, deleted: 0 };
+                                    let _critTFBatchTimer: ReturnType<typeof setTimeout> | null = null;
+                                    const _flushCritTFBatch = (): void => {
                                         const parts: string[] = [];
-                                        if (_pricedbBatch.created > 0) parts.push(`${_pricedbBatch.created} created`);
-                                        if (_pricedbBatch.updated > 0) parts.push(`${_pricedbBatch.updated} updated`);
-                                        if (_pricedbBatch.deleted > 0) parts.push(`${_pricedbBatch.deleted} deleted`);
-                                        if (parts.length > 0) log.debug(`PriceDB Store listings: ${parts.join(', ')}`);
-                                        _pricedbBatch.created = 0;
-                                        _pricedbBatch.updated = 0;
-                                        _pricedbBatch.deleted = 0;
-                                        _pricedbBatchTimer = null;
+                                        if (_critTFBatch.created > 0) parts.push(`${_critTFBatch.created} created`);
+                                        if (_critTFBatch.updated > 0) parts.push(`${_critTFBatch.updated} updated`);
+                                        if (_critTFBatch.deleted > 0) parts.push(`${_critTFBatch.deleted} deleted`);
+                                        if (parts.length > 0) log.debug(`CritTF Store listings: ${parts.join(', ')}`);
+                                        _critTFBatch.created = 0;
+                                        _critTFBatch.updated = 0;
+                                        _critTFBatch.deleted = 0;
+                                        _critTFBatchTimer = null;
                                     };
-                                    const _schedulePricedbFlush = (): void => {
-                                        if (_pricedbBatchTimer) clearTimeout(_pricedbBatchTimer);
-                                        _pricedbBatchTimer = setTimeout(_flushPricedbBatch, 2000);
+                                    const _scheduleCritTFFlush = (): void => {
+                                        if (_critTFBatchTimer) clearTimeout(_critTFBatchTimer);
+                                        _critTFBatchTimer = setTimeout(_flushCritTFBatch, 2000);
                                     };
 
-                                    this.pricedbStoreManager.on('listingCreated', () => {
-                                        _pricedbBatch.created++;
-                                        _schedulePricedbFlush();
+                                    this.critTFStoreManager.on('listingCreated', () => {
+                                        _critTFBatch.created++;
+                                        _scheduleCritTFFlush();
                                     });
 
-                                    this.pricedbStoreManager.on('listingUpdated', () => {
-                                        _pricedbBatch.updated++;
-                                        _schedulePricedbFlush();
+                                    this.critTFStoreManager.on('listingUpdated', () => {
+                                        _critTFBatch.updated++;
+                                        _scheduleCritTFFlush();
                                     });
 
-                                    this.pricedbStoreManager.on('listingDeleted', () => {
-                                        _pricedbBatch.deleted++;
-                                        _schedulePricedbFlush();
+                                    this.critTFStoreManager.on('listingDeleted', () => {
+                                        _critTFBatch.deleted++;
+                                        _scheduleCritTFFlush();
                                     });
 
-                                    this.pricedbStoreManager.on(
+                                    this.critTFStoreManager.on(
                                         'inventoryRefreshed',
-                                        (evt: PriceDBInventoryRefreshedEvent) => {
+                                        (evt: CritTFInventoryRefreshedEvent) => {
                                             log.info(
-                                                `PriceDB Store inventory refreshed: ${evt.itemCount} items (${evt.refreshCount}/25 today)`
+                                                `CritTF Store inventory refreshed: ${evt.itemCount} items (${evt.refreshCount}/25 today)`
                                             );
                                         }
                                     );
 
-                                    this.pricedbStoreManager.on('error', (err: unknown) => {
-                                        log.error('PriceDB Store Manager error:', err);
+                                    this.critTFStoreManager.on('error', (err: unknown) => {
+                                        log.error('CritTF Store Manager error:', err);
                                     });
 
-                                    this.pricedbStoreManager
+                                    this.critTFStoreManager
                                         .init()
                                         .then(() => cb(null))
                                         .catch(err => cb(err as Error));

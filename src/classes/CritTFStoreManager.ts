@@ -2,7 +2,7 @@ import axios, { AxiosInstance, AxiosError } from 'axios';
 import Currencies from '@tf2autobot/tf2-currencies';
 import { EventEmitter } from 'events';
 import { createLogger } from '../lib/logger';
-const log = createLogger('PriceDBStoreManager');
+const log = createLogger('CritTFStoreManager');
 import filterAxiosError from '@tf2autobot/filter-axios-error';
 
 /**
@@ -17,7 +17,7 @@ function withProgressLog<T>(label: string, promise: Promise<T>, intervalMs = 200
     });
 }
 
-export interface PriceDBListing {
+export interface CritTFListing {
     id?: number;
     steam_id?: string;
     item_name?: string;
@@ -45,15 +45,15 @@ export interface PriceDBListing {
     sku?: string;
 }
 
-export interface PriceDBListingResponse {
+export interface CritTFListingResponse {
     success: boolean;
     message?: string;
-    listing?: PriceDBListing;
+    listing?: CritTFListing;
     count?: number;
-    listings?: PriceDBListing[];
+    listings?: CritTFListing[];
 }
 
-export interface PriceDBInventoryResponse {
+export interface CritTFInventoryResponse {
     success: boolean;
     message?: string;
     count?: number;
@@ -64,7 +64,7 @@ export interface PriceDBInventoryResponse {
     items?: any[];
 }
 
-export interface PriceDBUserResponse {
+export interface CritTFUserResponse {
     success: boolean;
     user?: {
         steam_id: string;
@@ -76,7 +76,7 @@ export interface PriceDBUserResponse {
     };
 }
 
-export interface PriceDBGroupMember {
+export interface CritTFGroupMember {
     id: number;
     store_group_id: number;
     steam_id: string;
@@ -89,7 +89,7 @@ export interface PriceDBGroupMember {
     avatar_url: string;
 }
 
-export interface PriceDBGroup {
+export interface CritTFGroup {
     id: number;
     owner_steam_id: string;
     group_name: string;
@@ -110,16 +110,16 @@ export interface PriceDBGroup {
     custom_store_slug: string | null;
     owner_name: string;
     owner_avatar: string;
-    members: PriceDBGroupMember[];
+    members: CritTFGroupMember[];
 }
 
-export interface PriceDBGroupResponse {
+export interface CritTFGroupResponse {
     success: boolean;
     message?: string;
-    group?: PriceDBGroup;
+    group?: CritTFGroup;
 }
 
-export interface PriceDBInvite {
+export interface CritTFInvite {
     id: number;
     store_group_id: number;
     steam_id: string;
@@ -137,13 +137,13 @@ export interface PriceDBInvite {
     owner_avatar: string;
 }
 
-export interface PriceDBInvitesResponse {
+export interface CritTFInvitesResponse {
     success: boolean;
     count: number;
-    invites: PriceDBInvite[];
+    invites: CritTFInvite[];
 }
 
-export interface PriceDBAcceptInviteResponse {
+export interface CritTFAcceptInviteResponse {
     success: boolean;
     message: string;
     membership: {
@@ -158,7 +158,7 @@ export interface PriceDBAcceptInviteResponse {
     };
 }
 
-export interface PriceDBInviteCreateResponse {
+export interface CritTFInviteCreateResponse {
     success: boolean;
     message: string;
     invite?: {
@@ -176,7 +176,7 @@ interface QueuedRequest {
     reject: (error: any) => void;
 }
 
-export default class PriceDBStoreManager extends EventEmitter {
+export default class CritTFStoreManager extends EventEmitter {
     private readonly apiKey: string;
 
     private static readonly baseURL: string = 'https://crit.tf/api/v2';
@@ -185,7 +185,7 @@ export default class PriceDBStoreManager extends EventEmitter {
 
     private steamID: string;
 
-    private listings: Map<string, PriceDBListing> = new Map(); // assetId -> listing
+    private listings: Map<string, CritTFListing> = new Map(); // assetId -> listing
 
     private lastInventoryRefresh: Date | null = null;
 
@@ -203,13 +203,13 @@ export default class PriceDBStoreManager extends EventEmitter {
 
     private readonly requestDelayMs: number = 100; // 100ms delay between requests = max 10 requests/second
 
-    private priceDbStoreApiUrl: string;
+    private critTFStoreApiUrl: string;
 
-    constructor(apiKey: string, steamID: string, priceDbStoreApiUrl: string | null | undefined) {
+    constructor(apiKey: string, steamID: string, critTFStoreApiUrl: string | null | undefined) {
         super();
         this.apiKey = apiKey;
         this.steamID = steamID;
-        this.priceDbStoreApiUrl = priceDbStoreApiUrl || PriceDBStoreManager.baseURL;
+        this.critTFStoreApiUrl = critTFStoreApiUrl || CritTFStoreManager.baseURL;
 
         this.axiosInstance = this.createAxiosClient(undefined);
     }
@@ -271,7 +271,7 @@ export default class PriceDBStoreManager extends EventEmitter {
             await this.fetchMyListings();
 
             if (this.listings.size > 0) {
-                log.info(`Clearing ${this.listings.size} pre-existing pricedb.io listings on startup...`);
+                log.info(`Clearing ${this.listings.size} pre-existing crit.tf listings on startup...`);
                 await this.deleteAllListings();
             }
 
@@ -296,7 +296,7 @@ export default class PriceDBStoreManager extends EventEmitter {
     }
 
     async getAuthToken() {
-        const errReturn = { ok: false, reason: 'Could not get PriceDB AuthToken' } as const;
+        const errReturn = { ok: false, reason: 'Could not get CritTF AuthToken' } as const;
 
         try {
             const response = await this.axiosInstance.get<{ ok: true; token: string } | { ok: false; reason: string }>(
@@ -304,7 +304,7 @@ export default class PriceDBStoreManager extends EventEmitter {
             );
 
             if (response.status !== 200 || !response.data.ok) {
-                log.error('Could not get PriceDB AuthToken', response);
+                log.error('Could not get CritTF AuthToken', response);
                 return errReturn;
             }
 
@@ -312,7 +312,7 @@ export default class PriceDBStoreManager extends EventEmitter {
             return response.data;
         } catch (e) {
             const error = filterAxiosError(e as AxiosError);
-            log.error('Failed to fetch Auth Token from pricedb.io:', error);
+            log.error('Failed to fetch Auth Token from crit.tf:', error);
             return errReturn;
         }
     }
@@ -320,44 +320,48 @@ export default class PriceDBStoreManager extends EventEmitter {
     /**
      * Fetch all listings for the authenticated user
      */
-    async fetchMyListings(): Promise<PriceDBListing[]> {
+    async fetchMyListings(): Promise<CritTFListing[]> {
         try {
-            const response = await this.axiosInstance.get<PriceDBListingResponse>('/listings/my');
+            const response = await this.axiosInstance.get<CritTFListingResponse>('/listings/my');
 
             if (response.data.success && response.data.listings) {
                 this.listings.clear();
                 response.data.listings.forEach(listing => {
                     this.listings.set(listing.asset_id, listing);
                 });
-                log.debug(`Fetched ${response.data.listings.length} listings from pricedb.io`);
+                log.debug(`Fetched ${response.data.listings.length} listings from crit.tf`);
                 return response.data.listings;
             }
             return [];
         } catch (err) {
             const error = filterAxiosError(err as AxiosError);
-            log.error('Failed to fetch listings from pricedb.io:', error);
+            log.error('Failed to fetch listings from crit.tf:', error);
             throw error;
         }
     }
 
     /**
-     * Create a new listing on pricedb.io (queued with rate limiting)
+     * Create a new listing on crit.tf (queued with rate limiting)
      */
     /**
      * Create a new listing directly without going through the request queue.
-     * Used by createOrUpdatePriceDBListing for concurrent operation.
+     * Used by createOrUpdateCritTFListing for concurrent operation.
      */
-    async createListingDirect(assetId: string, currencies: Currencies): Promise<PriceDBListing | null> {
-        const listing: Omit<PriceDBListing, 'id' | 'steam_id' | 'item_name' | 'created_at'> = {
+    async createListingDirect(assetId: string, currencies: Currencies): Promise<CritTFListing | null> {
+        const listing: Omit<CritTFListing, 'id' | 'steam_id' | 'item_name' | 'created_at'> = {
             asset_id: assetId,
             price_keys: currencies.keys,
             price_metal: currencies.metal
         };
 
-        const response = await this.axiosInstance.post<PriceDBListingResponse>('/listings', listing);
+        const response = await this.axiosInstance.post<CritTFListingResponse>('/listings', listing);
 
         if (response.data.success && response.data.listing) {
             this.listings.set(assetId, response.data.listing);
+            log.debug(
+                `Created listing: ${response.data.listing.item_name ?? assetId} ` +
+                    `(${currencies.keys} keys + ${currencies.metal} metal)`
+            );
             this.emit('listingCreated', response.data.listing);
             return response.data.listing;
         }
@@ -366,9 +370,9 @@ export default class PriceDBStoreManager extends EventEmitter {
 
     /**
      * Update an existing listing directly without going through the request queue.
-     * Used by createOrUpdatePriceDBListing for concurrent operation.
+     * Used by createOrUpdateCritTFListing for concurrent operation.
      */
-    async updateListingDirect(assetId: string, currencies: Currencies): Promise<PriceDBListing | null> {
+    async updateListingDirect(assetId: string, currencies: Currencies): Promise<CritTFListing | null> {
         const existingListing = this.listings.get(assetId);
         if (!existingListing || !existingListing.id) {
             log.warn(`Cannot update listing for asset ${assetId}: listing not found`);
@@ -380,10 +384,7 @@ export default class PriceDBStoreManager extends EventEmitter {
             price_metal: currencies.metal
         };
 
-        const response = await this.axiosInstance.put<PriceDBListingResponse>(
-            `/listings/${existingListing.id}`,
-            update
-        );
+        const response = await this.axiosInstance.put<CritTFListingResponse>(`/listings/${existingListing.id}`, update);
         if (response.data.success && response.data.listing) {
             const updatedListing = { ...existingListing, ...response.data.listing };
             this.listings.set(assetId, updatedListing);
@@ -394,15 +395,15 @@ export default class PriceDBStoreManager extends EventEmitter {
     }
 
     /**
-     * Create a new listing on pricedb.io (queued with rate limiting)
+     * Create a new listing on crit.tf (queued with rate limiting)
      */
-    async createListing(assetId: string, currencies: Currencies): Promise<PriceDBListing | null> {
+    async createListing(assetId: string, currencies: Currencies): Promise<CritTFListing | null> {
         return this.queueRequest(async () => {
             try {
                 return await this.createListingDirect(assetId, currencies);
             } catch (err) {
                 const error = filterAxiosError(err as AxiosError);
-                log.error(`Failed to create listing on pricedb.io for asset ${assetId}:`, error);
+                log.error(`Failed to create listing on crit.tf for asset ${assetId}:`, error);
                 this.emit('listingCreateError', { assetId, error });
                 throw error;
             }
@@ -410,15 +411,15 @@ export default class PriceDBStoreManager extends EventEmitter {
     }
 
     /**
-     * Update an existing listing on pricedb.io (queued with rate limiting)
+     * Update an existing listing on crit.tf (queued with rate limiting)
      */
-    async updateListing(assetId: string, currencies: Currencies): Promise<PriceDBListing | null> {
+    async updateListing(assetId: string, currencies: Currencies): Promise<CritTFListing | null> {
         return this.queueRequest(async () => {
             try {
                 return await this.updateListingDirect(assetId, currencies);
             } catch (err) {
                 const error = filterAxiosError(err as AxiosError);
-                log.error(`Failed to update listing on pricedb.io for asset ${assetId}:`, error);
+                log.error(`Failed to update listing on crit.tf for asset ${assetId}:`, error);
                 this.emit('listingUpdateError', { assetId, error });
                 throw error;
             }
@@ -426,7 +427,7 @@ export default class PriceDBStoreManager extends EventEmitter {
     }
 
     /**
-     * Delete a listing from pricedb.io (queued with rate limiting)
+     * Delete a listing from crit.tf (queued with rate limiting)
      */
     async deleteListing(assetId: string): Promise<boolean> {
         return this.queueRequest(async () => {
@@ -434,7 +435,7 @@ export default class PriceDBStoreManager extends EventEmitter {
                 return await this.deleteListingDirect(assetId);
             } catch (err) {
                 const error = filterAxiosError(err as AxiosError);
-                log.error(`Failed to delete listing on pricedb.io for asset ${assetId}:`, error);
+                log.error(`Failed to delete listing on crit.tf for asset ${assetId}:`, error);
                 this.emit('listingDeleteError', { assetId, error });
                 throw error;
             }
@@ -462,7 +463,7 @@ export default class PriceDBStoreManager extends EventEmitter {
 
         const response = await withProgressLog(
             `DELETE /listings/${existingListing.id} (asset ${assetId})`,
-            this.axiosInstance.delete<PriceDBListingResponse>(`/listings/${existingListing.id}`)
+            this.axiosInstance.delete<CritTFListingResponse>(`/listings/${existingListing.id}`)
         );
 
         // axios only resolves for 2xx responses, so trust the HTTP status.
@@ -485,7 +486,7 @@ export default class PriceDBStoreManager extends EventEmitter {
     }
 
     /**
-     * Delete all listings from pricedb.io using a concurrent worker pool.
+     * Delete all listings from crit.tf using a concurrent worker pool.
      * Bypasses the per-request rate-limit queue — bulk startup cleanup should be
      * as fast as the API allows, not serialised at 100ms/request.
      * priedb has a rate limit 600 requests for minute. 50 should be safe
@@ -499,13 +500,13 @@ export default class PriceDBStoreManager extends EventEmitter {
             return results;
         }
 
-        log.info(`Deleting ${assetIds.length} listings from pricedb.io (concurrency: ${concurrency})...`);
+        log.info(`Deleting ${assetIds.length} listings from crit.tf (concurrency: ${concurrency})...`);
 
         // Periodic progress ticker so startup logs show the bot is still alive.
         const progressInterval = setInterval(() => {
             const done = results.deleted + results.failed;
             log.info(
-                `pricedb.io startup cleanup: ${done} / ${assetIds.length} listings processed (${results.deleted} deleted, ${results.failed} failed)...`
+                `crit.tf startup cleanup: ${done} / ${assetIds.length} listings processed (${results.deleted} deleted, ${results.failed} failed)...`
             );
         }, 30000);
 
@@ -542,7 +543,7 @@ export default class PriceDBStoreManager extends EventEmitter {
     }
 
     /**
-     * Refresh the cached inventory on pricedb.io (limited to 25 per day)
+     * Refresh the cached inventory on crit.tf (limited to 25 per day)
      */
     async refreshInventory(): Promise<boolean> {
         try {
@@ -561,11 +562,11 @@ export default class PriceDBStoreManager extends EventEmitter {
                 }
             }
 
-            const response = await this.axiosInstance.post<PriceDBInventoryResponse>('/inventory/refresh');
+            const response = await this.axiosInstance.post<CritTFInventoryResponse>('/inventory/refresh');
 
             if (response.data.success) {
                 this.lastInventoryRefresh = new Date();
-                log.info(`Inventory refreshed on pricedb.io. Items: ${response.data.item_count}`);
+                log.info(`Inventory refreshed on crit.tf. Items: ${response.data.item_count}`);
                 this.emit('inventoryRefreshed', {
                     itemCount: response.data.item_count ?? 0,
                     refreshCount: response.data.refresh_count ?? 0
@@ -575,39 +576,39 @@ export default class PriceDBStoreManager extends EventEmitter {
             return false;
         } catch (err) {
             const error = filterAxiosError(err as AxiosError);
-            log.error('Failed to refresh inventory on pricedb.io:', error);
+            log.error('Failed to refresh inventory on crit.tf:', error);
             this.emit('inventoryRefreshError', error);
             throw error;
         }
     }
 
     /**
-     * Get cached inventory from pricedb.io
+     * Get cached inventory from crit.tf
      */
     async getInventory(): Promise<any[]> {
         try {
-            const response = await this.axiosInstance.get<PriceDBInventoryResponse>('/inventory');
+            const response = await this.axiosInstance.get<CritTFInventoryResponse>('/inventory');
 
             if (response.data.success && response.data.items) {
                 log.debug(
-                    `Fetched ${response.data.count} items from pricedb.io inventory (cached: ${response.data.from_cache})`
+                    `Fetched ${response.data.count} items from crit.tf inventory (cached: ${response.data.from_cache})`
                 );
                 return response.data.items;
             }
             return [];
         } catch (err) {
             const error = filterAxiosError(err as AxiosError);
-            log.error('Failed to get inventory from pricedb.io:', error);
+            log.error('Failed to get inventory from crit.tf:', error);
             throw error;
         }
     }
 
     /**
-     * Get user information from pricedb.io
+     * Get user information from crit.tf
      */
-    async getUserInfo(): Promise<PriceDBUserResponse['user'] | null> {
+    async getUserInfo(): Promise<CritTFUserResponse['user'] | null> {
         try {
-            const response = await this.axiosInstance.get<PriceDBUserResponse>('/user');
+            const response = await this.axiosInstance.get<CritTFUserResponse>('/user');
 
             if (response.data.success && response.data.user) {
                 return response.data.user;
@@ -615,28 +616,28 @@ export default class PriceDBStoreManager extends EventEmitter {
             return null;
         } catch (err) {
             const error = filterAxiosError(err as AxiosError);
-            log.error('Failed to get user info from pricedb.io:', error);
+            log.error('Failed to get user info from crit.tf:', error);
             throw error;
         }
     }
 
     /**
-     * Update trade URL on pricedb.io
+     * Update trade URL on crit.tf
      */
     async updateTradeURL(tradeURL: string): Promise<boolean> {
         try {
-            const response = await this.axiosInstance.put<PriceDBListingResponse>('/user/trade-url', {
+            const response = await this.axiosInstance.put<CritTFListingResponse>('/user/trade-url', {
                 trade_url: tradeURL
             });
 
             if (response.data.success) {
-                log.info('Trade URL updated on pricedb.io');
+                log.info('Trade URL updated on crit.tf');
                 return true;
             }
             return false;
         } catch (err) {
             const error = filterAxiosError(err as AxiosError);
-            log.error('Failed to update trade URL on pricedb.io:', error);
+            log.error('Failed to update trade URL on crit.tf:', error);
             throw error;
         }
     }
@@ -644,14 +645,14 @@ export default class PriceDBStoreManager extends EventEmitter {
     /**
      * Find a listing by asset ID
      */
-    findListing(assetId: string): PriceDBListing | undefined {
+    findListing(assetId: string): CritTFListing | undefined {
         return this.listings.get(assetId);
     }
 
     /**
      * Get all listings
      */
-    getAllListings(): PriceDBListing[] {
+    getAllListings(): CritTFListing[] {
         return Array.from(this.listings.values());
     }
 
@@ -665,9 +666,9 @@ export default class PriceDBStoreManager extends EventEmitter {
     /**
      * Get my store group information
      */
-    async getMyGroup(): Promise<PriceDBGroup | null> {
+    async getMyGroup(): Promise<CritTFGroup | null> {
         try {
-            const response = await this.axiosInstance.get<PriceDBGroupResponse>('/groups/my');
+            const response = await this.axiosInstance.get<CritTFGroupResponse>('/groups/my');
 
             if (response.data.success && response.data.group) {
                 // Cache the store slug for URL generation
@@ -697,7 +698,7 @@ export default class PriceDBStoreManager extends EventEmitter {
                 return null;
             }
             const error = filterAxiosError(axiosError);
-            log.error('Failed to get group info from pricedb.io:', error);
+            log.error('Failed to get group info from crit.tf:', error);
             throw error;
         }
     }
@@ -705,9 +706,9 @@ export default class PriceDBStoreManager extends EventEmitter {
     /**
      * Invite a user to the store group
      */
-    async inviteToGroup(groupId: number, steamId: string): Promise<PriceDBInviteCreateResponse | null> {
+    async inviteToGroup(groupId: number, steamId: string): Promise<CritTFInviteCreateResponse | null> {
         try {
-            const response = await this.axiosInstance.post<PriceDBInviteCreateResponse>(`/groups/${groupId}/invite`, {
+            const response = await this.axiosInstance.post<CritTFInviteCreateResponse>(`/groups/${groupId}/invite`, {
                 steam_id: steamId
             });
 
@@ -726,9 +727,9 @@ export default class PriceDBStoreManager extends EventEmitter {
     /**
      * Get pending group invites
      */
-    async getPendingInvites(): Promise<PriceDBInvite[]> {
+    async getPendingInvites(): Promise<CritTFInvite[]> {
         try {
-            const response = await this.axiosInstance.get<PriceDBInvitesResponse>('/groups/invites');
+            const response = await this.axiosInstance.get<CritTFInvitesResponse>('/groups/invites');
 
             if (response.data.success && response.data.invites) {
                 log.debug(`Fetched ${response.data.count} pending invites`);
@@ -737,7 +738,7 @@ export default class PriceDBStoreManager extends EventEmitter {
             return [];
         } catch (err) {
             const error = filterAxiosError(err as AxiosError);
-            log.error('Failed to get pending invites from pricedb.io:', error);
+            log.error('Failed to get pending invites from crit.tf:', error);
             throw error;
         }
     }
@@ -747,7 +748,7 @@ export default class PriceDBStoreManager extends EventEmitter {
      */
     async acceptGroupInvite(groupId: number): Promise<boolean> {
         try {
-            const response = await this.axiosInstance.post<PriceDBAcceptInviteResponse>(`/groups/${groupId}/accept`);
+            const response = await this.axiosInstance.post<CritTFAcceptInviteResponse>(`/groups/${groupId}/accept`);
 
             if (response.data.success) {
                 log.info(`Accepted invite to group ${groupId} - ${response.data.message}`);
@@ -771,7 +772,7 @@ export default class PriceDBStoreManager extends EventEmitter {
      */
     async leaveGroup(groupId: number): Promise<boolean> {
         try {
-            const response = await this.axiosInstance.post<PriceDBGroupResponse>(`/groups/${groupId}/leave`);
+            const response = await this.axiosInstance.post<CritTFGroupResponse>(`/groups/${groupId}/leave`);
 
             if (response.data.success) {
                 log.info(`Left group ${groupId}`);
@@ -860,7 +861,7 @@ export default class PriceDBStoreManager extends EventEmitter {
 
     private createAxiosClient(shortLivedToken: string | undefined) {
         return axios.create({
-            baseURL: this.priceDbStoreApiUrl || PriceDBStoreManager.baseURL,
+            baseURL: this.critTFStoreApiUrl || CritTFStoreManager.baseURL,
             headers: {
                 'X-API-Key': this.apiKey,
                 'X-Short-Lived-Token': shortLivedToken,

@@ -1,13 +1,13 @@
 import Bot from '../Bot';
-import { PriceDBEventStreamLogger } from './PriceDBEventStreamLogger';
+import { CritTFEventStreamLogger } from './CritTFEventStreamLogger';
 import { RestartConnectionError } from './RestartConnectionError';
 import { HeartBeatEventEnvelope } from './types';
 
 export class OnHeartBeat {
-    constructor(private bot: Bot, private logger: PriceDBEventStreamLogger) {}
+    constructor(private bot: Bot, private logger: CritTFEventStreamLogger) {}
 
     async process(_: HeartBeatEventEnvelope) {
-        if (!(await this.bot.pricedbStoreManager.sendDeadMansRequest())) {
+        if (!(await this.bot.critTFStoreManager.sendDeadMansRequest())) {
             throw new RestartConnectionError();
         }
 

@@ -1,18 +1,18 @@
 import Bot from '../Bot';
 import { OnHeartBeat } from './OnHeartBeat';
 import { OnTradeRequest } from './OnTradeRequest';
-import { PriceDBEventStreamListener } from './PriceDBEventStreamListener';
-import { PriceDBEventStreamLogger } from './PriceDBEventStreamLogger';
+import { CritTFEventStreamListener } from './CritTFEventStreamListener';
+import { CritTFEventStreamLogger } from './CritTFEventStreamLogger';
 
 export function enableTradeRequestListener(bot: Bot) {
-    const logger = new PriceDBEventStreamLogger();
+    const logger = new CritTFEventStreamLogger();
     const eventStreamUrl = process.env.TRADE_REQUEST_EVENT_STREAM_URL ?? 'https://events.pricedb.io/event-stream';
     if (!eventStreamUrl) {
         logger.warn('Not starting because TRADE_REQUEST_EVENT_STREAM_URL not configured.');
         return;
     }
 
-    const stream = new PriceDBEventStreamListener(bot, eventStreamUrl, logger);
+    const stream = new CritTFEventStreamListener(bot, eventStreamUrl, logger);
     stream.addOnTradeRequestProcessor(new OnTradeRequest(bot, logger));
     stream.addOnHeartBeatProcessor(new OnHeartBeat(bot, logger));
 

@@ -390,6 +390,16 @@ export default class MyHandler extends Handler {
             clearInterval(this.bot.periodicCheckAdmin);
         }
 
+        // Helper: delete all crit.tf listings, swallowing errors so shutdown always continues
+        const deleteCritTFListings = (): Promise<void> => {
+            if (!this.bot.critTFStoreManager) return Promise.resolve();
+            log.info('Removing crit.tf listings on shutdown...');
+            return this.bot.critTFStoreManager
+                .deleteAllListings()
+                .then(() => undefined)
+                .catch((err: Error) => log.warn('Failed to remove crit.tf listings on shutdown: ', err));
+        };
+
         return new Promise<void>(resolve => {
             if (this.opt.autokeys.enable) {
                 log.debug('Disabling Autokeys and disabling key entry in the pricelist...');
@@ -400,51 +410,33 @@ export default class MyHandler extends Handler {
                     })
                     .finally(() => {
                         if (!this.bot.listingManager || this.bot.listingManager.ready !== true) {
-                            // We have not set up the listing manager, don't try and remove listings
-                            return resolve();
+                            // Listing manager not ready — still clean up crit.tf listings
+                            void deleteCritTFListings().finally(() => resolve());
+                            return;
                         }
 
-                        // Remove backpack.tf listings first and then crit.tf listings
-                        this.bot.listings
+                        // Remove backpack.tf listings and crit.tf listings in parallel
+                        const bptfRemoval = this.bot.listings
                             .removeAll()
                             .catch((err: Error) =>
                                 log.warn('Failed to remove all listings on shutdown (autokeys was enabled): ', err)
-                            )
-                            .finally(() => {
-                                // Remove crit.tf listings
-                                if (this.bot.pricedbStoreManager) {
-                                    this.bot.pricedbStoreManager
-                                        .deleteAllListings()
-                                        .catch((err: Error) =>
-                                            log.warn('Failed to remove pricedb.io listings on shutdown: ', err)
-                                        )
-                                        .finally(() => resolve());
-                                } else {
-                                    resolve();
-                                }
-                            });
+                            );
+
+                        void Promise.allSettled([bptfRemoval, deleteCritTFListings()]).finally(() => resolve());
                     });
             } else {
                 if (!this.bot.listingManager || this.bot.listingManager.ready !== true) {
-                    // We have not set up the listing manager, don't try and remove listings
-                    return resolve();
+                    // Listing manager not ready — still clean up crit.tf listings
+                    void deleteCritTFListings().finally(() => resolve());
+                    return;
                 }
 
-                // Remove backpack.tf listings
-                this.bot.listings
+                // Remove backpack.tf listings and crit.tf listings in parallel
+                const bptfRemoval = this.bot.listings
                     .removeAll()
-                    .catch((err: Error) => log.warn('Failed to remove all listings on shutdown: ', err))
-                    .finally(() => {
-                        // Remove crit.tf listings
-                        if (this.bot.pricedbStoreManager) {
-                            this.bot.pricedbStoreManager
-                                .deleteAllListings()
-                                .catch((err: Error) => log.warn('Failed to remove crit.tf listings on shutdown: ', err))
-                                .finally(() => resolve());
-                        } else {
-                            resolve();
-                        }
-                    });
+                    .catch((err: Error) => log.warn('Failed to remove all listings on shutdown: ', err));
+
+                void Promise.allSettled([bptfRemoval, deleteCritTFListings()]).finally(() => resolve());
             }
         }).finally(() => {
             this.bot.db.close();
@@ -2363,14 +2355,14 @@ export default class MyHandler extends Handler {
                 // Update listings
                 updateListings(offer, this.bot, highValue);
 
-                // Refresh pricedb.io inventory after trade if enabled
+                // Refresh crit.tf inventory after trade if enabled
                 if (
-                    this.bot.pricedbStoreManager &&
-                    this.opt.miscSettings.pricedbStore.enable &&
-                    this.opt.miscSettings.pricedbStore.enableInventoryRefresh
+                    this.bot.critTFStoreManager &&
+                    this.opt.miscSettings.critTFStore.enable &&
+                    this.opt.miscSettings.critTFStore.enableInventoryRefresh
                 ) {
-                    this.bot.pricedbStoreManager.refreshInventory().catch(err => {
-                        log.warn('Failed to refresh pricedb.io inventory after trade:', err);
+                    this.bot.critTFStoreManager.refreshInventory().catch(err => {
+                        log.warn('Failed to refresh crit.tf inventory after trade:', err);
                     });
                 }
 
@@ -2540,7 +2532,7 @@ export default class MyHandler extends Handler {
                             ? this.opt.customMessage.welcome
                                   .replace(/%name%/g, '')
                                   .replace(/%admin%/g, isAdmin ? '!help' : '!how2trade')
-                                  .replace(/%pricedb_store%/g, this.bot.getPricedbStoreUrl())
+                                  .replace(/%crittf_store%/g, this.bot.getCritTFStoreUrl())
                             : `Hi! If you don't know how things work, please type "!${isAdmin ? 'help' : 'how2trade'}"`
                     );
                 }
@@ -2567,7 +2559,7 @@ export default class MyHandler extends Handler {
                     ? this.opt.customMessage.welcome
                           .replace(/%name%/g, friend.player_name)
                           .replace(/%admin%/g, isAdmin ? '!help' : '!how2trade')
-                          .replace(/%pricedb_store%/g, this.bot.getPricedbStoreUrl())
+                          .replace(/%crittf_store%/g, this.bot.getCritTFStoreUrl())
                     : `Hi ${friend.player_name}! If you don't know how things work, please type ` +
                           `"!${isAdmin ? 'help' : 'how2trade'}"`
             );

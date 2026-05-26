@@ -142,8 +142,8 @@ export default async function sendTradeDeclined(
                                     );
                                 }
                                 const backpackLink = `\n[View my backpack](https://backpack.tf/profiles/${botInfo.steamID.getSteamID64()})`;
-                                const storeLink = bot.options.miscSettings.pricedbStore.enable
-                                    ? ` | [See my store](${bot.getPricedbStoreUrl()})`
+                                const storeLink = bot.options.miscSettings.critTFStore.enable
+                                    ? ` | [See my store](${bot.getCritTFStoreUrl()})`
                                     : '';
                                 return backpackLink + storeLink;
                             })()

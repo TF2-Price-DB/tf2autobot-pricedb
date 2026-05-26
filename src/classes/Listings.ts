@@ -50,7 +50,7 @@ export default class Listings {
 
     // Deduplicates concurrent inventory-refresh attempts when items come back as "not found".
     // All concurrent callers await the same promise; only the first one triggers the refresh.
-    private pricedbInventoryRefreshPromise: Promise<void> | null = null;
+    private critTFInventoryRefreshPromise: Promise<void> | null = null;
 
     private get isCreateListing(): boolean {
         return this.bot.options.miscSettings.createListings.enable && !this.bot.isHalted;
@@ -201,9 +201,9 @@ export default class Listings {
                 this.expectedListingPrices.delete(listing.id);
 
                 listing.remove();
-                // Remove from pricedb.io if it's a sell listing
+                // Remove from crit.tf if it's a sell listing
                 if (listing.intent === 1) {
-                    void this.deletePriceDBListing(listing.id.replace('440_', ''));
+                    void this.deleteCritTFListing(listing.id.replace('440_', ''));
                 }
             } else if ((listing.intent === 0 && amountCanBuy <= 0) || (listing.intent === 1 && amountCanSell <= 0)) {
                 if (showLogs) {
@@ -215,9 +215,9 @@ export default class Listings {
                 this.expectedListingPrices.delete(listing.id);
 
                 listing.remove();
-                // Remove from pricedb.io if it's a sell listing
+                // Remove from crit.tf if it's a sell listing
                 if (listing.intent === 1) {
-                    void this.deletePriceDBListing(listing.id.replace('440_', ''));
+                    void this.deleteCritTFListing(listing.id.replace('440_', ''));
                 }
             } else if (
                 listing.intent === 0 &&
@@ -233,7 +233,7 @@ export default class Listings {
                 this.expectedListingPrices.delete(listing.id);
 
                 listing.remove();
-                // This is a buy listing (intent 0), no need to remove from pricedb.io (only sell listings)
+                // This is a buy listing (intent 0), no need to remove from crit.tf (only sell listings)
             } else {
                 const newDetails = this.getDetails(
                     listing.intent,
@@ -294,7 +294,7 @@ export default class Listings {
                     listing.update(toUpdate);
                     //TODO: make promote, demote
 
-                    // Update pricedb.io listings if it's a sell listing - update ALL asset IDs for this SKU
+                    // Update crit.tf listings if it's a sell listing - update ALL asset IDs for this SKU
                     if (listing.intent === 1) {
                         const allAssetIds = isAssetId
                             ? [listing.id.replace('440_', '')]
@@ -304,7 +304,7 @@ export default class Listings {
                                       assetId => !this.bot.pricelist.hasPrice({ priceKey: assetId, onlyEnabled: false })
                                   );
                         for (const id of allAssetIds) {
-                            void this.createOrUpdatePriceDBListing(id, currencies);
+                            void this.createOrUpdateCritTFListing(id, currencies);
                         }
                     }
 
@@ -409,9 +409,9 @@ export default class Listings {
                     currencies: matchNew.sell
                 });
 
-                // Also create listings on pricedb.io store for ALL asset IDs (only sell listings supported)
+                // Also create listings on crit.tf store for ALL asset IDs (only sell listings supported)
                 for (const id of assetids) {
-                    void this.createOrUpdatePriceDBListing(id, matchNew.sell);
+                    void this.createOrUpdateCritTFListing(id, matchNew.sell);
                 }
             }
         }
@@ -810,33 +810,33 @@ export default class Listings {
     }
 
     /**
-     * Check if pricedb.io store is enabled
+     * Check if crit.tf store is enabled
      */
-    private get isPriceDBStoreEnabled(): boolean {
+    private get isCritTFStoreEnabled(): boolean {
         return (
-            this.bot.options.miscSettings.pricedbStore.enable &&
-            this.bot.pricedbStoreManager !== undefined &&
+            this.bot.options.miscSettings.critTFStore.enable &&
+            this.bot.critTFStoreManager !== undefined &&
             !this.bot.isHalted
         );
     }
 
     /**
-     * Create or update a sell listing on pricedb.io store
+     * Create or update a sell listing on crit.tf store
      */
-    async createOrUpdatePriceDBListing(assetId: string, currencies: Currencies): Promise<void> {
-        if (!this.isPriceDBStoreEnabled) {
+    async createOrUpdateCritTFListing(assetId: string, currencies: Currencies): Promise<void> {
+        if (!this.isCritTFStoreEnabled) {
             return;
         }
 
         try {
-            const existingListing = this.bot.pricedbStoreManager.findListing(assetId);
+            const existingListing = this.bot.critTFStoreManager.findListing(assetId);
 
             if (existingListing) {
                 // Update existing listing
-                await this.bot.pricedbStoreManager.updateListingDirect(assetId, currencies);
+                await this.bot.critTFStoreManager.updateListingDirect(assetId, currencies);
             } else {
                 // Create new listing
-                await this.bot.pricedbStoreManager.createListingDirect(assetId, currencies);
+                await this.bot.critTFStoreManager.createListingDirect(assetId, currencies);
             }
         } catch (err: any) {
             const responseStatus: number | undefined = err?.response?.status;
@@ -847,39 +847,39 @@ export default class Listings {
                 (responseData?.error === 'Item not found' || responseData?.message?.includes('Item not found'));
 
             if (isItemNotFoundError) {
-                log.debug(`Item ${assetId} not found in pricedb.io inventory.`);
+                log.debug(`Item ${assetId} not found in crit.tf inventory.`);
 
-                if (this.pricedbInventoryRefreshPromise === null) {
+                if (this.critTFInventoryRefreshPromise === null) {
                     // First caller — trigger refresh and share the promise.
-                    log.warn('One or more items not found in pricedb.io inventory. Refreshing inventory...');
-                    this.pricedbInventoryRefreshPromise = (async () => {
+                    log.warn('One or more items not found in crit.tf inventory. Refreshing inventory...');
+                    this.critTFInventoryRefreshPromise = (async () => {
                         try {
-                            const refreshed = await this.bot.pricedbStoreManager.refreshInventory();
+                            const refreshed = await this.bot.critTFStoreManager.refreshInventory();
                             if (refreshed) {
                                 log.info(
-                                    'pricedb.io inventory refreshed. Affected listings will be created on the next update cycle.'
+                                    'crit.tf inventory refreshed. Affected listings will be created on the next update cycle.'
                                 );
                             } else {
                                 log.debug(
-                                    'pricedb.io inventory refresh skipped (rate limited). Affected listings will be retried later.'
+                                    'crit.tf inventory refresh skipped (rate limited). Affected listings will be retried later.'
                                 );
                             }
                         } catch (error_) {
                             log.error(
-                                'Failed to refresh pricedb.io inventory after item-not-found errors:',
+                                'Failed to refresh crit.tf inventory after item-not-found errors:',
                                 filterAxiosError(error_ as AxiosError)
                             );
                         } finally {
-                            this.pricedbInventoryRefreshPromise = null;
+                            this.critTFInventoryRefreshPromise = null;
                         }
                     })();
                 }
 
-                await this.pricedbInventoryRefreshPromise;
+                await this.critTFInventoryRefreshPromise;
             } else {
                 const apiMessage = responseData?.message ?? responseData?.error ?? responseData ?? '(no response body)';
                 log.error(
-                    `Failed to create/update pricedb.io listing for ${assetId} (HTTP ${
+                    `Failed to create/update crit.tf listing for ${assetId} (HTTP ${
                         responseStatus ?? 'unknown'
                     }): ${JSON.stringify(apiMessage)}`,
                     filterAxiosError(err)
@@ -889,17 +889,17 @@ export default class Listings {
     }
 
     /**
-     * Delete a listing from pricedb.io store
+     * Delete a listing from crit.tf store
      */
-    async deletePriceDBListing(assetId: string): Promise<void> {
-        if (!this.isPriceDBStoreEnabled) {
+    async deleteCritTFListing(assetId: string): Promise<void> {
+        if (!this.isCritTFStoreEnabled) {
             return;
         }
 
         try {
-            await this.bot.pricedbStoreManager.deleteListing(assetId);
+            await this.bot.critTFStoreManager.deleteListing(assetId);
         } catch (err) {
-            log.error(`Failed to delete pricedb.io listing for ${assetId}:`, err);
+            log.error(`Failed to delete crit.tf listing for ${assetId}:`, err);
         }
     }
 
@@ -1030,8 +1030,8 @@ export default class Listings {
             const ecpString = this.bot.ecp.toEcpStr(entry.id ?? entry.name, key);
 
             // Get friendly store URL using cached slug if available
-            const pricedbStoreUrl = this.bot.getPricedbStoreUrl();
-            const pricedbItemUrl = `https://crit.tf/item/${entry.sku}`;
+            const critTFStoreUrl = this.bot.getCritTFStoreUrl();
+            const critTFItemUrl = `https://crit.tf/item/${entry.sku}`;
 
             return details
                 .replace(/%price%/g, isShowBoldOnPrice ? boldDetails(price, style) : price)
@@ -1040,8 +1040,8 @@ export default class Listings {
                 .replace(/%max_stock%/g, isShowBoldOnMaxStock ? boldDetails(maxStock, style) : maxStock)
                 .replace(/%current_stock%/g, isShowBoldOnCurrentStock ? boldDetails(currentStock, style) : currentStock)
                 .replace(/%amount_trade%/g, isShowBoldOnAmount ? boldDetails(amountTrade, style) : amountTrade)
-                .replace(/%pricedb_store%/g, pricedbStoreUrl)
-                .replace(/%pricedb_item%/g, pricedbItemUrl);
+                .replace(/%crittf_store%/g, critTFStoreUrl)
+                .replace(/%crittf_item%/g, critTFItemUrl);
         };
 
         const isCustomBuyNote = entry.note?.buy && intent === 0;

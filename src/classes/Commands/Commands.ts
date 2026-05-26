@@ -313,15 +313,15 @@ export default class Commands {
             } else if (['crafttoken', 'ct'].includes(command) && isAdmin) {
                 this.crafting.craftTokenCommand(steamID, message);
             } else if (command === 'crittfgroup' && isAdmin) {
-                void this.misc.pricedbGroup(steamID);
+                void this.misc.critTFGroup(steamID);
             } else if (command === 'crittfinvite' && isAdmin) {
-                void this.misc.pricedbInvite(steamID, CommandParser.removeCommand(message));
+                void this.misc.critTFInvite(steamID, CommandParser.removeCommand(message));
             } else if (command === 'crittfinvites' && isAdmin) {
-                void this.misc.pricedbInvites(steamID);
+                void this.misc.critTFInvites(steamID);
             } else if (command === 'crittfaccept' && isAdmin) {
-                void this.misc.pricedbAccept(steamID, CommandParser.removeCommand(message));
+                void this.misc.critTFAccept(steamID, CommandParser.removeCommand(message));
             } else if (command === 'crittfleave' && isAdmin) {
-                void this.misc.pricedbLeave(steamID, CommandParser.removeCommand(message));
+                void this.misc.critTFLeave(steamID, CommandParser.removeCommand(message));
             } else {
                 const custom = this.bot.options.customMessage.commandNotFound;
 
@@ -1533,7 +1533,7 @@ function getMptfDashboardItems(mptfApiKey: string, ignorePainted = false): Promi
             method: 'GET',
             url: 'https://marketplace.tf/api/Seller/GetDashboardItems/v2',
             headers: {
-                'User-Agent': 'TF2AutobotPriceDB@' + process.env.BOT_VERSION
+                'User-Agent': 'TF2AutobotCritTF@' + process.env.BOT_VERSION
             },
             params: {
                 key: mptfApiKey

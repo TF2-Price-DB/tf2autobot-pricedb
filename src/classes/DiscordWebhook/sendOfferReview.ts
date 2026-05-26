@@ -154,8 +154,8 @@ export default function sendOfferReview(
                                     : '') +
                                 (isShowPureStock ? `\n${cTPureStock} ${pureStock.join(', ').toString()}` : '') +
                                 `\n[View my backpack](https://backpack.tf/profiles/${botInfo.steamID.getSteamID64()})` +
-                                (bot.options.miscSettings.pricedbStore.enable
-                                    ? ` | [See my store](${bot.getPricedbStoreUrl()})`
+                                (bot.options.miscSettings.critTFStore.enable
+                                    ? ` | [See my store](${bot.getCritTFStoreUrl()})`
                                     : '')
                         }
                     ],

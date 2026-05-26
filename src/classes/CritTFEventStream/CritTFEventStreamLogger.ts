@@ -1,8 +1,8 @@
 import { createLogger, ServiceLogger } from '../../lib/logger';
 
-const _log = createLogger('PriceDBEventStream');
+const _log = createLogger('CritTFEventStream');
 
-export class PriceDBEventStreamLogger implements ServiceLogger {
+export class CritTFEventStreamLogger implements ServiceLogger {
     debug(message: string, ...details: unknown[]) {
         _log.debug(message, ...details);
     }

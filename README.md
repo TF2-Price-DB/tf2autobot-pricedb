@@ -7,7 +7,7 @@ This is a fork of [TF2Autobot](https://github.com/idinium96/tf2autobot), with ch
 It keeps the core behaviour and setup flow of the original project, but:
 
 -   Uses [pricedb.io](https://pricedb.io) as the default pricer.
--   Integrates the [pricedb.io](https://crit.tf) Store API so backpack.tf sell listings can be mirrored to pricedb.io.
+-   Integrates the [Crit.TF](https://crit.tf) Store API so backpack.tf sell listings can be mirrored to pricedb.io.
 -   Key Pricing Configuration to allow the key value context to be set (default same behaviour as autobot)
 
 If you already know how to run TF2Autobot, you can treat this as a drop‑in replacement with the extra pricedb.io integration enabled.
@@ -44,8 +44,8 @@ Look at the example [options.json](.example/options.json) for where this should 
 For example `!buy Burning Team Captain` becomes `buy_burning_team_captain` which is far easier to copy from listings. In order to add this to your listings you would update your buy and sell messages as per the below example.
 
 ```json
-    "buy": "🔥 %price% 📦 Stock : %current_stock% / %max_stock%. 💬 Send %ecp_item%. 👉 Visit %pricedb_store% for my store!",
-    "sell": "🔥 %price% 📦 Stock : %amount_trade% / %max_stock%. 💬 Send %ecp_item%. 👉 Visit %pricedb_store% for my store!",
+    "buy": "🔥 %price% 📦 Stock : %current_stock% / %max_stock%. 💬 Send %ecp_item%. 👉 Visit %crittf_store% for my store!",
+    "sell": "🔥 %price% 📦 Stock : %amount_trade% / %max_stock%. 💬 Send %ecp_item%. 👉 Visit %crittf_store% for my store!",
 ```
 
 -   `%price%` - displays the price (e.g., `14 keys`).
@@ -53,8 +53,8 @@ For example `!buy Burning Team Captain` becomes `buy_burning_team_captain` which
 -   `%ecp_item%` - displays the trading command (e.g., sell_Mann_Co_Supply_Crate_Key).
 -   `%max_stock%` - displays the maximum capacity of the item in the bot's inventory.
 -   `%current_stock%` - displays the current count of the item in the bot's inventory.
--   `%pricedb_store%` - displays the URL of the bot's PriceDB store.
--   `%pricedb_item%` - displays the URL of the item.
+-   `%crittf_store%` - displays the URL of the bot's PriceDB store.
+-   `%crittf_item%` - displays the URL of the item.
 
 This results in listings like the below
 
@@ -107,7 +107,7 @@ If you want to use crit.tf follow the below
     Set your pricedb.io Store API key in your process manager (PM2 ecosystem, Docker env, or system env):
 
     ```bash
-    PRICEDB_STORE_API_KEY=your_pricedb_store_api_key_here
+    CRITTF_STORE_API_KEY=your_crittf_store_api_key_here
     ```
 
 2. **`options.json` misc settings**
@@ -115,7 +115,7 @@ If you want to use crit.tf follow the below
     In your `options.json`, under `miscSettings`, add or update:
 
     ```json
-    "pricedbStore": {
+    "critTFStore": {
       "enable": true,
       "enableInventoryRefresh": true
     }
@@ -125,12 +125,12 @@ If you want to use crit.tf follow the below
 
 3. **Template variable for listings**
 
-    You can include your pricedb.io store URL in your backpack.tf listing notes by using the `%pricedb_store%` template variable. The bot will automatically replace it with your friendly store URL (e.g., `https://crit.tf/sf/your-slug`).
+    You can include your pricedb.io store URL in your backpack.tf listing notes by using the `%crittf_store%` template variable. The bot will automatically replace it with your friendly store URL (e.g., `https://crit.tf/sf/your-slug`).
 
     Example in your listing note:
 
     ```
-    Visit my store: %pricedb_store%
+    Visit my store: %crittf_store%
     ```
 
 After these changes, rebuild (if needed) and fully restart the bot so the new environment variable is picked up.

@@ -24,6 +24,10 @@
         "createListings": {
             "enable": true
         },
+        "critTFStore": {
+            "enable": false,
+            "enableInventoryRefresh": true
+        },
         "startHalted": {
             "enable": false
         },

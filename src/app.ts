@@ -41,7 +41,8 @@ dotenv.config({ path: path.join(__dirname, '../.env') });
 const options = loadOptions();
 const paths = genPaths(options.steamAccountName);
 
-import log, { init } from './lib/logger';
+import { init, createLogger } from './lib/logger';
+const log = createLogger('App');
 init(paths, options);
 
 if (process.env.pm_id === undefined && process.env.DOCKER === undefined) {
@@ -85,6 +86,7 @@ import ON_DEATH from 'death';
 import * as inspect from 'util';
 import { Webhook } from './classes/DiscordWebhook/interfaces';
 import { uptime } from './lib/tools/time';
+import { enableTradeRequestListener } from './classes/PriceDBEventStream/enableTradeRequestListener';
 
 ON_DEATH({ uncaughtException: true })((signalOrErr, origin: string | Error) => {
     const crashed = !['SIGINT', 'SIGTERM'].includes(signalOrErr as 'SIGINT' | 'SIGTERM' | 'SIGQUIT');
@@ -203,4 +205,6 @@ void botManager.start(options).asCallback(err => {
             });
         });
     }
+
+    enableTradeRequestListener(botManager.bot);
 });

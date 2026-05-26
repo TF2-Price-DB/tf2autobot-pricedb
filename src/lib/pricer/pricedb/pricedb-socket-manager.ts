@@ -1,6 +1,7 @@
 import { io, Socket } from 'socket.io-client';
 import { EventEmitter } from 'events';
-import log from '../../logger';
+import { createLogger } from '../../logger';
+const log = createLogger('PriceDBSocket');
 
 export default class PriceDbSocketManager extends EventEmitter {
     private socket: Socket | null = null;

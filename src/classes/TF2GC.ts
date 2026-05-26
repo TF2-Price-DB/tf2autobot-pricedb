@@ -1,5 +1,6 @@
 import Bot from './Bot';
-import log from '../lib/logger';
+import { createLogger } from '../lib/logger';
+const log = createLogger('TF2GC');
 
 export enum Attributes {
     Paint = 1031,

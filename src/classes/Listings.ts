@@ -5,7 +5,8 @@ import Currencies from '@tf2autobot/tf2-currencies';
 import * as timersPromises from 'timers/promises';
 import Bot from './Bot';
 import Pricelist, { Entry, PricesObject } from './Pricelist';
-import log from '../lib/logger';
+import { createLogger } from '../lib/logger';
+const log = createLogger('Listings');
 import { exponentialBackoff } from '../lib/helpers';
 import { noiseMakers } from '../lib/data';
 import { DictItem } from './Inventory';
@@ -13,6 +14,7 @@ import { PaintedNames } from './Options';
 import ListingManager from '@tf2autobot/bptf-listings';
 import getAttachmentName from '../lib/tools/getAttachmentName';
 import filterAxiosError from '@tf2autobot/filter-axios-error';
+import { AxiosError } from 'axios';
 
 /**
  * used when remove all listings has failed once
@@ -45,6 +47,10 @@ export default class Listings {
      * Timer for debouncing cache refresh calls
      */
     private cacheRefreshTimer: NodeJS.Timeout | null = null;
+
+    // Deduplicates concurrent inventory-refresh attempts when items come back as "not found".
+    // All concurrent callers await the same promise; only the first one triggers the refresh.
+    private pricedbInventoryRefreshPromise: Promise<void> | null = null;
 
     private get isCreateListing(): boolean {
         return this.bot.options.miscSettings.createListings.enable && !this.bot.isHalted;
@@ -288,9 +294,18 @@ export default class Listings {
                     listing.update(toUpdate);
                     //TODO: make promote, demote
 
-                    // Update pricedb.io listing if it's a sell listing
+                    // Update pricedb.io listings if it's a sell listing - update ALL asset IDs for this SKU
                     if (listing.intent === 1) {
-                        void this.createOrUpdatePriceDBListing(listing.id.replace('440_', ''), currencies);
+                        const allAssetIds = isAssetId
+                            ? [listing.id.replace('440_', '')]
+                            : inventory
+                                  .findBySKU(sku, true)
+                                  .filter(
+                                      assetId => !this.bot.pricelist.hasPrice({ priceKey: assetId, onlyEnabled: false })
+                                  );
+                        for (const id of allAssetIds) {
+                            void this.createOrUpdatePriceDBListing(id, currencies);
+                        }
                     }
 
                     // Schedule a debounced cache refresh to sync expected prices
@@ -394,8 +409,10 @@ export default class Listings {
                     currencies: matchNew.sell
                 });
 
-                // Also create listing on pricedb.io store (only sell listings supported)
-                void this.createOrUpdatePriceDBListing(assetid, matchNew.sell);
+                // Also create listings on pricedb.io store for ALL asset IDs (only sell listings supported)
+                for (const id of assetids) {
+                    void this.createOrUpdatePriceDBListing(id, matchNew.sell);
+                }
             }
         }
 
@@ -816,36 +833,57 @@ export default class Listings {
 
             if (existingListing) {
                 // Update existing listing
-                await this.bot.pricedbStoreManager.updateListing(assetId, currencies);
+                await this.bot.pricedbStoreManager.updateListingDirect(assetId, currencies);
             } else {
                 // Create new listing
-                await this.bot.pricedbStoreManager.createListing(assetId, currencies);
+                await this.bot.pricedbStoreManager.createListingDirect(assetId, currencies);
             }
         } catch (err: any) {
+            const responseStatus: number | undefined = err?.response?.status;
+            const responseData: any = err?.response?.data;
+
             const isItemNotFoundError =
-                err?.status === 400 &&
-                (err?.data?.error === 'Item not found' || err?.data?.message?.includes('Item not found'));
+                responseStatus === 400 &&
+                (responseData?.error === 'Item not found' || responseData?.message?.includes('Item not found'));
 
             if (isItemNotFoundError) {
-                log.warn(`Item ${assetId} not found in pricedb.io inventory. Attempting to refresh inventory...`);
+                log.debug(`Item ${assetId} not found in pricedb.io inventory.`);
 
-                // Attempt to refresh inventory (respects rate limits)
-                try {
-                    const refreshed = await this.bot.pricedbStoreManager.refreshInventory();
-                    if (refreshed) {
-                        log.info(
-                            `Inventory refreshed. The listing for ${assetId} will be created on the next update cycle.`
-                        );
-                    } else {
-                        log.debug(
-                            `Inventory refresh skipped (rate limited). The listing for ${assetId} will be retried later.`
-                        );
-                    }
-                } catch (error_) {
-                    log.error(`Failed to refresh inventory after item not found error:`, error_);
+                if (this.pricedbInventoryRefreshPromise === null) {
+                    // First caller — trigger refresh and share the promise.
+                    log.warn('One or more items not found in pricedb.io inventory. Refreshing inventory...');
+                    this.pricedbInventoryRefreshPromise = (async () => {
+                        try {
+                            const refreshed = await this.bot.pricedbStoreManager.refreshInventory();
+                            if (refreshed) {
+                                log.info(
+                                    'pricedb.io inventory refreshed. Affected listings will be created on the next update cycle.'
+                                );
+                            } else {
+                                log.debug(
+                                    'pricedb.io inventory refresh skipped (rate limited). Affected listings will be retried later.'
+                                );
+                            }
+                        } catch (error_) {
+                            log.error(
+                                'Failed to refresh pricedb.io inventory after item-not-found errors:',
+                                filterAxiosError(error_ as AxiosError)
+                            );
+                        } finally {
+                            this.pricedbInventoryRefreshPromise = null;
+                        }
+                    })();
                 }
+
+                await this.pricedbInventoryRefreshPromise;
             } else {
-                log.error(`Failed to create/update pricedb.io listing for ${assetId}:`, err);
+                const apiMessage = responseData?.message ?? responseData?.error ?? responseData ?? '(no response body)';
+                log.error(
+                    `Failed to create/update pricedb.io listing for ${assetId} (HTTP ${
+                        responseStatus ?? 'unknown'
+                    }): ${JSON.stringify(apiMessage)}`,
+                    filterAxiosError(err)
+                );
             }
         }
     }

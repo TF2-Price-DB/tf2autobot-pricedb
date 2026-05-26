@@ -1,0 +1,7 @@
+{
+    "kind" : "emergency_shutdown",
+    "emergency_shutdown" : {
+        "message" : "Message here",
+        "duration_in_seconds" : 86400
+    }
+}

@@ -1,7 +1,8 @@
 import * as timersPromises from 'timers/promises';
 import { RequestCheckFn } from '../../../IPricer';
 import Bot from '../../../Bot';
-import log from '../../../../lib/logger';
+import { createLogger } from '../../../../lib/logger';
+const log = createLogger('MyHandler');
 import SKU from '@tf2autobot/tf2-sku';
 
 export default class PriceCheckQueue {

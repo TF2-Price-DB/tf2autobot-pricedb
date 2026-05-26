@@ -35,8 +35,10 @@ import BotManager from './BotManager';
 import MyHandler from './MyHandler/MyHandler';
 import Groups from './Groups';
 import InventoryCostBasis from './InventoryCostBasis';
+import BotDatabase from './BotDatabase';
 
-import log from '../lib/logger';
+import { createLogger } from '../lib/logger';
+const log = createLogger('Bot');
 import Bans, { IsBanned } from '../lib/bans';
 import { sendStats } from './DiscordWebhook/export';
 
@@ -121,6 +123,8 @@ export default class Bot {
     ) => void;
 
     readonly inventoryCostBasis: InventoryCostBasis;
+
+    readonly db: BotDatabase;
 
     discordBot: DiscordBot = null;
 
@@ -258,6 +262,7 @@ export default class Bot {
         this.listings = new Listings(this);
         this.tf2gc = new TF2GC(this);
 
+        this.db = new BotDatabase(path.join(__dirname, '../../files/bot.db'), options.steamAccountName);
         this.handler = new MyHandler(this, this.priceSource);
         this.inventoryCostBasis = new InventoryCostBasis(this);
         if (this.options.IPC) this.ipc = new ipcHandler(this);
@@ -1222,19 +1227,41 @@ export default class Bot {
 
                                     this.pricedbStoreManager = new PriceDBStoreManager(
                                         this.options.pricedbStoreApiKey,
-                                        this.client.steamID.getSteamID64()
+                                        this.client.steamID.getSteamID64(),
+                                        process.env.PRICE_DB_STORE_API_URL
                                     );
 
-                                    this.pricedbStoreManager.on('listingCreated', (listing: PriceDBListingEvent) => {
-                                        log.debug('PriceDB Store listing created:', listing.id);
+                                    const _pricedbBatch = { created: 0, updated: 0, deleted: 0 };
+                                    let _pricedbBatchTimer: ReturnType<typeof setTimeout> | null = null;
+                                    const _flushPricedbBatch = (): void => {
+                                        const parts: string[] = [];
+                                        if (_pricedbBatch.created > 0) parts.push(`${_pricedbBatch.created} created`);
+                                        if (_pricedbBatch.updated > 0) parts.push(`${_pricedbBatch.updated} updated`);
+                                        if (_pricedbBatch.deleted > 0) parts.push(`${_pricedbBatch.deleted} deleted`);
+                                        if (parts.length > 0) log.debug(`PriceDB Store listings: ${parts.join(', ')}`);
+                                        _pricedbBatch.created = 0;
+                                        _pricedbBatch.updated = 0;
+                                        _pricedbBatch.deleted = 0;
+                                        _pricedbBatchTimer = null;
+                                    };
+                                    const _schedulePricedbFlush = (): void => {
+                                        if (_pricedbBatchTimer) clearTimeout(_pricedbBatchTimer);
+                                        _pricedbBatchTimer = setTimeout(_flushPricedbBatch, 2000);
+                                    };
+
+                                    this.pricedbStoreManager.on('listingCreated', () => {
+                                        _pricedbBatch.created++;
+                                        _schedulePricedbFlush();
                                     });
 
-                                    this.pricedbStoreManager.on('listingUpdated', (listing: PriceDBListingEvent) => {
-                                        log.debug('PriceDB Store listing updated:', listing.id);
+                                    this.pricedbStoreManager.on('listingUpdated', () => {
+                                        _pricedbBatch.updated++;
+                                        _schedulePricedbFlush();
                                     });
 
-                                    this.pricedbStoreManager.on('listingDeleted', (assetId: string) => {
-                                        log.debug('PriceDB Store listing deleted:', assetId);
+                                    this.pricedbStoreManager.on('listingDeleted', () => {
+                                        _pricedbBatch.deleted++;
+                                        _schedulePricedbFlush();
                                     });
 
                                     this.pricedbStoreManager.on(
@@ -1839,6 +1866,14 @@ export default class Bot {
 
         this.reconnectTimeout = setTimeout(() => {
             void (async () => {
+                // Steam may have auto-reconnected on its own during the delay window.
+                // If steamID is already set, we're already logged in — don't call logOn again.
+                if (this.client.steamID) {
+                    log.info('Steam already reconnected on its own, resetting reconnection state...');
+                    this.resetReconnectionState();
+                    return;
+                }
+
                 try {
                     log.info('Reconnecting to Steam...');
                     await this.login(await this.getRefreshToken());

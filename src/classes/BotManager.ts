@@ -2,7 +2,8 @@ import async from 'async';
 import SchemaManager from '@tf2autobot/tf2-schema';
 import pm2 from 'pm2';
 import Bot from './Bot';
-import log from '../lib/logger';
+import logger, { createLogger } from '../lib/logger';
+const log = createLogger('BotManager');
 import { waitForWriting } from '../lib/files';
 import Options from './Options';
 import { EPersonaState } from 'steam-user';
@@ -380,7 +381,7 @@ export default class BotManager {
                         log.error('Error stopping PM2 process:', stopErr);
                     }
 
-                    log.on('finish', () => {
+                    logger.on('finish', () => {
                         // Logger has finished, exit the process
                         process.exit(err ? 1 : 0);
                     });
@@ -388,10 +389,10 @@ export default class BotManager {
                     log.warn('Exiting...');
 
                     // Stop the logger
-                    log.end();
+                    logger.end();
                 });
             } else {
-                log.on('finish', () => {
+                logger.on('finish', () => {
                     // Logger has finished, exit the process
                     process.exit(err ? 1 : 0);
                 });
@@ -399,7 +400,7 @@ export default class BotManager {
                 log.warn('Exiting...');
 
                 // Stop the logger
-                log.end();
+                logger.end();
             }
         });
     }

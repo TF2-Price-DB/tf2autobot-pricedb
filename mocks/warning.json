@@ -1,0 +1,8 @@
+{
+    "kind": "warning",
+    "warning": {
+        "message": "This is a warning message.",
+        "severity": "high",
+        "group": "default"
+    }
+}

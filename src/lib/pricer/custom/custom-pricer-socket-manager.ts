@@ -1,5 +1,6 @@
 import io, { Socket } from 'socket.io-client';
-import log from '../../../lib/logger';
+import { createLogger } from '../../../lib/logger';
+const log = createLogger('CustomPricerSocket');
 
 export default class CustomPricerSocketManager {
     public socket: Socket;

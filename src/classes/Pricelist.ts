@@ -6,7 +6,8 @@ import SchemaManager from '@tf2autobot/tf2-schema';
 import { Currency } from '../types/TeamFortress2';
 import Options from './Options';
 import Bot from './Bot';
-import log from '../lib/logger';
+import { createLogger } from '../lib/logger';
+const log = createLogger('Pricelist');
 import validator from '../lib/validator';
 import { sendWebHookPriceUpdateV1, sendAlert, sendFailedPriceUpdate } from './DiscordWebhook/export';
 import IPricer, { GetItemPriceResponse, Item } from './IPricer';
@@ -1196,7 +1197,12 @@ export default class Pricelist extends EventEmitter {
 
                 //use partial price update conditions
                 // Clean up expired purchases from history first
+                // TODO: Do we really need 2 functions for this?
                 const hadExpiredPurchases = currPrice.removeExpiredPurchases(ppu.thresholdInSeconds);
+                if (hadExpiredPurchases) {
+                    // Sync the DB: remove all purchase_history rows for this SKU that are now expired
+                    this.bot.db.deleteExpiredPurchaseHistory(currPrice.sku, ppu.thresholdInSeconds);
+                }
 
                 // Use oldest purchase time for threshold - we want to protect based on when items were purchased
                 const oldestPurchaseTime = currPrice.getOldestPurchaseTime();
@@ -1449,7 +1455,12 @@ export default class Pricelist extends EventEmitter {
                 : false;
 
             // Clean up expired purchases from history first
+            // TODO: Same issue as above do we really need 2 functions for this?
             const hadExpiredPurchases = match.removeExpiredPurchases(ppu.thresholdInSeconds);
+            if (hadExpiredPurchases) {
+                // Sync the DB: remove all purchase_history rows for this SKU that are now expired
+                this.bot.db.deleteExpiredPurchaseHistory(match.sku, ppu.thresholdInSeconds);
+            }
 
             // Use oldest purchase time for threshold - we want to protect based on when items were purchased
             const oldestPurchaseTime = match.getOldestPurchaseTime();

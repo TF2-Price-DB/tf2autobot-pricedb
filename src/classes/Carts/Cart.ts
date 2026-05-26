@@ -7,7 +7,8 @@ import { UnknownDictionary } from '../../types/common';
 import Bot from '../Bot';
 import Pricelist from '../Pricelist';
 import { BPTFGetUserInfo } from '../MyHandler/interfaces';
-import log from '../../lib/logger';
+import { createLogger } from '../../lib/logger';
+const log = createLogger('Cart');
 import { sendAlert } from '../DiscordWebhook/export';
 import { apiRequest } from '../../lib/apiRequest';
 

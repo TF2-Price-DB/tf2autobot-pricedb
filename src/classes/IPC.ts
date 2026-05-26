@@ -1,7 +1,8 @@
 /* eslint @typescript-eslint/no-unsafe-call: 1 */
 /* eslint @typescript-eslint/no-unsafe-member-access: 1 */
 import { IPC } from 'node-ipc';
-import log from '../lib/logger';
+import { createLogger } from '../lib/logger';
+const log = createLogger('IPC');
 import Bot from './Bot';
 import fs, { promises as fsp } from 'fs';
 import path from 'path';

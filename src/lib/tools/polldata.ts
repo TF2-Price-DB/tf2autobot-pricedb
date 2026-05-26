@@ -1,51 +1,18 @@
 import SteamTradeOfferManager from '@tf2autobot/tradeoffer-manager';
-import fs from 'fs';
+import Bot from '../../classes/Bot';
 
-export default function loadPollData(dir: string) {
-    let polldata: SteamTradeOfferManager.PollData;
-
-    let init = false;
-
-    fs.readdirSync(dir)
-        .filter(name => name.includes('polldata'))
-        .map(name => {
-            return {
-                name: name,
-                mtime: fs.statSync(dir + name).mtimeMs
-            };
-        })
-        .sort((a, b) => a.mtime - b.mtime)
-        .forEach(e => {
-            const data = JSON.parse(
-                fs.readFileSync(dir + e.name, { encoding: 'utf8' })
-            ) as SteamTradeOfferManager.PollData;
-
-            if (!init) {
-                polldata = { ...data };
-                init = true;
-            } else {
-                for (const key in polldata) {
-                    if (key === 'offersSince') {
-                        // Keep offersSince from the oldest polldata file
-                        continue;
-                    }
-
-                    // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
-                    polldata[key] = {
-                        ...polldata[key],
-                        ...data[key]
-                    };
-                }
-            }
-        });
-
-    return polldata;
+//Oh look this file is emtpy now
+export default function loadPollData(bot: Bot): SteamTradeOfferManager.PollData | undefined {
+    return bot.manager.pollData;
 }
 
-export function deletePollData(dir: string): void {
-    fs.readdirSync(dir)
-        .filter(name => name.includes('polldata'))
-        .forEach(name => {
-            fs.unlinkSync(dir + name);
-        });
+export function deletePollData(bot: Bot): void {
+    const empty: SteamTradeOfferManager.PollData = {
+        sent: {},
+        received: {},
+        timestamps: {},
+        offersSince: 0,
+        offerData: {}
+    };
+    bot.db.savePollData(empty);
 }

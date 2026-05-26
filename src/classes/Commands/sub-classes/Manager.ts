@@ -14,7 +14,8 @@ import { EFriendRelationship } from 'steam-user';
 import { removeLinkProtocol } from '../functions/utils';
 import Bot from '../../Bot';
 import CommandParser from '../../CommandParser';
-import log from '../../../lib/logger';
+import { createLogger } from '../../../lib/logger';
+const log = createLogger('Commands');
 import { pure, testPriceKey } from '../../../lib/tools/export';
 import filterAxiosError from '@tf2autobot/filter-axios-error';
 import { AxiosError } from 'axios';
@@ -58,28 +59,66 @@ export default class ManagerCommands {
                 return this.bot.sendMessage(steamID, '⚠️ Missing `craftable=true|false`');
             }
 
+            const amountParam = params.amount;
+            let count = 1;
+            if (amountParam !== undefined) {
+                if (typeof amountParam !== 'number' || !Number.isInteger(amountParam) || amountParam < 1) {
+                    return this.bot.sendMessage(steamID, '⚠️ `amount` must be a positive integer (e.g. amount=3)');
+                }
+                count = amountParam;
+            }
+
             const item = SKU.fromString('5050;6');
             if (params.craftable === false) {
                 item.craftable = false;
             }
 
+            const qualifier = !item.craftable ? 'Non-Craftable ' : '';
             const assetids = this.bot.inventoryManager.getInventory.findBySKU(SKU.fromObject(item), false);
             if (assetids.length === 0) {
                 // No backpack expanders
+                return this.bot.sendMessage(steamID, `❌ I couldn't find any ${qualifier}Backpack Expander`);
+            }
+
+            if (count > assetids.length) {
                 return this.bot.sendMessage(
                     steamID,
-                    `❌ I couldn't find any ${!item.craftable ? 'Non-Craftable' : ''} Backpack Expander`
+                    `❌ Requested ${count} ${qualifier}Backpack Expander(s) but I only have ${assetids.length}.`
                 );
             }
 
-            this.bot.tf2gc.useItem(assetids[0], err => {
-                if (err) {
-                    log.error('Error trying to expand inventory: ', err);
-                    return this.bot.sendMessage(steamID, `❌ Failed to expand inventory: ${err.message}`);
-                }
+            const toUse = assetids.slice(0, count);
+            let used = 0;
+            let failed = 0;
 
-                this.bot.sendMessage(steamID, `✅ Used ${!item.craftable ? 'Non-Craftable' : ''} Backpack Expander!`);
-            });
+            const onDone = (): void => {
+                if (used + failed < count) {
+                    return;
+                }
+                if (failed === 0) {
+                    this.bot.sendMessage(
+                        steamID,
+                        `✅ Used ${used} ${qualifier}Backpack Expander${used !== 1 ? 's' : ''}!`
+                    );
+                } else {
+                    this.bot.sendMessage(
+                        steamID,
+                        `⚠️ Used ${used} ${qualifier}Backpack Expander${used !== 1 ? 's' : ''}, but ${failed} failed.`
+                    );
+                }
+            };
+
+            for (const assetid of toUse) {
+                this.bot.tf2gc.useItem(assetid, err => {
+                    if (err) {
+                        log.error(`Error trying to expand inventory (assetid ${assetid}): `, err);
+                        failed++;
+                    } else {
+                        used++;
+                    }
+                    onDone();
+                });
+            }
         } else {
             // For use and delete commands
             if (params.sku !== undefined && !testPriceKey(params.sku as string)) {

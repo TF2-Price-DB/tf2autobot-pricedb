@@ -415,12 +415,21 @@ export default class MyHandler extends Handler {
                             return;
                         }
 
-                        // Remove backpack.tf listings and crit.tf listings in parallel
-                        const bptfRemoval = this.bot.listings
-                            .removeAll()
-                            .catch((err: Error) =>
-                                log.warn('Failed to remove all listings on shutdown (autokeys was enabled): ', err)
-                            );
+                        // Remove backpack.tf listings and crit.tf listings in parallel.
+                        // Cap bptf removal at 30 s — it can hang on API timeouts/retries.
+                        const bptfRemoval = Promise.race([
+                            this.bot.listings
+                                .removeAll()
+                                .catch((err: Error) =>
+                                    log.warn('Failed to remove all listings on shutdown (autokeys was enabled): ', err)
+                                ),
+                            new Promise<void>(res =>
+                                setTimeout(() => {
+                                    log.warn('bptf listing removal timed out after 30 s on shutdown, proceeding...');
+                                    res();
+                                }, 30000)
+                            )
+                        ]);
 
                         void Promise.allSettled([bptfRemoval, deleteCritTFListings()]).finally(() => resolve());
                     });
@@ -431,10 +440,19 @@ export default class MyHandler extends Handler {
                     return;
                 }
 
-                // Remove backpack.tf listings and crit.tf listings in parallel
-                const bptfRemoval = this.bot.listings
-                    .removeAll()
-                    .catch((err: Error) => log.warn('Failed to remove all listings on shutdown: ', err));
+                // Remove backpack.tf listings and crit.tf listings in parallel.
+                // Cap bptf removal at 30 s — it can hang on API timeouts/retries.
+                const bptfRemoval = Promise.race([
+                    this.bot.listings
+                        .removeAll()
+                        .catch((err: Error) => log.warn('Failed to remove all listings on shutdown: ', err)),
+                    new Promise<void>(res =>
+                        setTimeout(() => {
+                            log.warn('bptf listing removal timed out after 30 s on shutdown, proceeding...');
+                            res();
+                        }, 30000)
+                    )
+                ]);
 
                 void Promise.allSettled([bptfRemoval, deleteCritTFListings()]).finally(() => resolve());
             }

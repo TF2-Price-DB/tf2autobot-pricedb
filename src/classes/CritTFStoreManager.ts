@@ -493,6 +493,19 @@ export default class CritTFStoreManager extends EventEmitter {
      */
     async deleteAllListings(concurrency = 50): Promise<{ deleted: number; failed: number }> {
         const results = { deleted: 0, failed: 0 };
+
+        // Refresh from the server first so every entry has the server-side `id`.
+        // POST /listings may not return the id in its response, which would cause
+        // deleteListingDirect to silently skip those entries.
+        try {
+            await this.fetchMyListings();
+        } catch (err) {
+            log.warn(
+                'Could not refresh listings from crit.tf before deletion — will attempt with cached data:',
+                filterAxiosError(err as AxiosError)
+            );
+        }
+
         const assetIds = Array.from(this.listings.keys());
 
         if (assetIds.length === 0) {

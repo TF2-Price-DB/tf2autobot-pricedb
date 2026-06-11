@@ -109,6 +109,9 @@ export const addSchema: jsonschema.Schema = {
                     type: 'null'
                 }
             ]
+        },
+        disabledByPricer: {
+            type: 'boolean'
         }
     },
     additionalProperties: false,

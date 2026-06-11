@@ -44,6 +44,7 @@ export interface EntryData {
     purchaseHistory?: PurchaseRecord[];
     partialPriceTime?: number | null;
     lastInStockTime?: number | null;
+    disabledByPricer?: boolean;
 }
 
 export class Entry implements EntryData {
@@ -82,6 +83,8 @@ export class Entry implements EntryData {
     partialPriceTime: number | null;
 
     lastInStockTime: number | null;
+
+    disabledByPricer: boolean;
 
     private constructor(entry: EntryData, name: string) {
         this.sku = entry.sku;
@@ -150,6 +153,7 @@ export class Entry implements EntryData {
         this.purchaseHistory = entry.purchaseHistory || [];
         this.partialPriceTime = entry.partialPriceTime ?? null;
         this.lastInStockTime = entry.lastInStockTime ?? null;
+        this.disabledByPricer = entry.disabledByPricer ?? false;
     }
 
     clone(): Entry {
@@ -271,7 +275,7 @@ export class Entry implements EntryData {
     }
 
     getJSON(): EntryData {
-        const obj = {
+        const obj: EntryData = {
             sku: this.sku,
             enabled: this.enabled,
             autoprice: this.autoprice,
@@ -289,6 +293,10 @@ export class Entry implements EntryData {
             partialPriceTime: this.partialPriceTime,
             lastInStockTime: this.lastInStockTime
         };
+
+        if (this.disabledByPricer) {
+            obj.disabledByPricer = true;
+        }
 
         if (this.id) {
             obj['id'] = this.id;
@@ -709,6 +717,9 @@ export default class Pricelist extends EventEmitter {
         }
 
         const entry = Entry.fromData(entryData, this.schema);
+        if (src === PricelistChangedSource.Command) {
+            entry.disabledByPricer = false;
+        }
 
         if (isBulk && pricerItems !== null && this.transformedPricelistForBulk === undefined) {
             this.transformedPricelistForBulk = Pricelist.transformPricesFromPricer(pricerItems);
@@ -1337,6 +1348,17 @@ export default class Pricelist extends EventEmitter {
         const dw = opt.discordWebhook.priceUpdate;
         const isDwEnabled = dw.enable && dw.url !== '';
 
+        if (data.available === false) {
+            if (match !== null && match.autoprice && match.enabled) {
+                match.enabled = false;
+                match.disabledByPricer = true;
+                log.warn(`Disabled ${data.sku}: ${data.message || 'price unavailable'}`);
+                this.priceChanged(match.sku, match);
+                this.emit('pricelist', this.prices);
+            }
+            return;
+        }
+
         let newPrices: BuyAndSell;
 
         try {
@@ -1361,6 +1383,13 @@ export default class Pricelist extends EventEmitter {
             }
 
             return;
+        }
+
+        const restorePricerDisabledEntry = match !== null && match.autoprice && match.disabledByPricer;
+        if (restorePricerDisabledEntry) {
+            match.enabled = true;
+            match.disabledByPricer = false;
+            log.info(`Re-enabled ${data.sku}: valid price received`);
         }
 
         if (data.sku === '5021;6' && this.globalKeyPrices !== undefined) {
@@ -1423,7 +1452,10 @@ export default class Pricelist extends EventEmitter {
             const sellChangesValue = Math.round(newSellValue - oldSellValue);
 
             if (buyChangesValue === 0 && sellChangesValue === 0) {
-                // Ignore
+                if (restorePricerDisabledEntry) {
+                    this.priceChanged(match.sku, match);
+                    this.emit('pricelist', this.prices);
+                }
                 return;
             }
 
@@ -1578,8 +1610,11 @@ export default class Pricelist extends EventEmitter {
                 }
             }
 
-            if (pricesChanged) {
+            if (pricesChanged || restorePricerDisabledEntry) {
                 this.priceChanged(match.sku, match);
+            }
+            if (restorePricerDisabledEntry) {
+                this.emit('pricelist', this.prices);
             }
 
             if (isDwEnabled) {

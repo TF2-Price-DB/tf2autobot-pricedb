@@ -79,6 +79,9 @@ export const pricesDataObject: jsonschema.Schema = {
                     },
                     lastInStockTime: {
                         type: ['number', 'null']
+                    },
+                    disabledByPricer: {
+                        type: 'boolean'
                     }
                 },
                 required: ['sku', 'enabled', 'autoprice', 'max', 'min', 'intent'],

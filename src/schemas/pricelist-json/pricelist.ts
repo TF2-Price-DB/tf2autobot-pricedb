@@ -78,6 +78,9 @@ export const pricelistSchema: jsonschema.Schema = {
         lastInStockTime: {
             type: ['number', 'null']
         },
+        disabledByPricer: {
+            type: 'boolean'
+        },
         name: {
             type: 'string'
         }

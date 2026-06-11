@@ -41,6 +41,7 @@ export default class CustomPricer implements IPricer {
             currency: response.currency,
             source: response.source,
             time: response.time,
+            available: response.available,
             buy: response.buy ? new Currencies(response.buy) : null,
             sell: response.sell ? new Currencies(response.sell) : null,
             message: response.message

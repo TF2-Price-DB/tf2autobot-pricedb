@@ -18,6 +18,7 @@ export interface CustomPricesGetItemPriceResponse extends CustomPricesResponse {
     currency?: string;
     source?: string;
     time?: number;
+    available?: boolean;
     buy?: PricesCurrency;
     sell?: PricesCurrency;
     message?: string;

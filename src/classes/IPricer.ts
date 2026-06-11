@@ -60,6 +60,7 @@ export interface GetItemPriceResponse {
     currency?: string;
     source?: string;
     time?: number;
+    available?: boolean;
     buy?: Currencies;
     sell?: Currencies;
     message?: string;

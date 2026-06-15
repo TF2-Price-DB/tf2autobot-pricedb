@@ -108,6 +108,11 @@ export interface JournalTfSoldItem {
     notes: string;
 }
 
+export interface JournalTfSeedResult {
+    created: number;
+    skipped: number;
+}
+
 interface QueuedRequest {
     fn: () => Promise<unknown>;
     resolve: (value: unknown) => void;
@@ -197,6 +202,64 @@ export default class JournalTfManager {
         await this.loadState();
         await this.syncBoughtItems(tradeId, boughtItems);
         await this.syncSoldItems(tradeId, soldItems);
+    }
+
+    async seedInventory(seedId: string, items: JournalTfBoughtItem[]): Promise<JournalTfSeedResult> {
+        await this.loadState();
+
+        if (items.length === 0) {
+            return { created: 0, skipped: 0 };
+        }
+
+        const portfolio = await this.getPortfolio();
+        const entries = portfolio.data.entries;
+        let created = 0;
+        let skipped = 0;
+
+        for (const item of items) {
+            const activeQuantity = entries
+                .filter(entry => entry.sku === item.sku && entry.status === 'active')
+                .reduce((sum, entry) => sum + this.getRemainingQuantity(entry), 0);
+            const quantity = item.quantity - activeQuantity;
+
+            if (quantity <= 0) {
+                skipped += item.quantity;
+                continue;
+            }
+
+            if (activeQuantity > 0) {
+                skipped += activeQuantity;
+            }
+
+            const response = await this.createPortfolioEntry({
+                sku: item.sku,
+                item_name: item.itemName,
+                buy_price_keys: item.buyPriceKeys,
+                buy_price_metal: item.buyPriceMetal,
+                quantity,
+                purchased_at: item.purchasedAt,
+                notes: item.notes
+            });
+
+            this.syncState.operations.push({
+                type: 'buy',
+                tradeId: seedId,
+                sku: item.sku,
+                quantity,
+                portfolioEntryId: response.data.entry.id,
+                journalRecordId: response.data.entry.id,
+                timestamp: Date.now()
+            });
+            await this.saveState();
+
+            entries.push({
+                ...response.data.entry,
+                quantityRemaining: quantity
+            });
+            created += quantity;
+        }
+
+        return { created, skipped };
     }
 
     getMatchedSellEntries(

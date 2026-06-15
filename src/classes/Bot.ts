@@ -6,6 +6,7 @@ import SteamCommunity from '@tf2autobot/steamcommunity';
 import SteamTotp from 'steam-totp';
 import ListingManager, { Listing } from '@tf2autobot/bptf-listings';
 import PriceDBStoreManager from './PriceDBStoreManager';
+import JournalTfManager from './JournalTfManager';
 import SchemaManager, { Effect, StrangeParts } from '@tf2autobot/tf2-schema';
 import BptfLogin from '@tf2autobot/bptf-login';
 import TF2 from '@tf2autobot/tf2';
@@ -97,6 +98,8 @@ export default class Bot {
     listingManager: ListingManager;
 
     pricedbStoreManager: PriceDBStoreManager;
+
+    journalTfManager?: JournalTfManager;
 
     readonly friends: Friends;
 
@@ -260,6 +263,12 @@ export default class Bot {
 
         this.handler = new MyHandler(this, this.priceSource);
         this.inventoryCostBasis = new InventoryCostBasis(this);
+        if (this.options.journalTfEnable && this.options.journalTfApiKey) {
+            this.journalTfManager = new JournalTfManager(
+                this.options.journalTfApiKey,
+                this.handler.getPaths.files.journalTfSync
+            );
+        }
         if (this.options.IPC) this.ipc = new ipcHandler(this);
 
         this.admins = [];

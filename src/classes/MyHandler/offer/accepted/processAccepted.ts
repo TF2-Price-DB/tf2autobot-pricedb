@@ -8,6 +8,7 @@ import log from '../../../../lib/logger';
 import * as t from '../../../../lib/tools/export';
 import { sendTradeSummary } from '../../../DiscordWebhook/export';
 import { FIFOEntry } from '../../../InventoryCostBasis';
+import { JournalTfBoughtItem, JournalTfSoldItem } from '../../../JournalTfManager';
 
 export default async function processAccepted(
     offer: i.TradeOffer,
@@ -22,8 +23,8 @@ export default async function processAccepted(
     // Check if this is an admin/donation/premium trade before calculating profit
     const offerReceived = offer.data('action') as i.Action;
     const isAdminTrade = offerReceived?.reason === 'ADMIN' || bot.isAdmin(offer.partner);
-    const isDonation = offer.data('donation');
-    const isPremium = offer.data('buyBptfPremium');
+    const isDonation = Boolean(offer.data('donation'));
+    const isPremium = Boolean(offer.data('buyBptfPremium'));
 
     // Only calculate profit for regular trades (not admin/donation/premium)
     if (!isAdminTrade && !isDonation && !isPremium) {
@@ -353,6 +354,12 @@ async function calculateProfitData(offer: i.TradeOffer, bot: Bot): Promise<void>
 
         let rawProfitKeys = 0;
         let rawProfitMetal = 0;
+        const journalTfBoughtItems: JournalTfBoughtItem[] = [];
+        const journalTfSoldItems: JournalTfSoldItem[] = [];
+        const journalTfPurchasedAt = new Date((offer.data('finishTimestamp') as number) || Date.now())
+            .toISOString()
+            .slice(0, 10);
+        const journalTfTradeId = offer.id ?? 'unknown';
 
         // Process items we're receiving (their side) - BUY
         if (dict.their) {
@@ -461,6 +468,21 @@ async function calculateProfitData(offer: i.TradeOffer, bot: Bot): Promise<void>
 
                 const pricelistBuyKeys = priceData.buy.keys;
                 const pricelistBuyMetal = priceData.buy.metal;
+                const journalBuyPrice = normalizeJournalTfPrice(
+                    pricelistBuyKeys + diffPerItemKeys,
+                    pricelistBuyMetal + diffPerItemMetal,
+                    keyPrice
+                );
+
+                journalTfBoughtItems.push({
+                    sku,
+                    itemName: bot.schema.getName(SKU.fromString(sku), false),
+                    buyPriceKeys: journalBuyPrice.keys,
+                    buyPriceMetal: journalBuyPrice.metal,
+                    quantity,
+                    purchasedAt: journalTfPurchasedAt,
+                    notes: `Added by bot from trade #${journalTfTradeId}`
+                });
 
                 // Add each item to FIFO with distributed diff in BOTH keys and metal
                 for (let i = 0; i < quantity; i++) {
@@ -519,6 +541,19 @@ async function calculateProfitData(offer: i.TradeOffer, bot: Bot): Promise<void>
                 // This is a SELL for us - remove from FIFO and calculate profit
                 const pricelistSellKeys = priceData.sell.keys;
                 const pricelistSellMetal = priceData.sell.metal;
+                const journalSellPrice = normalizeJournalTfPrice(
+                    pricelistSellKeys,
+                    pricelistSellMetal,
+                    bot.pricelist.getKeyPrice.metal
+                );
+
+                journalTfSoldItems.push({
+                    sku,
+                    sellPriceKeys: journalSellPrice.keys,
+                    sellPriceMetal: journalSellPrice.metal,
+                    quantity,
+                    notes: `Sold by bot from trade #${journalTfTradeId}`
+                });
 
                 // Remove items from FIFO (oldest first) with fallback to pricelist
                 const result = await bot.inventoryCostBasis.removeItem(sku, quantity, priceData.buy);
@@ -555,9 +590,33 @@ async function calculateProfitData(offer: i.TradeOffer, bot: Bot): Promise<void>
                     2
                 )}r (FIFO diff values capture all buy/sell differences)`
         );
+
+        if (bot.journalTfManager) {
+            await bot.journalTfManager
+                .syncTrade(journalTfTradeId, journalTfBoughtItems, journalTfSoldItems)
+                .catch(err => log.warn(`journal.tf sync failed for trade ${offer.id}:`, err));
+        }
     } catch (err) {
         log.error(`Error calculating profit for offer ${offer.id}:`, err);
     }
+}
+
+function normalizeJournalTfPrice(keys: number, metal: number, keyPriceInRef: number): { keys: number; metal: number } {
+    if (keyPriceInRef <= 0) {
+        return {
+            keys: Math.max(0, keys),
+            metal: Math.max(0, Number(metal.toFixed(2)))
+        };
+    }
+
+    const totalMetal = Math.max(0, keys * keyPriceInRef + metal);
+    const normalizedKeys = Math.floor(totalMetal / keyPriceInRef);
+    const normalizedMetal = Number((totalMetal - normalizedKeys * keyPriceInRef).toFixed(2));
+
+    return {
+        keys: normalizedKeys,
+        metal: normalizedMetal
+    };
 }
 
 interface Accepted {

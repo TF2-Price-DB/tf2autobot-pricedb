@@ -14,7 +14,9 @@ jest.mock('fs', () => ({
 
 const mockedAxios = axios as jest.Mocked<typeof axios>;
 const mockedFs = fs as jest.Mocked<typeof fs>;
-const createMock = mockedAxios.create as jest.MockedFunction<typeof axios.create>;
+const getCreateMock = (): jest.MockedFunction<typeof axios.create> =>
+    // eslint-disable-next-line @typescript-eslint/unbound-method
+    mockedAxios.create as jest.MockedFunction<typeof axios.create>;
 
 describe('JournalTfManager', () => {
     const stateFilePath = (): string =>
@@ -33,7 +35,7 @@ describe('JournalTfManager', () => {
     beforeEach(() => {
         getMock = jest.fn();
         postMock = jest.fn();
-        createMock.mockReturnValue({
+        getCreateMock().mockReturnValue({
             get: getMock,
             post: postMock
         } as unknown as AxiosInstance);
@@ -47,7 +49,7 @@ describe('JournalTfManager', () => {
     test('creates axios client with journal.tf API key and static base URL', () => {
         new JournalTfManager('test-api-key', stateFilePath());
 
-        expect(createMock).toHaveBeenCalledWith({
+        expect(getCreateMock()).toHaveBeenCalledWith({
             baseURL: 'https://journal.tf/api/v1',
             headers: {
                 'X-API-Key': 'test-api-key',
@@ -156,6 +158,55 @@ describe('JournalTfManager', () => {
             { id: 'older', quantity: 3 },
             { id: 'newer', quantity: 3 }
         ]);
+    });
+
+    test('seedInventory only creates missing active quantities', async () => {
+        const manager = new JournalTfManager('test-api-key', stateFilePath());
+        getMock.mockResolvedValue({
+            data: {
+                ok: true,
+                data: {
+                    entries: [
+                        {
+                            id: 'existing-entry',
+                            sku: '200;11',
+                            item_name: 'Strange Scattergun',
+                            buy_price_keys: 1,
+                            buy_price_metal: '2.00',
+                            quantity: 1,
+                            quantityRemaining: 1,
+                            notes: null,
+                            purchased_at: '2026-06-01T00:00:00.000Z',
+                            status: 'active',
+                            created_at: '2026-06-01T00:00:00.000Z'
+                        }
+                    ]
+                }
+            }
+        });
+        postMock.mockResolvedValueOnce({ data: { ok: true, data: { entry: { id: 'seed-entry' } } } });
+
+        await expect(
+            manager.seedInventory('seed-1', [
+                {
+                    sku: '200;11',
+                    itemName: 'Strange Scattergun',
+                    buyPriceKeys: 1,
+                    buyPriceMetal: 2,
+                    quantity: 3,
+                    purchasedAt: '2026-06-15',
+                    notes: 'Seeded by bot from current inventory via !jtfseed'
+                }
+            ])
+        ).resolves.toEqual({ created: 2, skipped: 1 });
+
+        expect(postMock).toHaveBeenCalledWith(
+            '/portfolio',
+            expect.objectContaining({
+                sku: '200;11',
+                quantity: 2
+            })
+        );
     });
 
     test('syncTrade records buys, sells, and skips duplicate synced quantities', async () => {

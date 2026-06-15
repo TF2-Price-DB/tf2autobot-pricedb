@@ -32,9 +32,15 @@ export default async function processAccepted(
             log.error('Failed to calculate profit data:', err);
         });
     } else {
+        if (bot.journalTfManager && isAdminTrade) {
+            await syncAdminDonationToJournalTf(offer, bot).catch(err =>
+                log.warn(`journal.tf admin donation sync failed for trade ${offer.id}:`, err)
+            );
+        }
+
         log.debug(
             `Skipping profit calculation for offer ${offer.id}: ` +
-                `admin=${isAdminTrade}, donation=${isDonation}, premium=${isPremium}`
+                `admin=${String(isAdminTrade)}, donation=${String(isDonation)}, premium=${String(isPremium)}`
         );
     }
 
@@ -617,6 +623,71 @@ function normalizeJournalTfPrice(keys: number, metal: number, keyPriceInRef: num
         keys: normalizedKeys,
         metal: normalizedMetal
     };
+}
+
+async function syncAdminDonationToJournalTf(offer: i.TradeOffer, bot: Bot): Promise<void> {
+    const dict = offer.data('dict') as i.ItemsDict | undefined;
+    if (!dict?.their) {
+        return;
+    }
+
+    const boughtItems: JournalTfBoughtItem[] = [];
+    const tradeId = offer.id ?? 'unknown';
+    const purchasedAt = new Date((offer.data('finishTimestamp') as number) || Date.now()).toISOString().slice(0, 10);
+
+    for (const sku in dict.their) {
+        if (!Object.prototype.hasOwnProperty.call(dict.their, sku) || !shouldSyncJournalTfSku(sku, bot)) {
+            continue;
+        }
+
+        const price = await getCurrentJournalTfSellPrice(sku, bot);
+        if (!price) {
+            log.warn(`No current sell price for admin journal.tf seed item ${sku} in trade ${offer.id}`);
+            continue;
+        }
+
+        boughtItems.push({
+            sku,
+            itemName: bot.schema.getName(SKU.fromString(sku), false),
+            buyPriceKeys: price.keys,
+            buyPriceMetal: price.metal,
+            quantity: dict.their[sku],
+            purchasedAt,
+            notes: `Added by bot from admin trade #${tradeId}`
+        });
+    }
+
+    if (boughtItems.length > 0) {
+        await bot.journalTfManager.syncTrade(`admin-${tradeId}`, boughtItems, []);
+    }
+}
+
+async function getCurrentJournalTfSellPrice(sku: string, bot: Bot): Promise<{ keys: number; metal: number } | null> {
+    const currentPrice = bot.pricelist.getPrice({ priceKey: sku, onlyEnabled: false, getGenericPrice: true });
+    const keyPrice = bot.pricelist.getKeyPrice.metal;
+
+    if (currentPrice?.sell) {
+        return normalizeJournalTfPrice(currentPrice.sell.keys, currentPrice.sell.metal, keyPrice);
+    }
+
+    const price = await bot.pricelist.getItemPrices(sku);
+    if (price?.sell) {
+        return normalizeJournalTfPrice(price.sell.keys, price.sell.metal, keyPrice);
+    }
+
+    return null;
+}
+
+function shouldSyncJournalTfSku(sku: string, bot: Bot): boolean {
+    if (['5002;6', '5001;6', '5000;6'].includes(sku)) {
+        return false;
+    }
+
+    if (sku === '5021;6') {
+        return bot.options.autokeys.enable;
+    }
+
+    return true;
 }
 
 interface Accepted {

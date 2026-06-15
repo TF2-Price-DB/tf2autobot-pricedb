@@ -640,9 +640,9 @@ async function syncAdminDonationToJournalTf(offer: i.TradeOffer, bot: Bot): Prom
             continue;
         }
 
-        const price = await getCurrentJournalTfSellPrice(sku, bot);
+        const price = await getCurrentJournalTfBuyPrice(sku, bot);
         if (!price) {
-            log.warn(`No current sell price for admin journal.tf seed item ${sku} in trade ${offer.id}`);
+            log.warn(`No current buy price for admin journal.tf seed item ${sku} in trade ${offer.id}`);
             continue;
         }
 
@@ -662,17 +662,17 @@ async function syncAdminDonationToJournalTf(offer: i.TradeOffer, bot: Bot): Prom
     }
 }
 
-async function getCurrentJournalTfSellPrice(sku: string, bot: Bot): Promise<{ keys: number; metal: number } | null> {
+async function getCurrentJournalTfBuyPrice(sku: string, bot: Bot): Promise<{ keys: number; metal: number } | null> {
     const currentPrice = bot.pricelist.getPrice({ priceKey: sku, onlyEnabled: false, getGenericPrice: true });
     const keyPrice = bot.pricelist.getKeyPrice.metal;
 
-    if (currentPrice?.sell) {
-        return normalizeJournalTfPrice(currentPrice.sell.keys, currentPrice.sell.metal, keyPrice);
+    if (currentPrice?.buy) {
+        return normalizeJournalTfPrice(currentPrice.buy.keys, currentPrice.buy.metal, keyPrice);
     }
 
     const price = await bot.pricelist.getItemPrices(sku);
-    if (price?.sell) {
-        return normalizeJournalTfPrice(price.sell.keys, price.sell.metal, keyPrice);
+    if (price?.buy) {
+        return normalizeJournalTfPrice(price.buy.keys, price.buy.metal, keyPrice);
     }
 
     return null;

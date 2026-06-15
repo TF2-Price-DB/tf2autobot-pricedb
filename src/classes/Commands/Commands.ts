@@ -1510,10 +1510,10 @@ export default class Commands {
                 continue;
             }
 
-            const price = await this.getCurrentJournalTfSellPrice(sku);
+            const price = await this.getCurrentJournalTfBuyPrice(sku);
             if (!price) {
                 unpriced++;
-                log.warn(`Skipping journal.tf seed for ${sku}: no current sell price found`);
+                log.warn(`Skipping journal.tf seed for ${sku}: no current buy price found`);
                 continue;
             }
 
@@ -1565,17 +1565,17 @@ export default class Commands {
         return true;
     }
 
-    private async getCurrentJournalTfSellPrice(sku: string): Promise<{ keys: number; metal: number } | null> {
+    private async getCurrentJournalTfBuyPrice(sku: string): Promise<{ keys: number; metal: number } | null> {
         const keyPrice = this.bot.pricelist.getKeyPrice.metal;
         const currentPrice = this.bot.pricelist.getPrice({ priceKey: sku, onlyEnabled: false, getGenericPrice: true });
 
-        if (currentPrice?.sell) {
-            return this.normalizeJournalTfPrice(currentPrice.sell.keys, currentPrice.sell.metal, keyPrice);
+        if (currentPrice?.buy) {
+            return this.normalizeJournalTfPrice(currentPrice.buy.keys, currentPrice.buy.metal, keyPrice);
         }
 
         const price = await this.bot.pricelist.getItemPrices(sku);
-        if (price?.sell) {
-            return this.normalizeJournalTfPrice(price.sell.keys, price.sell.metal, keyPrice);
+        if (price?.buy) {
+            return this.normalizeJournalTfPrice(price.buy.keys, price.buy.metal, keyPrice);
         }
 
         return null;

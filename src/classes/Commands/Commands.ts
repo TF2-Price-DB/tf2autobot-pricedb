@@ -22,6 +22,7 @@ import { UnknownDictionary } from '../../types/common';
 import log from '../../lib/logger';
 import { testPriceKey } from '../../lib/tools/export';
 import { apiRequest } from '../../lib/apiRequest';
+import { JournalTfBoughtItem } from '../JournalTfManager';
 
 type Instant = 'buy' | 'b' | 'sell' | 's';
 type CraftUncraft = 'craftweapon' | 'uncraftweapon';
@@ -321,6 +322,8 @@ export default class Commands {
                 void this.misc.pricedbAccept(steamID, CommandParser.removeCommand(message));
             } else if (command === 'crittfleave' && isAdmin) {
                 void this.misc.pricedbLeave(steamID, CommandParser.removeCommand(message));
+            } else if (command === 'jtfseed' && isAdmin) {
+                void this.journalTfSeedCommand(steamID);
             } else {
                 const custom = this.bot.options.customMessage.commandNotFound;
 
@@ -1490,6 +1493,114 @@ export default class Commands {
         cart.isBuyingPremium = true;
 
         this.addCartToQueue(cart, false, true);
+    }
+
+    private async journalTfSeedCommand(steamID: SteamID): Promise<void> {
+        if (!this.bot.journalTfManager) {
+            return this.bot.sendMessage(steamID, 'journal.tf sync is not enabled or JOURNAL_TF_API_KEY is not set.');
+        }
+
+        const inventory = this.bot.inventoryManager.getInventory.getItems;
+        const purchasedAt = new Date().toISOString().slice(0, 10);
+        const seedItems: JournalTfBoughtItem[] = [];
+        let unpriced = 0;
+
+        for (const sku in inventory) {
+            if (!Object.prototype.hasOwnProperty.call(inventory, sku) || !this.shouldSeedJournalTfSku(sku)) {
+                continue;
+            }
+
+            const price = await this.getCurrentJournalTfBuyPrice(sku);
+            if (!price) {
+                unpriced++;
+                log.warn(`Skipping journal.tf seed for ${sku}: no current buy price found`);
+                continue;
+            }
+
+            seedItems.push({
+                sku,
+                itemName: this.bot.schema.getName(SKU.fromString(sku), false),
+                buyPriceKeys: price.keys,
+                buyPriceMetal: price.metal,
+                quantity: inventory[sku].length,
+                purchasedAt,
+                notes: 'Seeded by bot from current inventory via !jtfseed'
+            });
+        }
+
+        if (seedItems.length === 0) {
+            return this.bot.sendMessage(
+                steamID,
+                unpriced > 0
+                    ? `journal.tf seed found no priced items to add. Unpriced SKUs skipped: ${unpriced}.`
+                    : 'journal.tf seed found no items to add.'
+            );
+        }
+
+        try {
+            const result = await this.bot.journalTfManager.seedInventory(`seed-${Date.now()}`, seedItems);
+            this.bot.sendMessage(
+                steamID,
+                `journal.tf seed complete. Created ${result.created} item ledger ${
+                    result.created === 1 ? 'entry' : 'entries'
+                }, skipped ${result.skipped} already covered item${result.skipped === 1 ? '' : 's'}${
+                    unpriced > 0 ? `, skipped ${unpriced} unpriced SKU${unpriced === 1 ? '' : 's'}` : ''
+                }.`
+            );
+        } catch (err) {
+            log.warn('journal.tf seed failed:', err);
+            this.bot.sendMessage(steamID, `journal.tf seed failed: ${(err as Error).message}`);
+        }
+    }
+
+    private shouldSeedJournalTfSku(sku: string): boolean {
+        if (['5002;6', '5001;6', '5000;6'].includes(sku)) {
+            return false;
+        }
+
+        if (sku === '5021;6') {
+            return this.bot.options.autokeys.enable;
+        }
+
+        return true;
+    }
+
+    private async getCurrentJournalTfBuyPrice(sku: string): Promise<{ keys: number; metal: number } | null> {
+        const keyPrice = this.bot.pricelist.getKeyPrice.metal;
+        const currentPrice = this.bot.pricelist.getPrice({ priceKey: sku, onlyEnabled: false, getGenericPrice: true });
+
+        if (currentPrice?.buy) {
+            return this.normalizeJournalTfPrice(currentPrice.buy.keys, currentPrice.buy.metal, keyPrice);
+        }
+
+        const price = await this.bot.pricelist.getItemPrices(sku);
+        if (price?.buy) {
+            return this.normalizeJournalTfPrice(price.buy.keys, price.buy.metal, keyPrice);
+        }
+
+        return null;
+    }
+
+    private normalizeJournalTfPrice(
+        keys: number,
+        metal: number,
+        keyPriceInRef: number
+    ): { keys: number; metal: number } {
+        if (keyPriceInRef <= 0) {
+            return {
+                keys: Math.max(0, keys),
+                metal: Math.max(0, Number(metal.toFixed(2)))
+            };
+        }
+
+        const totalMetal = Math.max(0, keys * keyPriceInRef + metal);
+        const normalizedKeys = Math.floor(totalMetal / keyPriceInRef);
+        const normalizedMetal = Number((totalMetal - normalizedKeys * keyPriceInRef).toFixed(2));
+
+        return {
+            keys: normalizedKeys,
+            metal: normalizedMetal
+        };
     }
 }
 

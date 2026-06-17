@@ -8,6 +8,7 @@ interface FilePaths {
     pricelist: string;
     blockedList: string;
     costBasis: string;
+    journalTfSync: string;
     dir: string;
 }
 
@@ -42,6 +43,7 @@ export default function genPaths(steamAccountName: string, maxPollDataSizeMB = 5
             pricelist: path.join(__dirname, `../../files/${steamAccountName}/pricelist.json`),
             blockedList: path.join(__dirname, `../../files/${steamAccountName}/blockedList.json`),
             costBasis: path.join(__dirname, `../../files/${steamAccountName}/costBasis.json`),
+            journalTfSync: path.join(__dirname, `../../files/${steamAccountName}/journalTfSync.json`),
             dir: path.join(__dirname, `../../files/${steamAccountName}/`)
         },
         logs: {

@@ -161,6 +161,19 @@ test('loads custom pricer options', () => {
     expect(result.customPricerUrl).toEqual('https://custom-pricer.example.com');
 });
 
+test('loads journal.tf options', () => {
+    let result = Options.loadOptions({ steamAccountName: 'abc123' });
+    expect(result.journalTfEnable).toBeFalsy();
+    expect(result.journalTfApiKey).toEqual('');
+    process.env.JOURNAL_TF_ENABLE = 'true';
+    process.env.JOURNAL_TF_API_KEY = 'journal-test-key';
+    result = Options.loadOptions({ steamAccountName: 'abc123' });
+    expect(result.journalTfEnable).toBeTruthy();
+    expect(result.journalTfApiKey).toEqual('journal-test-key');
+    delete process.env.JOURNAL_TF_ENABLE;
+    delete process.env.JOURNAL_TF_API_KEY;
+});
+
 test('loads a subset of options', () => {
     const filesPath = Options.getFilesPath('abc123');
     cleanPath(filesPath);

@@ -2273,6 +2273,8 @@ export default interface Options extends JsonOptions {
     steamSupplyApiKey?: string;
     steamApisApiKey?: string;
     expressLoadApiKey?: string;
+    journalTfEnable?: boolean;
+    journalTfApiKey?: string;
 
     admins?: adminData[];
     keep?: string[];
@@ -2597,6 +2599,8 @@ export function loadOptions(options?: Options): Options {
         steamSupplyApiKey: getOption('steamsupplyApiKey', '', String, incomingOptions),
         steamApisApiKey: getOption('steamapisApiKey', '', String, incomingOptions),
         expressLoadApiKey: getOption('expressloadApiKey', '', String, incomingOptions),
+        journalTfEnable: getOption('journalTfEnable', false, jsonParseBoolean, incomingOptions),
+        journalTfApiKey: getOption('journalTfApiKey', '', String, incomingOptions),
 
         admins: getOption('admins', [], jsonParseAdminData, incomingOptions),
         keep: getOption('keep', [], jsonParseArray, incomingOptions),

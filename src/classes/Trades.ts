@@ -1594,7 +1594,7 @@ export default class Trades {
                                     )}s (${rateLimitAttempts}/${STEAM_RETRY_ATTEMPTS})`
                                 );
 
-                                timersPromises.setTimeout(delay).then(attemptEscrowCheck);
+                                void timersPromises.setTimeout(delay).then(attemptEscrowCheck);
                                 return;
                             }
 

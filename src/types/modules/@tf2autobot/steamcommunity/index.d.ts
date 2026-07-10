@@ -90,6 +90,8 @@ declare module '@tf2autobot/steamcommunity' {
 
         getTradeURL(callback: (err?: Error, url?: string, token?: string) => void): void;
 
+        changeTradeURL(callback?: (err?: Error, url?: string, token?: string) => void): void;
+
         getSteamUser(id: SteamID | string, callback: (err?: Error, user?: SteamCommunity.User) => void): void;
 
         acceptConfirmationForObject(identitySecret: string, objectID: string, callback: (err?: Error) => void): void;

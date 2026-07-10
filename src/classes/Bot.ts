@@ -68,7 +68,7 @@ type PriceDBInventoryRefreshedEvent = { itemCount: number; refreshCount: number 
 
 const TRADE_OFFER_URL_RETRY_BASE_DELAY = 5 * 1000;
 const TRADE_OFFER_URL_RETRY_MAX_DELAY = 30 * 60 * 1000; // 30 minutes
-const TRADE_OFFER_URL_MAX_RETRIES = 5; // give up after ~75 s of retrying
+const TRADE_OFFER_URL_MAX_GET_RETRIES = 3; // after this many GET failures fall back to POST
 
 export interface SteamTokens {
     refreshToken: string;
@@ -1750,13 +1750,20 @@ export default class Bot {
             return;
         }
 
-        if (attempt > TRADE_OFFER_URL_MAX_RETRIES) {
-            log.warn(
-                `Trade offer URL could not be fetched from Steam after ${TRADE_OFFER_URL_MAX_RETRIES} attempts ` +
-                    `(HTTP 429 — Steam blocks automated access to this page). ` +
-                    `This does not affect trading. To set the URL manually, create: ` +
-                    this.handler.getPaths.files.tradeOfferUrl
-            );
+        if (attempt > TRADE_OFFER_URL_MAX_GET_RETRIES) {
+            // GET /tradeoffers/privacy consistently returns 429.
+            // Fall back to changeTradeURL which POSTs to /tradeoffers/newtradeurl —
+            // POST requests are not blocked. On success the URL is cached to disk and
+            // every subsequent restart reads from cache without hitting Steam.
+            log.debug('getTradeURL returning 429 repeatedly; falling back to changeTradeURL POST');
+            void this.refreshTradeOfferUrlViaChange().catch((err: Error) => {
+                log.warn(
+                    'Could not obtain trade offer URL (tried GET and POST). ' +
+                        'To set it manually, create the file: ' +
+                        this.handler.getPaths.files.tradeOfferUrl,
+                    err
+                );
+            });
             return;
         }
 
@@ -1766,10 +1773,36 @@ export default class Bot {
             this.tradeOfferUrlRetryTimeout = null;
 
             void this.refreshTradeOfferUrl().catch((err: Error) => {
-                log.warn('Failed to refresh trade offer URL, retrying later: ', err);
-                this.scheduleTradeOfferUrlRetry(attempt + 1);
+                if (this.isSteamHttp429(err)) {
+                    log.warn('Failed to refresh trade offer URL, retrying later: ', err);
+                    this.scheduleTradeOfferUrlRetry(attempt + 1);
+                } else {
+                    log.warn('Failed to refresh trade offer URL: ', err);
+                }
             });
         }, delay);
+    }
+
+    private refreshTradeOfferUrlViaChange(): Promise<void> {
+        return new Promise((resolve, reject) => {
+            if (this.client.steamID) {
+                this.community._profileURL = '/profiles/' + this.client.steamID.getSteamID64();
+            }
+            this.community.changeTradeURL((err, url) => {
+                if (err) {
+                    reject(err);
+                    return;
+                }
+                if (!url) {
+                    reject(new Error('Steam did not return a trade offer URL'));
+                    return;
+                }
+                log.debug('Trade offer URL obtained via changeTradeURL and cached');
+                this.tradeOfferUrl = url;
+                this.cacheTradeOfferUrl(url);
+                resolve();
+            });
+        });
     }
 
     private isSteamHttp429(err: Error): boolean {

@@ -2524,7 +2524,6 @@ function replaceOldProperties(options: DeprecatedJsonOptions): boolean {
     // eslint-disable-next-line @typescript-eslint/ban-ts-comment
     //@ts-ignore
     if (options.bypass?.bannedPeople !== undefined) {
-        // eslint-disable-next-line @typescript-eslint/ban-ts-comment
         //@ts-ignore
         const mptfCheckValue = options.bypass.bannedPeople?.checkMptfBanned;
 
@@ -2537,7 +2536,6 @@ function replaceOldProperties(options: DeprecatedJsonOptions): boolean {
             };
         }
 
-        // eslint-disable-next-line @typescript-eslint/ban-ts-comment
         //@ts-ignore
         delete options.bypass.bannedPeople;
         isChanged = true;

@@ -1829,7 +1829,15 @@ export default class Bot {
 
     private onWebSession(sessionID: string, cookies: string[]): void {
         log.debug(`New web session`);
-        void this.setCookies(cookies);
+        void this.setCookies(cookies).then(() => {
+            this.community.acknowledgeTradeProtection((err: Error | null) => {
+                if (err) {
+                    log.debug('Failed to acknowledge trade protection: ' + err.message);
+                } else {
+                    log.debug('Trade protection acknowledged');
+                }
+            });
+        });
     }
 
     private onSessionExpired(): void {

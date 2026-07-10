@@ -24,6 +24,15 @@ declare module '@tf2autobot/steamcommunity' {
 
         _jar: CookieJar;
 
+        _profileURL: string | undefined;
+
+        onPreHttpRequest?: (
+            requestID: number,
+            source: string,
+            options: Record<string, unknown>,
+            continueRequest: (err: Error | null) => void
+        ) => boolean;
+
         loggedIn(callback: (err: any, loggedIn?: boolean, familyView?: boolean) => void): void;
 
         getSessionID(): string;
@@ -81,9 +90,13 @@ declare module '@tf2autobot/steamcommunity' {
 
         getTradeURL(callback: (err?: Error, url?: string, token?: string) => void): void;
 
+        changeTradeURL(callback?: (err?: Error, url?: string, token?: string) => void): void;
+
         getSteamUser(id: SteamID | string, callback: (err?: Error, user?: SteamCommunity.User) => void): void;
 
         acceptConfirmationForObject(identitySecret: string, objectID: string, callback: (err?: Error) => void): void;
+
+        acknowledgeTradeProtection(callback?: (err: Error | null) => void): void;
 
         getFriendsList(callback: (err?: Error, friendlist?: SteamCommunity.FriendList) => void): void;
     }

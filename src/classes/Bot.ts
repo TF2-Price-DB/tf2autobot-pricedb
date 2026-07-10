@@ -67,7 +67,8 @@ type PriceDBListingEvent = { id: string };
 type PriceDBInventoryRefreshedEvent = { itemCount: number; refreshCount: number };
 
 const TRADE_OFFER_URL_RETRY_BASE_DELAY = 5 * 1000;
-const TRADE_OFFER_URL_RETRY_MAX_DELAY = 5 * 60 * 1000;
+const TRADE_OFFER_URL_RETRY_MAX_DELAY = 30 * 60 * 1000; // 30 minutes
+const TRADE_OFFER_URL_MAX_GET_RETRIES = 3; // after this many GET failures fall back to POST
 
 export interface SteamTokens {
     refreshToken: string;
@@ -97,7 +98,7 @@ export default class Bot {
 
     readonly community: SteamCommunity;
 
-    tradeOfferUrl: string;
+    tradeOfferUrl = '';
 
     listingManager: ListingManager;
 
@@ -237,6 +238,33 @@ export default class Bot {
 
         this.client = new SteamUser();
         this.community = new SteamCommunity();
+
+        // The trade privacy page is aggressively bot-protected by Cloudflare/Steam and returns
+        // HTTP 429 when browser-like navigation headers are absent. Inject them via the
+        // built-in pre-request hook so every getTradeURL call looks like real navigation.
+        this.community.onPreHttpRequest = (
+            _requestID: number,
+            _source: string,
+            options: Record<string, unknown>,
+            continueRequest: (err: Error | null) => void
+        ): boolean => {
+            const uri = typeof options.uri === 'string' ? options.uri : '';
+            if (
+                ((options.method as string | undefined) ?? 'GET').toUpperCase() === 'GET' &&
+                uri.includes('tradeoffers/privacy')
+            ) {
+                const headers = options.headers as Record<string, string>;
+                headers['Sec-Fetch-Mode'] = 'navigate';
+                headers['Sec-Fetch-Site'] = 'same-origin';
+                headers['Sec-Fetch-Dest'] = 'document';
+                headers['Sec-Fetch-User'] = '?1';
+                headers['Upgrade-Insecure-Requests'] = '1';
+                headers['Referer'] = 'https://steamcommunity.com';
+            }
+            continueRequest(null);
+            return true;
+        };
+
         this.manager = new TradeOfferManager({
             steam: this.client,
             community: this.community,
@@ -1693,6 +1721,12 @@ export default class Bot {
 
     private refreshTradeOfferUrl(): Promise<void> {
         return new Promise((resolve, reject) => {
+            // Pre-populate the community profile URL from the known SteamID to bypass the
+            // https://steamcommunity.com/my redirect, which consistently returns HTTP 429.
+            if (this.client.steamID) {
+                this.community._profileURL = '/profiles/' + this.client.steamID.getSteamID64();
+            }
+
             this.community.getTradeURL((err, url) => {
                 if (err) {
                     reject(err);
@@ -1716,16 +1750,59 @@ export default class Bot {
             return;
         }
 
+        if (attempt > TRADE_OFFER_URL_MAX_GET_RETRIES) {
+            // GET /tradeoffers/privacy consistently returns 429.
+            // Fall back to changeTradeURL which POSTs to /tradeoffers/newtradeurl —
+            // POST requests are not blocked. On success the URL is cached to disk and
+            // every subsequent restart reads from cache without hitting Steam.
+            log.debug('getTradeURL returning 429 repeatedly; falling back to changeTradeURL POST');
+            void this.refreshTradeOfferUrlViaChange().catch((err: Error) => {
+                log.warn(
+                    'Could not obtain trade offer URL (tried GET and POST). ' +
+                        'To set it manually, create the file: ' +
+                        this.handler.getPaths.files.tradeOfferUrl,
+                    err
+                );
+            });
+            return;
+        }
+
         const delay = Math.min(attempt * TRADE_OFFER_URL_RETRY_BASE_DELAY, TRADE_OFFER_URL_RETRY_MAX_DELAY);
 
         this.tradeOfferUrlRetryTimeout = setTimeout(() => {
             this.tradeOfferUrlRetryTimeout = null;
 
             void this.refreshTradeOfferUrl().catch((err: Error) => {
-                log.warn('Failed to refresh trade offer URL, retrying later: ', err);
-                this.scheduleTradeOfferUrlRetry(attempt + 1);
+                if (this.isSteamHttp429(err)) {
+                    log.warn('Failed to refresh trade offer URL, retrying later: ', err);
+                    this.scheduleTradeOfferUrlRetry(attempt + 1);
+                } else {
+                    log.warn('Failed to refresh trade offer URL: ', err);
+                }
             });
         }, delay);
+    }
+
+    private refreshTradeOfferUrlViaChange(): Promise<void> {
+        return new Promise((resolve, reject) => {
+            if (this.client.steamID) {
+                this.community._profileURL = '/profiles/' + this.client.steamID.getSteamID64();
+            }
+            this.community.changeTradeURL((err, url) => {
+                if (err) {
+                    reject(err);
+                    return;
+                }
+                if (!url) {
+                    reject(new Error('Steam did not return a trade offer URL'));
+                    return;
+                }
+                log.debug('Trade offer URL obtained via changeTradeURL and cached');
+                this.tradeOfferUrl = url;
+                this.cacheTradeOfferUrl(url);
+                resolve();
+            });
+        });
     }
 
     private isSteamHttp429(err: Error): boolean {
@@ -1829,7 +1906,15 @@ export default class Bot {
 
     private onWebSession(sessionID: string, cookies: string[]): void {
         log.debug(`New web session`);
-        void this.setCookies(cookies);
+        void this.setCookies(cookies).then(() => {
+            this.community.acknowledgeTradeProtection((err: Error | null) => {
+                if (err) {
+                    log.debug('Failed to acknowledge trade protection: ' + err.message);
+                } else {
+                    log.debug('Trade protection acknowledged');
+                }
+            });
+        });
     }
 
     private onSessionExpired(): void {

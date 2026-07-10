@@ -248,8 +248,10 @@ export default class Bot {
             continueRequest: (err: Error | null) => void
         ): boolean => {
             const uri = typeof options.uri === 'string' ? options.uri : '';
-            if ((options.method as string | undefined ?? 'GET').toUpperCase() === 'GET' &&
-                uri.includes('tradeoffers/privacy')) {
+            if (
+                ((options.method as string | undefined) ?? 'GET').toUpperCase() === 'GET' &&
+                uri.includes('tradeoffers/privacy')
+            ) {
                 const headers = options.headers as Record<string, string>;
                 headers['Sec-Fetch-Mode'] = 'navigate';
                 headers['Sec-Fetch-Site'] = 'same-origin';

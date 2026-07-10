@@ -24,6 +24,8 @@ declare module '@tf2autobot/steamcommunity' {
 
         _jar: CookieJar;
 
+        _profileURL: string | undefined;
+
         loggedIn(callback: (err: any, loggedIn?: boolean, familyView?: boolean) => void): void;
 
         getSessionID(): string;

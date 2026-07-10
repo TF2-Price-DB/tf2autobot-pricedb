@@ -1693,6 +1693,12 @@ export default class Bot {
 
     private refreshTradeOfferUrl(): Promise<void> {
         return new Promise((resolve, reject) => {
+            // Pre-populate the community profile URL from the known SteamID to bypass the
+            // https://steamcommunity.com/my redirect, which consistently returns HTTP 429.
+            if (this.client.steamID) {
+                this.community._profileURL = '/profiles/' + this.client.steamID.getSteamID64();
+            }
+
             this.community.getTradeURL((err, url) => {
                 if (err) {
                     reject(err);

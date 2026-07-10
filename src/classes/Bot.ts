@@ -52,6 +52,7 @@ import { apiRequest } from '../lib/apiRequest';
 import EasyCopyPaste from 'easycopypaste';
 
 type Callback = (err?: Error | null) => void;
+type HttpError = Error & { code?: string | number };
 
 type EasyCopyPasteInstance = {
     useBoldChars: boolean;
@@ -64,6 +65,9 @@ const EasyCopyPasteCtor = EasyCopyPaste as unknown as new () => EasyCopyPasteIns
 
 type PriceDBListingEvent = { id: string };
 type PriceDBInventoryRefreshedEvent = { itemCount: number; refreshCount: number };
+
+const TRADE_OFFER_URL_RETRY_BASE_DELAY = 5 * 1000;
+const TRADE_OFFER_URL_RETRY_MAX_DELAY = 5 * 60 * 1000;
 
 export interface SteamTokens {
     refreshToken: string;
@@ -193,6 +197,8 @@ export default class Bot {
     private isReconnecting = false;
 
     private reconnectTimeout: NodeJS.Timeout = null;
+
+    private tradeOfferUrlRetryTimeout: NodeJS.Timeout = null;
 
     public autoRefreshListingsInterval: NodeJS.Timeout;
 
@@ -1339,27 +1345,10 @@ export default class Bot {
                             })
                             .catch(err => callback(err as Error));
                     },
-                    async (callback): Promise<void> => {
-                        const tradeOfferUrl = await this.getTradeOfferUrl();
-
-                        if (tradeOfferUrl) {
-                            this.tradeOfferUrl = tradeOfferUrl;
-                            /* eslint-disable-next-line @typescript-eslint/no-unsafe-return, @typescript-eslint/no-unsafe-call */
-                            return callback(null);
-                        }
-
-                        // Steam can always throw 429 error on this one, especially after weekly Wednesday maintenance
-                        this.community.getTradeURL((err, url) => {
-                            if (err) {
-                                callback(err as Error);
-                                return;
-                            }
-
-                            this.tradeOfferUrl = url;
-                            this.cacheTradeOfferUrl(url);
-                            /* eslint-disable-next-line @typescript-eslint/no-unsafe-return, @typescript-eslint/no-unsafe-call */
-                            return callback(null);
-                        });
+                    (callback: Callback): void => {
+                        void this.setupTradeOfferUrl()
+                            .then(() => callback(null))
+                            .catch(err => callback(err as Error));
                     }
                 ],
                 (item: (cb: Callback) => void, callback: Callback): void => {
@@ -1682,15 +1671,77 @@ export default class Bot {
         });
     }
 
-    private async getTradeOfferUrl(): Promise<string | null> {
-        const tradeOfferUrlPath = this.handler.getPaths.files.tradeOfferUrl;
-        // eslint-disable-next-line @typescript-eslint/no-unused-vars
-        const tradeOfferUrl = (await files.readFile(tradeOfferUrlPath, false).catch(err => null)) as string;
+    private async setupTradeOfferUrl(): Promise<void> {
+        const cachedTradeOfferUrl = await this.getCachedTradeOfferUrl();
 
-        if (!tradeOfferUrl) {
+        if (cachedTradeOfferUrl !== null) {
+            this.tradeOfferUrl = cachedTradeOfferUrl;
+            return;
+        }
+
+        try {
+            await this.refreshTradeOfferUrl();
+        } catch (err) {
+            if (!this.isSteamHttp429(err as Error)) {
+                throw err;
+            }
+
+            log.warn('Steam returned HTTP 429 while getting trade offer URL; continuing startup and retrying: ', err);
+            this.scheduleTradeOfferUrlRetry();
+        }
+    }
+
+    private refreshTradeOfferUrl(): Promise<void> {
+        return new Promise((resolve, reject) => {
+            this.community.getTradeURL((err, url) => {
+                if (err) {
+                    reject(err);
+                    return;
+                }
+
+                if (!url) {
+                    reject(new Error('Steam did not return a trade offer URL'));
+                    return;
+                }
+
+                this.tradeOfferUrl = url;
+                this.cacheTradeOfferUrl(url);
+                resolve();
+            });
+        });
+    }
+
+    private scheduleTradeOfferUrlRetry(attempt = 1): void {
+        if (this.tradeOfferUrlRetryTimeout) {
+            return;
+        }
+
+        const delay = Math.min(attempt * TRADE_OFFER_URL_RETRY_BASE_DELAY, TRADE_OFFER_URL_RETRY_MAX_DELAY);
+
+        this.tradeOfferUrlRetryTimeout = setTimeout(() => {
+            this.tradeOfferUrlRetryTimeout = null;
+
+            void this.refreshTradeOfferUrl().catch((err: Error) => {
+                log.warn('Failed to refresh trade offer URL, retrying later: ', err);
+                this.scheduleTradeOfferUrlRetry(attempt + 1);
+            });
+        }, delay);
+    }
+
+    private isSteamHttp429(err: Error): boolean {
+        const httpError = err as HttpError;
+        return httpError.code === 429 || httpError.code === '429' || httpError.message === 'HTTP error 429';
+    }
+
+    private async getCachedTradeOfferUrl(): Promise<string | null> {
+        const tradeOfferUrlPath = this.handler.getPaths.files.tradeOfferUrl;
+        const tradeOfferUrl = (await files.readFile(tradeOfferUrlPath, false).catch(() => null)) as unknown;
+
+        if (typeof tradeOfferUrl !== 'string' || tradeOfferUrl.trim() === '') {
             return null;
         }
-        return tradeOfferUrl;
+
+        return tradeOfferUrl.trim();
     }
 
     private cacheTradeOfferUrl(tradeOfferUrl: string): void {

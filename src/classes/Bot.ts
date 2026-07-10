@@ -68,6 +68,7 @@ type PriceDBInventoryRefreshedEvent = { itemCount: number; refreshCount: number 
 
 const TRADE_OFFER_URL_RETRY_BASE_DELAY = 5 * 1000;
 const TRADE_OFFER_URL_RETRY_MAX_DELAY = 30 * 60 * 1000; // 30 minutes
+const TRADE_OFFER_URL_MAX_RETRIES = 5; // give up after ~75 s of retrying
 
 export interface SteamTokens {
     refreshToken: string;
@@ -97,7 +98,7 @@ export default class Bot {
 
     readonly community: SteamCommunity;
 
-    tradeOfferUrl: string;
+    tradeOfferUrl = '';
 
     listingManager: ListingManager;
 
@@ -1746,6 +1747,16 @@ export default class Bot {
 
     private scheduleTradeOfferUrlRetry(attempt = 1): void {
         if (this.tradeOfferUrlRetryTimeout) {
+            return;
+        }
+
+        if (attempt > TRADE_OFFER_URL_MAX_RETRIES) {
+            log.warn(
+                `Trade offer URL could not be fetched from Steam after ${TRADE_OFFER_URL_MAX_RETRIES} attempts ` +
+                    `(HTTP 429 — Steam blocks automated access to this page). ` +
+                    `This does not affect trading. To set the URL manually, create: ` +
+                    this.handler.getPaths.files.tradeOfferUrl
+            );
             return;
         }
 

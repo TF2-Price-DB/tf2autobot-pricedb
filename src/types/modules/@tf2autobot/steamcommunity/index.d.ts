@@ -26,6 +26,13 @@ declare module '@tf2autobot/steamcommunity' {
 
         _profileURL: string | undefined;
 
+        onPreHttpRequest?: (
+            requestID: number,
+            source: string,
+            options: Record<string, unknown>,
+            continueRequest: (err: Error | null) => void
+        ) => boolean;
+
         loggedIn(callback: (err: any, loggedIn?: boolean, familyView?: boolean) => void): void;
 
         getSessionID(): string;

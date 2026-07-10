@@ -67,7 +67,7 @@ type PriceDBListingEvent = { id: string };
 type PriceDBInventoryRefreshedEvent = { itemCount: number; refreshCount: number };
 
 const TRADE_OFFER_URL_RETRY_BASE_DELAY = 5 * 1000;
-const TRADE_OFFER_URL_RETRY_MAX_DELAY = 5 * 60 * 1000;
+const TRADE_OFFER_URL_RETRY_MAX_DELAY = 30 * 60 * 1000; // 30 minutes
 
 export interface SteamTokens {
     refreshToken: string;
@@ -237,6 +237,31 @@ export default class Bot {
 
         this.client = new SteamUser();
         this.community = new SteamCommunity();
+
+        // The trade privacy page is aggressively bot-protected by Cloudflare/Steam and returns
+        // HTTP 429 when browser-like navigation headers are absent. Inject them via the
+        // built-in pre-request hook so every getTradeURL call looks like real navigation.
+        this.community.onPreHttpRequest = (
+            _requestID: number,
+            _source: string,
+            options: Record<string, unknown>,
+            continueRequest: (err: Error | null) => void
+        ): boolean => {
+            const uri = typeof options.uri === 'string' ? options.uri : '';
+            if ((options.method as string | undefined ?? 'GET').toUpperCase() === 'GET' &&
+                uri.includes('tradeoffers/privacy')) {
+                const headers = options.headers as Record<string, string>;
+                headers['Sec-Fetch-Mode'] = 'navigate';
+                headers['Sec-Fetch-Site'] = 'same-origin';
+                headers['Sec-Fetch-Dest'] = 'document';
+                headers['Sec-Fetch-User'] = '?1';
+                headers['Upgrade-Insecure-Requests'] = '1';
+                headers['Referer'] = 'https://steamcommunity.com';
+            }
+            continueRequest(null);
+            return true;
+        };
+
         this.manager = new TradeOfferManager({
             steam: this.client,
             community: this.community,

@@ -54,6 +54,16 @@ export const addSchema: jsonschema.Schema = {
             type: 'integer',
             minimum: 1
         },
+        manncoBuyOrder: {
+            type: 'object',
+            properties: {
+                itemId: { type: 'integer', minimum: 1 },
+                amount: { type: 'integer', minimum: 1, maximum: 5000 },
+                name: { type: 'string', minLength: 1 }
+            },
+            required: ['itemId', 'amount', 'name'],
+            additionalProperties: false
+        },
         promoted: {
             // 0 = not promote, 1 = promote item (Sell only)
             type: 'integer',

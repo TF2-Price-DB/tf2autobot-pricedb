@@ -144,6 +144,15 @@ export default class Trades {
         }
 
         offer.log('info', 'received offer');
+
+        if (this.bot.manncoStoreManager?.matchesPendingDepositOffer(offer)) {
+            offer.log('info', 'accepting matched Mannco.store deposit offer');
+            void this.acceptOffer(offer).catch(err => {
+                log.error(`Failed to accept Mannco.store deposit offer #${offer.id}:`, err);
+            });
+            return;
+        }
+
         this.enqueueOffer(offer);
     }
 

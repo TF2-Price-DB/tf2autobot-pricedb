@@ -20,6 +20,12 @@ export interface PurchaseRecord {
     timestamp: number;
 }
 
+export interface ManncoBuyOrder {
+    itemId: number;
+    amount: number;
+    name: string;
+}
+
 export enum PricelistChangedSource {
     Command = 'COMMAND',
     Autokeys = 'AUTOKEYS',
@@ -38,6 +44,7 @@ export interface EntryData {
     sell?: Currency | null;
     buyUsd?: number; // cents
     sellUsd?: number; // cents
+    manncoBuyOrder?: ManncoBuyOrder;
     promoted?: 0 | 1;
     group?: string | null;
     note?: { buy: string | null; sell: string | null };
@@ -73,6 +80,8 @@ export class Entry implements EntryData {
 
     sellUsd?: number;
 
+    manncoBuyOrder?: ManncoBuyOrder;
+
     promoted: 0 | 1;
 
     group: string | null;
@@ -101,6 +110,7 @@ export class Entry implements EntryData {
         this.autoprice = entry.autoprice;
         this.buyUsd = entry.buyUsd;
         this.sellUsd = entry.sellUsd;
+        this.manncoBuyOrder = entry.manncoBuyOrder;
         this.min = entry.min;
         this.max = entry.max;
 
@@ -290,6 +300,7 @@ export class Entry implements EntryData {
             sell: this.sell === null ? null : this.sell.toJSON(),
             buyUsd: this.buyUsd,
             sellUsd: this.sellUsd,
+            manncoBuyOrder: this.manncoBuyOrder,
             promoted: this.promoted,
             group: this.group,
             note: this.note,

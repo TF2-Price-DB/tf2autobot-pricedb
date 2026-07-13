@@ -43,6 +43,16 @@ export const pricelistSchema: jsonschema.Schema = {
             type: 'integer',
             minimum: 1
         },
+        manncoBuyOrder: {
+            type: 'object',
+            properties: {
+                itemId: { type: 'integer', minimum: 1 },
+                amount: { type: 'integer', minimum: 1, maximum: 5000 },
+                name: { type: 'string', minLength: 1 }
+            },
+            required: ['itemId', 'amount', 'name'],
+            additionalProperties: false
+        },
         promoted: {
             type: 'integer',
             enum: [0, 1]

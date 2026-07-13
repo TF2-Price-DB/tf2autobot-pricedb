@@ -6,6 +6,7 @@ import SteamCommunity from '@tf2autobot/steamcommunity';
 import SteamTotp from 'steam-totp';
 import ListingManager, { Listing } from '@tf2autobot/bptf-listings';
 import PriceDBStoreManager from './PriceDBStoreManager';
+import ManncoStoreManager from './ManncoStoreManager';
 import JournalTfManager from './JournalTfManager';
 import SchemaManager, { Effect, StrangeParts } from '@tf2autobot/tf2-schema';
 import BptfLogin from '@tf2autobot/bptf-login';
@@ -102,6 +103,8 @@ export default class Bot {
     listingManager: ListingManager;
 
     pricedbStoreManager: PriceDBStoreManager;
+
+    manncoStoreManager: ManncoStoreManager;
 
     journalTfManager?: JournalTfManager;
 
@@ -1266,6 +1269,50 @@ export default class Bot {
                                     });
 
                                     this.pricedbStoreManager
+                                        .init()
+                                        .then(() => cb(null))
+                                        .catch(err => cb(err as Error));
+                                },
+                                (cb: Callback): void => {
+                                    if (
+                                        !this.options.manncoStoreApiKey ||
+                                        !this.options.miscSettings.manncoStore.enable
+                                    ) {
+                                        log.debug('Skipping Mannco.store manager initialization (not configured or disabled)');
+                                        cb(null);
+                                        return;
+                                    }
+
+                                    this.manncoStoreManager = new ManncoStoreManager(this.options.manncoStoreApiKey);
+                                    this.manncoStoreManager.on('error', (err: unknown) => {
+                                        log.error('Mannco.store manager error:', err);
+                                    });
+
+                                    this.manncoStoreManager.on('listingUpdated', listing => {
+                                        log.debug('Mannco.store listing updated:', listing.sku);
+                                    });
+
+                                    this.pricelist.on('price', (_priceKey: string, entry: Entry) => {
+                                        if (entry.sellUsd !== undefined) {
+                                            void this.manncoStoreManager.repriceSku(entry.sku, entry.sellUsd).catch(err => {
+                                                log.error(`Failed to update Mannco.store listing for ${entry.sku}:`, err);
+                                            });
+                                        }
+                                        if (entry.autoprice && entry.buyUsd !== undefined && entry.manncoBuyOrder) {
+                                            void this.manncoStoreManager
+                                                .upsertBuyOrder(
+                                                    entry.sku,
+                                                    entry.manncoBuyOrder.itemId,
+                                                    entry.manncoBuyOrder.amount,
+                                                    entry.buyUsd
+                                                )
+                                                .catch(err => {
+                                                    log.error(`Failed to update Mannco.store buy order for ${entry.sku}:`, err);
+                                                });
+                                        }
+                                    });
+
+                                    this.manncoStoreManager
                                         .init()
                                         .then(() => cb(null))
                                         .catch(err => cb(err as Error));

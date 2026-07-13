@@ -24,6 +24,8 @@ export default class HelpCommands {
                         `price [amount] <name> - Get the price and stock of an item.`,
                         `sku <Full Item Name|Item's sku> - Get the sku of an item.`,
                         `owner - Get the owner's Steam profile and Backpack.tf links.`,
+                        `manncolist sku=<sku>&amount=<quantity> - Deposit and list bot inventory on Mannco.store (admin only).`,
+                        `manncobuy sku=<sku>&item=<Mannco item name>&amount=<quantity> - Create a Mannco.store buy order (admin only).`,
                         `discord - Get a link to join TF2Autobot and/or the owner's discord server.`,
                         `more - Show more available commands list.`
                     ].join(`\n- ${prefix}`)
@@ -97,6 +99,8 @@ export default class HelpCommands {
                 '.\n✨=== Bot manager ===✨\n- ' +
                     [
                         `${prefix}deposit (sku|name|defindex)=<a>&amount=<number> - Deposit items.`,
+                        `${prefix}manncolist sku=<sku>&amount=<quantity> - Deposit and list bot inventory on Mannco.store.`,
+                        `${prefix}manncobuy sku=<sku>&item=<Mannco item name>&amount=<quantity> - Create a Mannco.store buy order.`,
                         `withdraw (sku|name|defindex)=<a>&amount=<number> - Withdraw items.`,
                         `withdrawAll [withgroup=<itemgroup>[&&max=<number>]] - Withdraw all items.`,
                         `withdrawMptf [max=<number>] - [Exclusive Marketplace.tf Sellers] Withdraw items that does not exist on Marketplace.tf Dashboard items.`,

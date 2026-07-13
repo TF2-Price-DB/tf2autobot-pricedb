@@ -24,8 +24,8 @@ export default class HelpCommands {
                         `price [amount] <name> - Get the price and stock of an item.`,
                         `sku <Full Item Name|Item's sku> - Get the sku of an item.`,
                         `owner - Get the owner's Steam profile and Backpack.tf links.`,
-                        `manncolist sku=<sku>&amount=<quantity> - Deposit and list bot inventory on Mannco.store (admin only).`,
-                        `manncobuy sku=<sku>&item=<Mannco item name>&amount=<quantity> - Create a Mannco.store buy order (admin only).`,
+                        `mcosell sku=<sku>&amount=<quantity> - Deposit and list bot inventory on Mannco.store (admin only).`,
+                        `mcobuy sku=<sku>&item=<Mannco item name>&amount=<quantity> - Create a Mannco.store buy order (admin only).`,
                         `discord - Get a link to join TF2Autobot and/or the owner's discord server.`,
                         `more - Show more available commands list.`
                     ].join(`\n- ${prefix}`)
@@ -96,11 +96,24 @@ export default class HelpCommands {
             await timersPromises.setTimeout(2000);
             this.bot.sendMessage(
                 steamID,
+                '.\n✨=== Mannco.store ===✨\n- ' +
+                    [
+                        `mcosell sku=<sku>&amount=<quantity> - Deposit and list bot inventory.`,
+                        `mcobuy sku=<sku>&item=<Mannco item name>&amount=<quantity> - Create a buy order.`,
+                        `mcolistings - List items currently on sale.`,
+                        `mcosales - Show this week's sales total.`,
+                        `mcobalance - Show the account balance.`,
+                        `mcoupdate assetid=<asset id>&price=<cents> - Set an asset price.`,
+                        `mcowithdraw assetid=<asset id> - Withdraw assets to Steam.`
+                    ].join(`\n- ${prefix}`)
+            );
+
+            await timersPromises.setTimeout(2000);
+            this.bot.sendMessage(
+                steamID,
                 '.\n✨=== Bot manager ===✨\n- ' +
                     [
                         `${prefix}deposit (sku|name|defindex)=<a>&amount=<number> - Deposit items.`,
-                        `${prefix}manncolist sku=<sku>&amount=<quantity> - Deposit and list bot inventory on Mannco.store.`,
-                        `${prefix}manncobuy sku=<sku>&item=<Mannco item name>&amount=<quantity> - Create a Mannco.store buy order.`,
                         `withdraw (sku|name|defindex)=<a>&amount=<number> - Withdraw items.`,
                         `withdrawAll [withgroup=<itemgroup>[&&max=<number>]] - Withdraw all items.`,
                         `withdrawMptf [max=<number>] - [Exclusive Marketplace.tf Sellers] Withdraw items that does not exist on Marketplace.tf Dashboard items.`,

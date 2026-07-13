@@ -6,7 +6,7 @@ import SteamCommunity from '@tf2autobot/steamcommunity';
 import SteamTotp from 'steam-totp';
 import ListingManager, { Listing } from '@tf2autobot/bptf-listings';
 import PriceDBStoreManager from './PriceDBStoreManager';
-import ManncoStoreManager from './ManncoStoreManager';
+import ManncoStoreManager, { ManncoPricelistItem } from './ManncoStoreManager';
 import JournalTfManager from './JournalTfManager';
 import SchemaManager, { Effect, StrangeParts } from '@tf2autobot/tf2-schema';
 import BptfLogin from '@tf2autobot/bptf-login';
@@ -1283,7 +1283,10 @@ export default class Bot {
                                         return;
                                     }
 
-                                    this.manncoStoreManager = new ManncoStoreManager(this.options.manncoStoreApiKey);
+                                    this.manncoStoreManager = new ManncoStoreManager(
+                                        this.options.manncoStoreApiKey,
+                                        this.handler.getPaths.files.manncoData
+                                    );
                                     this.manncoStoreManager.on('error', (err: unknown) => {
                                         log.error('Mannco.store manager error:', err);
                                     });
@@ -1292,18 +1295,32 @@ export default class Bot {
                                         log.debug('Mannco.store listing updated:', listing.sku);
                                     });
 
+                                    this.manncoStoreManager.on('listingsNoLongerOnSale', (skus: string[]) => {
+                                        log.info(
+                                            `Mannco.store listings are no longer on sale: ${skus.join(', ')}. ` +
+                                                'They may have sold, been withdrawn, or been instantly bought.'
+                                        );
+                                    });
+
                                     this.pricelist.on('price', (_priceKey: string, entry: Entry) => {
                                         if (entry.sellUsd !== undefined) {
-                                            void this.manncoStoreManager.repriceSku(entry.sku, entry.sellUsd).catch(err => {
-                                                log.error(`Failed to update Mannco.store listing for ${entry.sku}:`, err);
-                                            });
+                                            void this.manncoStoreManager
+                                                .repriceSku(entry.sku, entry.sellUsd, {
+                                                    sku: entry.sku,
+                                                    name: entry.name,
+                                                    craftable: !entry.sku.includes(';uncraftable')
+                                                })
+                                                .catch(err => {
+                                                    log.error(`Failed to update Mannco.store listing for ${entry.sku}:`, err);
+                                                });
                                         }
-                                        if (entry.autoprice && entry.buyUsd !== undefined && entry.manncoBuyOrder) {
+                                        const buyOrder = this.manncoStoreManager.getBuyOrder(entry.sku);
+                                        if (entry.autoprice && entry.buyUsd !== undefined && buyOrder) {
                                             void this.manncoStoreManager
                                                 .upsertBuyOrder(
                                                     entry.sku,
-                                                    entry.manncoBuyOrder.itemId,
-                                                    entry.manncoBuyOrder.amount,
+                                                    buyOrder.itemId,
+                                                    buyOrder.amount,
                                                     entry.buyUsd
                                                 )
                                                 .catch(err => {
@@ -1314,7 +1331,64 @@ export default class Bot {
 
                                     this.manncoStoreManager
                                         .init()
-                                        .then(() => cb(null))
+                                        .then(async () => {
+                                            const reconcileManncoListings = async (): Promise<void> => {
+                                                const pricelistItems = Object.keys(this.pricelist.getPrices).reduce(
+                                                    (items: ManncoPricelistItem[], sku: string) => {
+                                                        const entry = this.pricelist.getPrice({
+                                                            priceKey: sku,
+                                                            onlyEnabled: false
+                                                        });
+                                                        if (entry !== null) {
+                                                            items.push({
+                                                                sku: entry.sku,
+                                                                name: entry.name,
+                                                                craftable: !entry.sku.includes(';uncraftable')
+                                                            });
+                                                        }
+                                                        return items;
+                                                    },
+                                                    []
+                                                );
+                                                const reconciliation = await this.manncoStoreManager.reconcileListings(
+                                                    await this.manncoStoreManager.getOnSaleItems(),
+                                                    pricelistItems
+                                                );
+                                                if (reconciliation.importedSkus.length > 0) {
+                                                    for (const sku of reconciliation.importedSkus) {
+                                                        const entry = this.pricelist.getPrice({
+                                                            priceKey: sku,
+                                                            onlyEnabled: false
+                                                        });
+                                                        if (entry?.sellUsd === undefined) continue;
+
+                                                        try {
+                                                            await this.manncoStoreManager.repriceSku(sku, entry.sellUsd);
+                                                        } catch (err) {
+                                                            log.warn(
+                                                                `Could not apply the pricelist USD sell price to imported Mannco.store listing ${sku}:`,
+                                                                err
+                                                            );
+                                                        }
+                                                    }
+                                                    log.info(
+                                                        `Imported ${reconciliation.importedSkus.length} existing Mannco.store listing SKU(s)`
+                                                    );
+                                                }
+                                            };
+
+                                            try {
+                                                await reconcileManncoListings();
+                                            } catch (err) {
+                                                log.warn('Could not reconcile Mannco.store listings at startup:', err);
+                                            }
+                                            setInterval(() => {
+                                                void reconcileManncoListings().catch(err => {
+                                                    log.warn('Could not reconcile Mannco.store listings:', err);
+                                                });
+                                            }, 5 * 60 * 1000);
+                                            cb(null);
+                                        })
                                         .catch(err => cb(err as Error));
                                 },
                                 (cb: Callback): void => {

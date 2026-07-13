@@ -23,9 +23,10 @@ export default class MiscCommands {
 
         this.bot.sendMessage(
             steamID,
-            `Steam: <https://steamcommunity.com/profiles/${botSteamID}>` +
+                `Steam: <https://steamcommunity.com/profiles/${botSteamID}>` +
                 `\nBackpack.tf: <https://backpack.tf/u/${botSteamID}>` +
                 `\nRep.tf: <https://rep.tf/${botSteamID}>` +
+                `\nMannco.store: <https://mannco.store/store/${botSteamID}>` +
                 `\nTrade Offer URL: <${this.bot.tradeOfferUrl}>`
         );
     }

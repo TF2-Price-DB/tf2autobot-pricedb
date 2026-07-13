@@ -84,6 +84,12 @@ export default class PricelistManagerCommands {
             };
         }
 
+        if (params.buyUsd !== undefined || params.sellUsd !== undefined) {
+            if (params.autoprice === undefined) {
+                params.autoprice = false;
+            }
+        }
+
         const isPremium = this.bot.handler.getBotInfo.premium;
         if (params.promoted !== undefined) {
             if (!isPremium) {
@@ -314,6 +320,12 @@ export default class PricelistManagerCommands {
                     keys: 0,
                     metal: 0
                 };
+            }
+
+            if (params.buyUsd !== undefined || params.sellUsd !== undefined) {
+                if (params.autoprice === undefined) {
+                    params.autoprice = false;
+                }
             }
 
             if (params.promoted !== undefined) {
@@ -586,6 +598,12 @@ export default class PricelistManagerCommands {
             };
         }
 
+        if (params.buyUsd !== undefined || params.sellUsd !== undefined) {
+            if (params.autoprice === undefined) {
+                params.autoprice = false;
+            }
+        }
+
         if (
             (params.sell !== undefined && params.buy === undefined) ||
             (params.sell === undefined && params.buy !== undefined)
@@ -726,7 +744,12 @@ export default class PricelistManagerCommands {
                     );
                 }
 
-                if (typeof params.buy === 'object' || typeof params.sell === 'object') {
+                if (
+                    typeof params.buy === 'object' ||
+                    typeof params.sell === 'object' ||
+                    params.buyUsd !== undefined ||
+                    params.sellUsd !== undefined
+                ) {
                     return this.bot.sendMessage(
                         steamID,
                         `❌ Please specify "withgroup" or "withoutgroup" to change buying/selling price.\nExample:\n` +
@@ -830,6 +853,14 @@ export default class PricelistManagerCommands {
                     }
 
                     entry.autoprice = params.autoprice;
+                }
+
+                if (typeof params.buyUsd === 'number') {
+                    entry.buyUsd = params.buyUsd;
+                }
+
+                if (typeof params.sellUsd === 'number') {
+                    entry.sellUsd = params.sellUsd;
                 }
 
                 if (typeof params.isPartialPriced === 'boolean') {
@@ -1061,6 +1092,12 @@ export default class PricelistManagerCommands {
                 keys: itemEntry.sell.keys,
                 metal: itemEntry.sell.metal
             };
+        }
+
+        if (params.buyUsd !== undefined || params.sellUsd !== undefined) {
+            if (params.autoprice === undefined) {
+                params.autoprice = false;
+            }
         }
 
         if (typeof params.note === 'object') {
@@ -1349,6 +1386,12 @@ export default class PricelistManagerCommands {
                 };
             }
 
+            if (params.buyUsd !== undefined || params.sellUsd !== undefined) {
+                if (params.autoprice === undefined) {
+                    params.autoprice = false;
+                }
+            }
+
             if (typeof params.note === 'object') {
                 params.note.buy = params.note.buy || itemEntry.note.buy;
                 params.note.sell = params.note.sell || itemEntry.note.sell;
@@ -1576,15 +1619,8 @@ export default class PricelistManagerCommands {
         });
 
         return (
-            `\n💲 Buy: ${
-                oldEntry.buy.toValue(keyPrice.metal) !== newEntry.buy.toValue(keyPrice.metal)
-                    ? `${oldEntry.buy.toString()} → ${newEntry.buy.toString()}`
-                    : newEntry.buy.toString()
-            } | Sell: ${
-                oldEntry.sell.toValue(keyPrice.metal) !== newEntry.sell.toValue(keyPrice.metal)
-                    ? `${oldEntry.sell.toString()} → ${newEntry.sell.toString()}`
-                    : newEntry.sell.toString()
-            }` +
+            `${formatTfPriceChange(oldEntry, newEntry, keyPrice.metal)}` +
+            `${formatUsdPriceChange(oldEntry, newEntry)}` +
             `\n📦 Stock: ${amount}` +
             ` | Min: ${oldEntry.min !== newEntry.min ? `${oldEntry.min} → ${newEntry.min}` : newEntry.min} | Max: ${
                 oldEntry.max !== newEntry.max ? `${oldEntry.max} → ${newEntry.max}` : newEntry.max
@@ -2483,7 +2519,8 @@ function generateAddedReply(bot: Bot, isPremium: boolean, entry: Entry): string 
     });
 
     return (
-        `\n💲 Buy: ${entry.buy.toString()} | Sell: ${entry.sell.toString()}` +
+        `${formatTfPrices(entry)}` +
+        `${formatUsdPrices(entry)}` +
         `\n🛒 Intent: ${entry.intent === 2 ? 'bank' : entry.intent === 1 ? 'sell' : 'buy'}` +
         `\n📦 Stock: ${amount} | Min: ${entry.min} | Max: ${entry.max}` +
         `\n📋 Enabled: ${entry.enabled ? '✅' : '❌'}` +
@@ -2494,6 +2531,65 @@ function generateAddedReply(bot: Bot, isPremium: boolean, entry: Entry): string 
         `${entry.note.buy !== null ? `\n📥 Custom buying note: ${entry.note.buy}` : ''}` +
         `${entry.note.sell !== null ? `\n📤 Custom selling note: ${entry.note.sell}` : ''}`
     );
+}
+
+function formatUsd(value: number): string {
+    return `$${(value / 100).toFixed(2)}`;
+}
+
+function formatTfPrices(entry: Entry): string {
+    return `\n💲 Buy: ${entry.buy === null ? '—' : entry.buy.toString()} | Sell: ${
+        entry.sell === null ? '—' : entry.sell.toString()
+    }`;
+}
+
+function formatTfPriceChange(oldEntry: Entry, newEntry: Entry, keyPrice: number): string {
+    if (oldEntry.buy === null || oldEntry.sell === null || newEntry.buy === null || newEntry.sell === null) {
+        return formatTfPrices(newEntry);
+    }
+
+    const buy =
+        oldEntry.buy.toValue(keyPrice) !== newEntry.buy.toValue(keyPrice)
+            ? `${oldEntry.buy.toString()} → ${newEntry.buy.toString()}`
+            : newEntry.buy.toString();
+    const sell =
+        oldEntry.sell.toValue(keyPrice) !== newEntry.sell.toValue(keyPrice)
+            ? `${oldEntry.sell.toString()} → ${newEntry.sell.toString()}`
+            : newEntry.sell.toString();
+
+    return `\n💲 Buy: ${buy} | Sell: ${sell}`;
+}
+
+function formatUsdPrices(entry: Entry): string {
+    if (entry.buyUsd === undefined && entry.sellUsd === undefined) {
+        return '';
+    }
+
+    return `\n💵 USD Buy: ${entry.buyUsd === undefined ? '—' : formatUsd(entry.buyUsd)} | USD Sell: ${
+        entry.sellUsd === undefined ? '—' : formatUsd(entry.sellUsd)
+    }`;
+}
+
+function formatUsdPriceChange(oldEntry: Entry, newEntry: Entry): string {
+    if (
+        oldEntry.buyUsd === newEntry.buyUsd &&
+        oldEntry.sellUsd === newEntry.sellUsd &&
+        newEntry.buyUsd === undefined &&
+        newEntry.sellUsd === undefined
+    ) {
+        return '';
+    }
+
+    const change = (oldValue: number | undefined, newValue: number | undefined): string => {
+        const oldFormatted = oldValue === undefined ? '—' : formatUsd(oldValue);
+        const newFormatted = newValue === undefined ? '—' : formatUsd(newValue);
+        return oldFormatted === newFormatted ? newFormatted : `${oldFormatted} → ${newFormatted}`;
+    };
+
+    return `\n💵 USD Buy: ${change(oldEntry.buyUsd, newEntry.buyUsd)} | USD Sell: ${change(
+        oldEntry.sellUsd,
+        newEntry.sellUsd
+    )}`;
 }
 
 class AutoAddQueue {

@@ -20,7 +20,7 @@ export default class HelpCommands {
                     [
                         `${prefix}help - Get a list of commands.`,
                         `how2trade - Guide on how to trade with the bot.`,
-                        `links - Links to the bot's Steam, Backpack.tf, and Rep.tf.`,
+                        `links - Links to the bot's Steam, Backpack.tf, Rep.tf, and Mannco.store.`,
                         `price [amount] <name> - Get the price and stock of an item.`,
                         `sku <Full Item Name|Item's sku> - Get the sku of an item.`,
                         `owner - Get the owner's Steam profile and Backpack.tf links.`,

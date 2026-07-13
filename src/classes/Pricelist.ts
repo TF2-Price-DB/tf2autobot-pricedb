@@ -36,6 +36,8 @@ export interface EntryData {
     intent: 0 | 1 | 2; // 'buy', 'sell', 'bank'
     buy?: Currency | null;
     sell?: Currency | null;
+    buyUsd?: number; // cents
+    sellUsd?: number; // cents
     promoted?: 0 | 1;
     group?: string | null;
     note?: { buy: string | null; sell: string | null };
@@ -67,6 +69,10 @@ export class Entry implements EntryData {
 
     sell: Currencies | null;
 
+    buyUsd?: number;
+
+    sellUsd?: number;
+
     promoted: 0 | 1;
 
     group: string | null;
@@ -93,6 +99,8 @@ export class Entry implements EntryData {
         this.name = name;
         this.enabled = entry.enabled;
         this.autoprice = entry.autoprice;
+        this.buyUsd = entry.buyUsd;
+        this.sellUsd = entry.sellUsd;
         this.min = entry.min;
         this.max = entry.max;
 
@@ -280,6 +288,8 @@ export class Entry implements EntryData {
             intent: this.intent,
             buy: this.buy === null ? null : this.buy.toJSON(),
             sell: this.sell === null ? null : this.sell.toJSON(),
+            buyUsd: this.buyUsd,
+            sellUsd: this.sellUsd,
             promoted: this.promoted,
             group: this.group,
             note: this.note,
@@ -567,10 +577,29 @@ export default class Pricelist extends EventEmitter {
                 );
             });
 
-            const newPrices = {
-                buy: new Currencies(price.buy),
-                sell: new Currencies(price.sell)
-            };
+            const newPrices =
+                price.buy && price.sell ? { buy: new Currencies(price.buy), sell: new Currencies(price.sell) } : null;
+
+            if (price.buyUsd !== undefined) {
+                entry.buyUsd = price.buyUsd;
+            }
+            if (price.sellUsd !== undefined) {
+                entry.sellUsd = price.sellUsd;
+            }
+
+            if (newPrices === null) {
+                if (entry.buyUsd === undefined && entry.sellUsd === undefined) {
+                    throw new Error(`No provided pricer for ${entry.sku}`);
+                }
+                if (
+                    (entry.buyUsd !== undefined && (!Number.isSafeInteger(entry.buyUsd) || entry.buyUsd <= 0)) ||
+                    (entry.sellUsd !== undefined && (!Number.isSafeInteger(entry.sellUsd) || entry.sellUsd <= 0)) ||
+                    (entry.buyUsd !== undefined && entry.sellUsd !== undefined && entry.buyUsd >= entry.sellUsd)
+                ) {
+                    throw new Error(`Sell was lower than the buy in cents for ${entry.sku} what happened here?`);
+                }
+                return;
+            }
 
             if (entry.sku === '5021;6') {
                 clearTimeout(this.retryGetKeyPrices);
@@ -602,13 +631,32 @@ export default class Pricelist extends EventEmitter {
                 const item = this.transformedPricelistForBulk[entry.sku];
 
                 if (item === undefined) {
-                    throw new Error('Item is not priced - please manually price this item');
+                    throw new Error(`Manually price ${entry.sku} or disable autoprice for this item`);
                 }
 
-                const newPrices = {
-                    buy: new Currencies(item.buy),
-                    sell: new Currencies(item.sell)
-                };
+                const newPrices =
+                    item.buy && item.sell ? { buy: new Currencies(item.buy), sell: new Currencies(item.sell) } : null;
+
+                if (item.buyUsd !== undefined) {
+                    entry.buyUsd = item.buyUsd;
+                }
+                if (item.sellUsd !== undefined) {
+                    entry.sellUsd = item.sellUsd;
+                }
+
+                if (newPrices === null) {
+                    if (entry.buyUsd === undefined && entry.sellUsd === undefined) {
+                        throw new Error(`Manually price ${entry.sku} or disable autoprice for this item`);
+                    }
+                    if (
+                        (entry.buyUsd !== undefined && (!Number.isSafeInteger(entry.buyUsd) || entry.buyUsd <= 0)) ||
+                        (entry.sellUsd !== undefined && (!Number.isSafeInteger(entry.sellUsd) || entry.sellUsd <= 0)) ||
+                        (entry.buyUsd !== undefined && entry.sellUsd !== undefined && entry.buyUsd >= entry.sellUsd)
+                    ) {
+                        throw new Error(`Sell was lower than the buy in cents for ${entry.sku} what happened here?`);
+                    }
+                    return;
+                }
 
                 if (entry.sku === '5021;6') {
                     clearTimeout(this.retryGetKeyPrices);
@@ -638,17 +686,25 @@ export default class Pricelist extends EventEmitter {
             }
         }
 
-        if (!entry.hasPrice()) {
+        if (!entry.hasPrice() && entry.buyUsd === undefined && entry.sellUsd === undefined) {
             throw new Error('Pricelist entry does not have a price');
         }
 
-        if (entry.intent !== 0 || entry.sku === '5021;6') {
+        if (
+            (entry.buyUsd !== undefined && (!Number.isSafeInteger(entry.buyUsd) || entry.buyUsd <= 0)) ||
+            (entry.sellUsd !== undefined && (!Number.isSafeInteger(entry.sellUsd) || entry.sellUsd <= 0)) ||
+            (entry.buyUsd !== undefined && entry.sellUsd !== undefined && entry.buyUsd >= entry.sellUsd)
+        ) {
+            throw new Error('USD prices must be positive integer cents and sell must be higher than buy');
+        }
+
+        if (entry.hasPrice() && (entry.intent !== 0 || entry.sku === '5021;6')) {
             if (entry.buy.toValue(keyPrices.buy.metal) >= entry.sell.toValue(keyPrices.sell.metal)) {
                 throw new Error('Sell must be higher than buy');
             }
         }
 
-        if (entry.sku === '5021;6' && !entry.autoprice && src === PricelistChangedSource.Command) {
+        if (entry.sku === '5021;6' && entry.hasPrice() && !entry.autoprice && src === PricelistChangedSource.Command) {
             // update key rate if manually set the price
             this.globalKeyPrices = {
                 buy: entry.buy,
@@ -1340,6 +1396,37 @@ export default class Pricelist extends EventEmitter {
         const opt = this.bot.options;
         const dw = opt.discordWebhook.priceUpdate;
         const isDwEnabled = dw.enable && dw.url !== '';
+
+        if (match !== null && match.autoprice) {
+            const hasBuyUsd = data.buyUsd !== undefined;
+            const hasSellUsd = data.sellUsd !== undefined;
+
+            if (hasBuyUsd || hasSellUsd) {
+                if (
+                    (hasBuyUsd && (!Number.isSafeInteger(data.buyUsd) || data.buyUsd <= 0)) ||
+                    (hasSellUsd && (!Number.isSafeInteger(data.sellUsd) || data.sellUsd <= 0)) ||
+                    (hasBuyUsd && hasSellUsd && data.buyUsd >= data.sellUsd)
+                ) {
+                    log.warn(`Ignoring invalid USD price update for ${data.sku}`, { rawData: data });
+                } else {
+                    const changed = match.buyUsd !== data.buyUsd || match.sellUsd !== data.sellUsd;
+                    if (hasBuyUsd) {
+                        match.buyUsd = data.buyUsd;
+                    }
+                    if (hasSellUsd) {
+                        match.sellUsd = data.sellUsd;
+                    }
+                    if (changed) {
+                        this.priceChanged(match.sku, match);
+                    }
+                }
+            }
+        }
+
+        // USD cents only pricing may become a thing lets no create a currencies object ifwe dont need to
+        if (!data.buy || !data.sell) {
+            return;
+        }
 
         let newPrices: BuyAndSell;
 

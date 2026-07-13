@@ -38,6 +38,9 @@ export const DEFAULTS: JsonOptions = {
             enable: true,
             enableInventoryRefresh: true
         },
+        manncoStore: {
+            enable: false
+        },
         startHalted: {
             enable: false
         },
@@ -1253,6 +1256,8 @@ interface PriceDBStore extends OnlyEnable {
     enableInventoryRefresh?: boolean;
 }
 
+interface ManncoStore extends OnlyEnable {}
+
 // --------- Misc Settings ----------
 
 // ------------ SteamConnection ------------
@@ -1274,6 +1279,7 @@ interface MiscSettings {
     sortInventory?: SortInventory;
     createListings?: OnlyEnable;
     pricedbStore?: PriceDBStore;
+    manncoStore?: ManncoStore;
     startHalted?: OnlyEnable;
     counterOffer?: Counteroffer;
     addFriends?: OnlyEnable;
@@ -2265,6 +2271,7 @@ export default interface Options extends JsonOptions {
     bptfAccessToken?: string;
     bptfApiKey?: string;
     pricedbStoreApiKey?: string;
+    manncoStoreApiKey?: string;
     useragentHeaderCustom?: string;
     useragentHeaderShowVersion?: boolean;
 
@@ -2589,6 +2596,7 @@ export function loadOptions(options?: Options): Options {
         bptfAccessToken: getOption('bptfAccessToken', '', String, incomingOptions),
         bptfApiKey: getOption('bptfApiKey', '', String, incomingOptions),
         pricedbStoreApiKey: getOption('pricedbStoreApiKey', '', String, incomingOptions),
+        manncoStoreApiKey: getOption('manncoStoreApiKey', '', String, incomingOptions),
         useragentHeaderCustom: getOption('useragentHeaderCustom', '', String, incomingOptions),
         useragentHeaderShowVersion: getOption('useragentHeaderShowVersion', false, jsonParseBoolean, incomingOptions),
 

@@ -455,6 +455,9 @@ export const optionsSchema: jsonschema.Schema = {
                     required: ['enable'],
                     additionalProperties: false
                 },
+                manncoStore: {
+                    $ref: '#/definitions/only-enable'
+                },
                 startHalted: {
                     $ref: '#/definitions/only-enable'
                 },

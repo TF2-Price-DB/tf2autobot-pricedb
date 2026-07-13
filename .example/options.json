@@ -24,6 +24,9 @@
         "createListings": {
             "enable": true
         },
+        "manncoStore": {
+            "enable": false
+        },
         "startHalted": {
             "enable": false
         },

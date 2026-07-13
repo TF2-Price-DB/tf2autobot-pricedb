@@ -515,8 +515,11 @@ export default class ManncoStoreManager extends EventEmitter {
             return;
         }
 
-        await this.request('post', '/item/buyorder/bulk', {
-            orders: [{ itemid: itemId, value, amount }]
+        const existingOrder = (await this.getBuyOrders()).some(order => order.itemid === itemId);
+        await this.request('post', existingOrder ? '/item/buyorder/update' : '/item/buyorder', {
+            itemid: itemId,
+            value,
+            amount
         });
         this.buyOrderValuesBySku.set(sku, key);
         this.data.buyOrders[sku] = { itemId, amount, name: name || this.data.buyOrders[sku]?.name || sku };

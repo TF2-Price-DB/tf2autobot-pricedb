@@ -9,7 +9,7 @@ import Bot from './Bot';
 import log from '../lib/logger';
 import validator from '../lib/validator';
 import { sendWebHookPriceUpdateV1, sendAlert, sendFailedPriceUpdate } from './DiscordWebhook/export';
-import IPricer, { GetItemPriceResponse, Item } from './IPricer';
+import IPricer, { GetItemPriceResponse, Item, PricelistEntryEnabledEvent } from './IPricer';
 
 export interface PurchaseRecord {
     quantity: number;
@@ -349,6 +349,8 @@ export default class Pricelist extends EventEmitter {
 
     private readonly boundHandlePriceChange;
 
+    private readonly boundHandlePricelistEntryEnabledChange: (event: PricelistEntryEnabledEvent) => void;
+
     private transformedPricelistForBulk: { [p: string]: Item };
 
     private retryGetKeyPrices: NodeJS.Timeout;
@@ -379,6 +381,7 @@ export default class Pricelist extends EventEmitter {
         this.schema = schema;
         this.maxAge = this.options.pricelist.priceAge.maxInSeconds || 8 * 60 * 60;
         this.boundHandlePriceChange = this.handlePriceChange.bind(this);
+        this.boundHandlePricelistEntryEnabledChange = this.handlePricelistEntryEnabledChange.bind(this);
     }
 
     get isUseCustomPricer(): boolean {
@@ -399,6 +402,7 @@ export default class Pricelist extends EventEmitter {
         if (this.options.enableSocket) {
             // eslint-disable-next-line @typescript-eslint/no-unsafe-argument
             this.priceSource.bindHandlePriceEvent(this.boundHandlePriceChange);
+            this.priceSource.bindHandlePricelistEntryEnabledEvent?.(this.boundHandlePricelistEntryEnabledChange);
         }
     }
 
@@ -1610,6 +1614,27 @@ export default class Pricelist extends EventEmitter {
                 }
             }
         }
+    }
+
+    private handlePricelistEntryEnabledChange(event: PricelistEntryEnabledEvent): void {
+        if (!event || typeof event.sku !== 'string' || typeof event.enabled !== 'boolean') {
+            log.warn('Ignoring invalid pricelist entry enabled event', { event });
+            return;
+        }
+
+        const entry = this.getPrice({ priceKey: event.sku, onlyEnabled: false });
+
+        if (entry === null) {
+            log.warn(`Ignoring pricelist entry enabled event for unpriced item: ${event.sku}`);
+            return;
+        }
+
+        if (entry.enabled === event.enabled) {
+            return;
+        }
+
+        entry.enabled = event.enabled;
+        this.priceChanged(entry.id ?? entry.sku, entry);
     }
 
     private priceChanged(priceKey: string | number, entry: Entry): void {

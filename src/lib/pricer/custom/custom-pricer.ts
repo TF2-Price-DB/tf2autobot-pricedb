@@ -4,6 +4,7 @@ import IPricer, {
     GetItemPriceResponse,
     GetPricelistResponse,
     Item,
+    PricelistEntryEnabledEvent,
     PricerOptions,
     RequestCheckResponse
 } from '../../../classes/IPricer';
@@ -97,6 +98,14 @@ export default class CustomPricer implements IPricer {
         this.socketManager.on('price', (data: CustomPricesGetItemPriceResponse) => {
             const item = this.parsePricesGetItemPriceResponse(data);
             onPriceChange(item);
+        });
+    }
+
+    bindHandlePricelistEntryEnabledEvent(
+        onPricelistEntryEnabledChange: (event: PricelistEntryEnabledEvent) => void
+    ): void {
+        this.socketManager.on('enabled', (event: PricelistEntryEnabledEvent) => {
+            onPricelistEntryEnabledChange(event);
         });
     }
 }

@@ -76,6 +76,18 @@ interface ManncoInventoryItem {
     item_id: number;
 }
 
+interface ManncoActiveTrade {
+    status: number;
+    offerid: string;
+    game: number;
+}
+
+interface ManncoWithdrawResponse {
+    message: string;
+    updated: number;
+    locked: number;
+}
+
 interface ManncoStoreData {
     listings: Record<string, { assetIds: string[]; slug?: string }>;
     buyOrders: Record<string, { itemId: number; amount: number; name: string }>;
@@ -146,6 +158,8 @@ export default class ManncoStoreManager extends EventEmitter {
 
     private readonly pendingDepositAssetIds: string[][] = [];
 
+    private readonly pendingWithdrawalOfferIds = new Set<string>();
+
     constructor(private readonly apiKey: string, private readonly dataPath: string) {
         super();
         this.api = axios.create({
@@ -164,6 +178,11 @@ export default class ManncoStoreManager extends EventEmitter {
             this.data = data;
         }
         await this.login();
+        try {
+            await this.refreshPendingWithdrawals();
+        } catch (err) {
+            log.warn('Could not restore pending Mannco.store withdrawals:', err);
+        }
         log.debug('Mannco.store manager initialised');
     }
 
@@ -240,14 +259,29 @@ export default class ManncoStoreManager extends EventEmitter {
         return content.items || [];
     }
 
-    async withdrawInventory(assetIds: string[]): Promise<unknown> {
+    async withdrawInventory(assetIds: string[]): Promise<ManncoWithdrawResponse> {
         if (assetIds.length === 0) {
             throw new Error('At least one Mannco.store inventory asset is required');
         }
 
-        const response = await this.request<unknown>('post', '/inventory/withdraw', { ids: assetIds.join(',') });
+        const response = await this.request<ManncoWithdrawResponse>('post', '/inventory/withdraw', {
+            ids: assetIds.join(',')
+        });
+        if (!Number.isSafeInteger(response.updated) || response.updated === 0) {
+            throw new Error('Mannco.store did not find a withdrawable item with that asset ID');
+        }
         this.removeListingAssets(assetIds);
+        await this.refreshPendingWithdrawals();
         return response;
+    }
+
+    private async refreshPendingWithdrawals(): Promise<void> {
+        const content = await this.request<{ trades: ManncoActiveTrade[] }>('get', '/trades/active');
+        for (const trade of content.trades || []) {
+            if (trade.game === 440 && trade.status === 0 && typeof trade.offerid === 'string') {
+                this.pendingWithdrawalOfferIds.add(trade.offerid);
+            }
+        }
     }
 
     registerListingAssets(sku: string, assetIds: string[]): void {
@@ -345,6 +379,24 @@ export default class ManncoStoreManager extends EventEmitter {
         }
 
         this.pendingDepositAssetIds.splice(index, 1);
+        return true;
+    }
+
+    /** Accept only the exact active Mannco withdrawal offer returned by their trade API. */
+    matchesPendingWithdrawalOffer(offer: {
+        id: string;
+        itemsToGive: unknown[];
+        itemsToReceive: unknown[];
+    }): boolean {
+        if (
+            offer.itemsToGive.length !== 0 ||
+            offer.itemsToReceive.length === 0 ||
+            !this.pendingWithdrawalOfferIds.has(String(offer.id))
+        ) {
+            return false;
+        }
+
+        this.pendingWithdrawalOfferIds.delete(String(offer.id));
         return true;
     }
 

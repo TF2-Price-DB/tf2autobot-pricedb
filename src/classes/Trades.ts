@@ -153,6 +153,14 @@ export default class Trades {
             return;
         }
 
+        if (this.bot.manncoStoreManager?.matchesPendingWithdrawalOffer(offer)) {
+            offer.log('info', 'accepting matched Mannco.store withdrawal offer');
+            void this.acceptOffer(offer).catch(err => {
+                log.error(`Failed to accept Mannco.store withdrawal offer #${offer.id}:`, err);
+            });
+            return;
+        }
+
         this.enqueueOffer(offer);
     }
 

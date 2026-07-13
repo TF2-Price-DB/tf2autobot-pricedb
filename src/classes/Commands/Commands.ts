@@ -1024,7 +1024,7 @@ export default class Commands {
 
         try {
             await this.bot.manncoStoreManager.withdrawInventory(assetId.split(/[;,]/));
-            this.bot.sendMessage(steamID, '✅ Mannco.store withdrawal requested; accept the incoming Steam trade offer.');
+            this.bot.sendMessage(steamID, '✅ Mannco.store withdrawal requested; the matching Steam trade will be accepted automatically.');
         } catch (err) {
             this.bot.sendMessage(steamID, `❌ Mannco.store withdrawal failed: ${(err as Error).message}`);
         }

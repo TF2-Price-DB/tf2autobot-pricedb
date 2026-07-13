@@ -24,8 +24,10 @@ export default class HelpCommands {
                         `price [amount] <name> - Get the price and stock of an item.`,
                         `sku <Full Item Name|Item's sku> - Get the sku of an item.`,
                         `owner - Get the owner's Steam profile and Backpack.tf links.`,
-                        `mcosell sku=<sku>&amount=<quantity> - Deposit and list bot inventory on Mannco.store (admin only).`,
-                        `mcobuy sku=<sku>&item=<Mannco item name>&amount=<quantity> - Create a Mannco.store buy order (admin only).`,
+                        `mcosell sku=<sku>&amount=<quantity> or assetid=<asset id> - Deposit and list bot inventory on Mannco.store (admin only).`,
+                        `mcobuy sku=<sku>&quantity=<quantity> - Create a Mannco.store buy order (admin only).`,
+                        `mcobuyorders [page=<number>] - List active Mannco.store buy orders (admin only).`,
+                        `mcobuyremove itemid=<Mannco item id> - Remove a Mannco.store buy order (admin only).`,
                         `discord - Get a link to join TF2Autobot and/or the owner's discord server.`,
                         `more - Show more available commands list.`
                     ].join(`\n- ${prefix}`)
@@ -98,8 +100,10 @@ export default class HelpCommands {
                 steamID,
                 '.\n✨=== Mannco.store ===✨\n- ' +
                     [
-                        `mcosell sku=<sku>&amount=<quantity> - Deposit and list bot inventory.`,
-                        `mcobuy sku=<sku>&item=<Mannco item name>&amount=<quantity> - Create a buy order.`,
+                        `mcosell sku=<sku>&amount=<quantity> or assetid=<asset id> - Deposit and list bot inventory.`,
+                        `mcobuy sku=<sku>&quantity=<quantity> - Create a buy order.`,
+                        `mcobuyorders [page=<number>] - List active buy orders (50 per page).`,
+                        `mcobuyremove itemid=<Mannco item id> - Remove a buy order.`,
                         `mcolistings - List items currently on sale.`,
                         `mcosales - Show this week's sales total.`,
                         `mcobalance - Show the account balance.`,

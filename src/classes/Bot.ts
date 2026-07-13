@@ -1306,9 +1306,7 @@ export default class Bot {
                                         if (entry.sellUsd !== undefined) {
                                             void this.manncoStoreManager
                                                 .repriceSku(entry.sku, entry.sellUsd, {
-                                                    sku: entry.sku,
-                                                    name: entry.name,
-                                                    craftable: !entry.sku.includes(';uncraftable')
+                                                    sku: entry.sku
                                                 })
                                                 .catch(err => {
                                                     log.error(`Failed to update Mannco.store listing for ${entry.sku}:`, err);
@@ -1339,12 +1337,8 @@ export default class Bot {
                                                             priceKey: sku,
                                                             onlyEnabled: false
                                                         });
-                                                        if (entry !== null) {
-                                                            items.push({
-                                                                sku: entry.sku,
-                                                                name: entry.name,
-                                                                craftable: !entry.sku.includes(';uncraftable')
-                                                            });
+                                                        if (entry?.sellUsd !== undefined) {
+                                                            items.push({ sku: entry.sku, sellUsd: entry.sellUsd });
                                                         }
                                                         return items;
                                                     },

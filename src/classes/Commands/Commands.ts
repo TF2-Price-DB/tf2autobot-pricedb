@@ -208,6 +208,10 @@ export default class Commands {
                 void this.manncoListCommand(steamID, message);
             } else if (command === 'mcobuy' && isAdmin) {
                 void this.manncoBuyCommand(steamID, message);
+            } else if (command === 'mcobuyorders' && isAdmin) {
+                void this.manncoBuyOrdersCommand(steamID, message);
+            } else if (command === 'mcobuyremove' && isAdmin) {
+                void this.manncoBuyRemoveCommand(steamID, message);
             } else if (command === 'mcolistings' && isAdmin) {
                 void this.manncoOnSaleCommand(steamID);
             } else if (command === 'mcosales' && isAdmin) {
@@ -1036,29 +1040,79 @@ export default class Commands {
         }
 
         const params = CommandParser.parseParams(CommandParser.removeCommand(removeLinkProtocol(message)));
-        if (typeof params.sku !== 'string' || typeof params.item !== 'string') {
-            return this.bot.sendMessage(steamID, '❌ Usage: !mcobuy sku=<pricelist sku>&item=<exact Mannco item name>&amount=<quantity>');
+        if (typeof params.sku !== 'string') {
+            return this.bot.sendMessage(steamID, '❌ Usage: !mcobuy sku=<pricelist sku>&quantity=<quantity>');
         }
 
-        const amount = params.amount === undefined ? 1 : params.amount;
-        if (typeof amount !== 'number' || !Number.isSafeInteger(amount) || amount < 1 || amount > 5000) {
-            return this.bot.sendMessage(steamID, '❌ "amount" must be a whole number from 1 to 5000.');
+        const quantity = params.quantity === undefined ? (params.amount === undefined ? 1 : params.amount) : params.quantity;
+        if (typeof quantity !== 'number' || !Number.isSafeInteger(quantity) || quantity < 1 || quantity > 5000) {
+            return this.bot.sendMessage(steamID, '❌ "quantity" must be a whole number from 1 to 5000.');
         }
 
         const entry = this.bot.pricelist.getPrice({ priceKey: params.sku, onlyEnabled: false });
-        if (entry === null || entry.buyUsd === undefined) {
-            return this.bot.sendMessage(steamID, '❌ This SKU must exist in the pricelist and have a USD buy price.');
+        if (entry === null) {
+            return this.bot.sendMessage(steamID, '❌ This SKU does not exist in the pricelist.');
+        }
+        if (entry.buyUsd === undefined) {
+            return this.bot.sendMessage(steamID, '❌ This SKU needs a USD buy price before it can create a Mannco.store buy order.');
         }
 
         try {
-            const item = await this.bot.manncoStoreManager.resolveItemByName(params.item);
-            await this.bot.manncoStoreManager.upsertBuyOrder(entry.sku, item.itemId, amount, entry.buyUsd, item.name);
+            const itemId = await this.bot.manncoStoreManager.resolveManncoItemId(entry.sku);
+            await this.bot.manncoStoreManager.upsertBuyOrder(entry.sku, itemId, quantity, entry.buyUsd, entry.name);
             this.bot.sendMessage(
                 steamID,
-                `✅ Mannco.store buy order created for ${amount} ${item.name} at $${(entry.buyUsd / 100).toFixed(2)} each.`
+                `✅ Mannco.store buy order created for ${quantity} ${entry.name} at $${(entry.buyUsd / 100).toFixed(2)} each.`
             );
         } catch (err) {
             this.bot.sendMessage(steamID, `❌ Mannco.store buy order failed: ${(err as Error).message}`);
+        }
+    }
+
+    private async manncoBuyOrdersCommand(steamID: SteamID, message: string): Promise<void> {
+        if (!this.bot.manncoStoreManager) {
+            return this.bot.sendMessage(steamID, '❌ Mannco.store is not configured or enabled.');
+        }
+
+        const params = CommandParser.parseParams(CommandParser.removeCommand(removeLinkProtocol(message)));
+        const page = params.page === undefined ? 0 : params.page;
+        if (typeof page !== 'number' || !Number.isSafeInteger(page) || page < 0) {
+            return this.bot.sendMessage(steamID, '❌ "page" must be a non-negative whole number.');
+        }
+
+        try {
+            const orders = await this.bot.manncoStoreManager.getBuyOrders(page);
+            if (orders.length === 0) {
+                return this.bot.sendMessage(steamID, `Mannco.store has no active buy orders on page ${page}.`);
+            }
+
+            this.bot.sendMessage(
+                steamID,
+                `Mannco.store buy orders (page ${page}):\n${orders
+                    .map(order => `${order.name} — $${(order.price / 100).toFixed(2)} × ${order.amount} — itemid=${order.itemid}`)
+                    .join('\n')}`
+            );
+        } catch (err) {
+            this.bot.sendMessage(steamID, `❌ Could not get Mannco.store buy orders: ${(err as Error).message}`);
+        }
+    }
+
+    private async manncoBuyRemoveCommand(steamID: SteamID, message: string): Promise<void> {
+        if (!this.bot.manncoStoreManager) {
+            return this.bot.sendMessage(steamID, '❌ Mannco.store is not configured or enabled.');
+        }
+
+        const params = CommandParser.parseParams(CommandParser.removeCommand(removeLinkProtocol(message)));
+        const itemId = typeof params.itemid === 'number' ? params.itemid : null;
+        if (itemId === null) {
+            return this.bot.sendMessage(steamID, '❌ Usage: !mcobuyremove itemid=<Mannco item id>');
+        }
+
+        try {
+            await this.bot.manncoStoreManager.removeBuyOrder(itemId);
+            this.bot.sendMessage(steamID, `✅ Removed Mannco.store buy order for itemid=${itemId}.`);
+        } catch (err) {
+            this.bot.sendMessage(steamID, `❌ Could not remove Mannco.store buy order: ${(err as Error).message}`);
         }
     }
 
@@ -1068,31 +1122,60 @@ export default class Commands {
         }
 
         const params = CommandParser.parseParams(CommandParser.removeCommand(removeLinkProtocol(message)));
-        if (typeof params.sku !== 'string') {
-            return this.bot.sendMessage(steamID, '❌ Usage: !mcosell sku=<sku>&amount=<quantity>');
+        const requestedAssetIds =
+            typeof params.assetid === 'string' || typeof params.assetid === 'number'
+                ? String(params.assetid)
+                      .split(/[;,]/)
+                      .filter(assetId => assetId.length > 0)
+                : [];
+        if (typeof params.sku !== 'string' && requestedAssetIds.length === 0) {
+            return this.bot.sendMessage(steamID, '❌ Usage: !mcosell sku=<sku>&amount=<quantity> or !mcosell assetid=<asset id>');
         }
 
-        const amount = params.amount === undefined ? 1 : params.amount;
+        const amount = requestedAssetIds.length > 0 ? requestedAssetIds.length : params.amount === undefined ? 1 : params.amount;
         if (typeof amount !== 'number' || !Number.isSafeInteger(amount) || amount <= 0) {
             return this.bot.sendMessage(steamID, '❌ "amount" must be a positive whole number.');
         }
 
-        const entry = this.bot.pricelist.getPrice({ priceKey: params.sku, onlyEnabled: false });
+        const inventory = this.bot.inventoryManager.getInventory;
+        const assetSkus = [...new Set(requestedAssetIds.map(assetId => inventory.findByAssetid(assetId)))];
+        if (assetSkus.some(sku => sku === null) || assetSkus.length > 1) {
+            return this.bot.sendMessage(steamID, '❌ Each asset ID must be a tradable bot item of the same SKU.');
+        }
+
+        const sku = typeof params.sku === 'string' ? params.sku : assetSkus[0];
+        if (sku === null) {
+            return this.bot.sendMessage(steamID, '❌ Could not determine the SKU for the requested asset ID.');
+        }
+        if (assetSkus.length === 1 && assetSkus[0] !== sku) {
+            return this.bot.sendMessage(steamID, '❌ The requested asset ID does not match the supplied SKU.');
+        }
+        if (
+            requestedAssetIds.length > 0 &&
+            requestedAssetIds.some(assetId => !inventory.findBySKU(sku, true).includes(assetId))
+        ) {
+            return this.bot.sendMessage(steamID, '❌ Each asset ID must be a tradable bot item.');
+        }
+
+        const entry = this.bot.pricelist.getPrice({ priceKey: sku, onlyEnabled: false });
         if (entry === null || entry.sellUsd === undefined) {
             return this.bot.sendMessage(steamID, '❌ This SKU needs a pricelist USD sell price before it can be listed.');
         }
 
-        const inventoryAssetIds = this.bot.inventoryManager.getInventory.findBySKU(params.sku, true);
+        const inventoryAssetIds = requestedAssetIds.length > 0 ? requestedAssetIds : inventory.findBySKU(entry.sku, true);
         if (inventoryAssetIds.length < amount) {
             return this.bot.sendMessage(
                 steamID,
-                `❌ Only ${inventoryAssetIds.length} tradable ${params.sku} item(s) are available.`
+                `❌ Only ${inventoryAssetIds.length} tradable ${entry.sku} item(s) are available.`
             );
         }
 
         try {
+            const manncoItemId = await this.bot.manncoStoreManager.resolveManncoItemId(entry.sku);
             const depositable = await this.bot.manncoStoreManager.getDepositableAssets();
-            const available = depositable.filter(asset => inventoryAssetIds.includes(asset.assetid));
+            const available = depositable.filter(
+                asset => inventoryAssetIds.includes(asset.assetid) && asset.itemId === manncoItemId
+            );
             if (available.length < amount) {
                 return this.bot.sendMessage(
                     steamID,

@@ -25,19 +25,6 @@ interface ManncoDepositInformation {
     }>;
 }
 
-interface ManncoPriceItem {
-    name: string;
-    url: string;
-    craftable: number;
-}
-
-interface ManncoItemDetails {
-    informations: {
-        id: number;
-        name: string;
-    };
-}
-
 export interface ManncoDepositTrade {
     id: string;
     [key: string]: unknown;
@@ -57,13 +44,21 @@ export interface ManncoOnSaleItem {
 
 export interface ManncoPricelistItem {
     sku: string;
-    name: string;
-    craftable: boolean;
+    sellUsd?: number;
 }
 
 export interface ManncoSalesHistory {
     values: unknown[];
     count: number;
+}
+
+export interface ManncoBuyOrder {
+    id: number;
+    itemid: number;
+    price: number;
+    amount: number;
+    name: string;
+    game: number;
 }
 
 export interface ManncoListingReconciliation {
@@ -89,9 +84,17 @@ interface ManncoWithdrawResponse {
 }
 
 interface ManncoStoreData {
-    listings: Record<string, { assetIds: string[]; slug?: string }>;
+    listings: Record<string, { assetIds: string[] }>;
     buyOrders: Record<string, { itemId: number; amount: number; name: string }>;
+    manncoItems: Record<string, number>;
 }
+
+interface PriceDbManncoItem {
+    sku: string;
+    manncoId: number;
+}
+
+const MANNCO_PRICEDB_API_URL = 'https://pricedb.io/api';
 
 function isRecord(value: unknown): value is Record<string, unknown> {
     return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -116,21 +119,14 @@ function isManncoStoreData(value: unknown): value is ManncoStoreData {
             typeof order.name === 'string'
     );
 
-    return hasValidListings && hasValidBuyOrders;
-}
+    const hasValidManncoItems =
+        value.manncoItems === undefined ||
+        (isRecord(value.manncoItems) &&
+            Object.values(value.manncoItems).every(
+                itemId => typeof itemId === 'number' && Number.isSafeInteger(itemId) && itemId > 0
+            ));
 
-/** Mannco.store omits TF2's Non-Craftable prefix from item names. */
-function normaliseListingName(name: string): string {
-    return name.trim().toLowerCase().replace(/^non-craftable\s+/, '');
-}
-
-function manncoSlug(item: ManncoPricelistItem): string {
-    const name = normaliseListingName(item.name)
-        .normalize('NFKD')
-        .replace(/[\u0300-\u036f]/g, '')
-        .replace(/[^a-z0-9]+/g, '-')
-        .replace(/^-+|-+$/g, '');
-    return `440-${item.craftable ? '' : 'uncraftable-'}${name}`;
+    return hasValidListings && hasValidBuyOrders && hasValidManncoItems;
 }
 
 /**
@@ -140,27 +136,24 @@ function manncoSlug(item: ManncoPricelistItem): string {
 export default class ManncoStoreManager extends EventEmitter {
     private readonly api: AxiosInstance;
 
+    private readonly priceDbApi: AxiosInstance;
+
     private jwt: string | null = null;
 
     private readonly listedAssetsBySku = new Map<string, string[]>();
 
     private readonly buyOrderValuesBySku = new Map<string, string>();
 
-    private itemPrices: ManncoPriceItem[] | null = null;
-
-    private itemPricesExpiresAt = 0;
-
-    private itemPricesRetryAt = 0;
-
-    private readonly itemDetailsBySlug = new Map<string, ManncoItemDetails>();
-
-    private data: ManncoStoreData = { listings: {}, buyOrders: {} };
+    private data: ManncoStoreData = { listings: {}, buyOrders: {}, manncoItems: {} };
 
     private readonly pendingDepositAssetIds: string[][] = [];
 
     private readonly pendingWithdrawalOfferIds = new Set<string>();
 
-    constructor(private readonly apiKey: string, private readonly dataPath: string) {
+    constructor(
+        private readonly apiKey: string,
+        private readonly dataPath: string
+    ) {
         super();
         this.api = axios.create({
             baseURL: 'https://api.mannco.store',
@@ -170,12 +163,17 @@ export default class ManncoStoreManager extends EventEmitter {
                 'User-Agent': `TF2Autobot@${process.env.BOT_VERSION}`
             }
         });
+        this.priceDbApi = axios.create({
+            baseURL: MANNCO_PRICEDB_API_URL,
+            timeout: 30000,
+            headers: { 'User-Agent': `TF2AutobotPriceDB@${process.env.BOT_VERSION}` }
+        });
     }
 
     async init(): Promise<void> {
         const data: unknown = await files.readFile(this.dataPath, true);
         if (isManncoStoreData(data)) {
-            this.data = data;
+            this.data = { listings: data.listings, buyOrders: data.buyOrders, manncoItems: data.manncoItems || {} };
         }
         await this.login();
         try {
@@ -252,6 +250,35 @@ export default class ManncoStoreManager extends EventEmitter {
             `/user/getSalesHistory?page=${page}&perpage=${limit}&range=1W`
         );
         return { values: Array.isArray(content.values) ? content.values : [], count: content.count || 0 };
+    }
+
+    async getBuyOrders(page = 0): Promise<ManncoBuyOrder[]> {
+        if (!Number.isSafeInteger(page) || page < 0) {
+            throw new Error('Mannco.store buy-order page must be a non-negative whole number');
+        }
+
+        const content = await this.request<{ values: ManncoBuyOrder[] }>(
+            'get',
+            `/user/getBuyorder?page=${page}&count=50`
+        );
+        return content.values || [];
+    }
+
+    async removeBuyOrder(itemId: number): Promise<void> {
+        if (!Number.isSafeInteger(itemId) || itemId <= 0) {
+            throw new Error('Mannco.store buy-order item ID is invalid');
+        }
+
+        await this.request('post', '/item/buyorder/remove', { itemid: itemId });
+        let changed = false;
+        for (const [sku, buyOrder] of Object.entries(this.data.buyOrders)) {
+            if (buyOrder.itemId !== itemId) continue;
+
+            delete this.data.buyOrders[sku];
+            this.buyOrderValuesBySku.delete(sku);
+            changed = true;
+        }
+        if (changed) await this.saveData();
     }
 
     private async getInventoryItems(): Promise<ManncoInventoryItem[]> {
@@ -341,6 +368,11 @@ export default class ManncoStoreManager extends EventEmitter {
         } else {
             await this.listInventory(manncoAssetIds, price);
             this.registerListingAssets(sku, manncoAssetIds);
+            const itemIds = [...new Set(assets.map(asset => asset.itemId))];
+            if (itemIds.length === 1) {
+                this.data.manncoItems[sku] = itemIds[0];
+                await this.saveData();
+            }
         }
         this.emit('listingCreated', { sku, assetIds: manncoAssetIds, price, tradeId: trade.id });
         return trade;
@@ -425,43 +457,49 @@ export default class ManncoStoreManager extends EventEmitter {
 
     /**
      * A price update must not depend on startup reconciliation having already
-     * completed. Resolve the SKU's canonical Mannco slug and verify the item ID
+     * completed. Resolve the SKU through PriceDB and verify the Mannco item ID
      * returned for every currently on-sale asset before recording it.
      */
     private async findAndRegisterOnSaleAssets(pricelistItem: ManncoPricelistItem): Promise<string[]> {
-        const slug = manncoSlug(pricelistItem);
-        let details: ManncoItemDetails;
-        try {
-            details = await this.getItemDetails(slug, true);
-        } catch {
-            return [];
-        }
+        const itemId = await this.resolveManncoItemId(pricelistItem.sku);
 
         const assetIds = (await this.getOnSaleItems())
-            .filter(item => item.game === 440 && item.item_id === details.informations.id)
+            .filter(item => item.game === 440 && item.item_id === itemId)
             .flatMap(item => item.ids.split(/[;,]/))
             .filter(assetId => assetId.length > 0);
         if (assetIds.length > 0) {
             this.listedAssetsBySku.set(pricelistItem.sku, assetIds);
-            this.data.listings[pricelistItem.sku] = { assetIds, slug };
+            this.data.listings[pricelistItem.sku] = { assetIds };
             await this.saveData();
         }
 
         return assetIds;
     }
 
-    async resolveItemByName(name: string): Promise<{ itemId: number; name: string }> {
-        const items = await this.getItemPrices();
-        const matches = items.filter(item => item.name.toLowerCase() === name.toLowerCase());
-        if (matches.length === 0) {
-            throw new Error(`No Mannco.store item exactly matches "${name}"`);
-        }
-        if (matches.length > 1) {
-            throw new Error(`Mannco.store returned multiple items named "${name}"`);
+    async resolveManncoItemId(sku: string): Promise<number> {
+        const cached = this.data.manncoItems[sku];
+        if (Number.isSafeInteger(cached) && cached > 0) {
+            return cached;
         }
 
-        const details = await this.request<ManncoItemDetails>('get', `/item/details/${encodeURIComponent(matches[0].url)}`);
-        return { itemId: details.informations.id, name: details.informations.name };
+        let response: PriceDbManncoItem;
+        try {
+            response = (await this.priceDbApi.get<PriceDbManncoItem>('/mannco', { params: { sku } })).data;
+        } catch (err) {
+            const status = (err as AxiosError).response?.status;
+            if (status === 404) {
+                throw new Error(`PriceDB has no Mannco mapping for ${sku}`);
+            }
+            throw new Error(`Could not resolve Mannco mapping for ${sku} from PriceDB`);
+        }
+
+        if (response.sku !== sku || !Number.isSafeInteger(response.manncoId) || response.manncoId <= 0) {
+            throw new Error(`PriceDB returned an invalid Mannco mapping for ${sku}`);
+        }
+
+        this.data.manncoItems[sku] = response.manncoId;
+        await this.saveData();
+        return response.manncoId;
     }
 
     async upsertBuyOrder(sku: string, itemId: number, amount: number, value: number, name?: string): Promise<void> {
@@ -492,8 +530,8 @@ export default class ManncoStoreManager extends EventEmitter {
 
     /**
      * Preserve current Mannco inventory IDs separately from the pricelist.
-     * Existing listings are imported only where an exact item name identifies one
-     * pricelist SKU; this avoids automatically repricing an ambiguous listing.
+     * Existing listings are imported only where PriceDB resolves one SKU to the
+     * exact Mannco item ID; this avoids display-name-based matches.
      */
     async reconcileListings(
         onSaleItems: ManncoOnSaleItem[],
@@ -529,13 +567,25 @@ export default class ManncoStoreManager extends EventEmitter {
             }
         }
 
+        const skusByManncoItemId = new Map<number, string[]>();
+        for (const pricelistItem of pricelistItems) {
+            try {
+                const itemId = await this.resolveManncoItemId(pricelistItem.sku);
+                const skus = skusByManncoItemId.get(itemId) || [];
+                skus.push(pricelistItem.sku);
+                skusByManncoItemId.set(itemId, skus);
+            } catch (err) {
+                log.debug(`Could not resolve PriceDB Mannco mapping for ${pricelistItem.sku}: ${(err as Error).message}`);
+            }
+        }
+
         for (const item of onSaleItems) {
             if (item.game !== 440) continue;
 
-            const match = await this.findPricelistMatch(item, pricelistItems);
-            if (match === null) continue;
+            const matches = skusByManncoItemId.get(item.item_id);
+            if (!matches || matches.length !== 1) continue;
 
-            const { sku, slug } = match;
+            const sku = matches[0];
             const assetIds = item.ids.split(/[;,]/).filter(assetId => assetId.length > 0);
             const safeAssetIds = assetIds.filter(assetId => {
                 const owner = skuByAssetId.get(assetId);
@@ -545,8 +595,8 @@ export default class ManncoStoreManager extends EventEmitter {
 
             const listing = this.data.listings[sku] || { assetIds: [] };
             const merged = [...new Set([...listing.assetIds, ...safeAssetIds])];
-            if (merged.length !== listing.assetIds.length || listing.slug !== slug || !this.data.listings[sku]) {
-                this.data.listings[sku] = { assetIds: merged, slug };
+            if (merged.length !== listing.assetIds.length || !this.data.listings[sku]) {
+                this.data.listings[sku] = { assetIds: merged };
                 this.listedAssetsBySku.set(sku, merged);
                 safeAssetIds.forEach(assetId => skuByAssetId.set(assetId, sku));
                 importedSkus.add(sku);
@@ -561,74 +611,12 @@ export default class ManncoStoreManager extends EventEmitter {
         return { importedSkus: [...importedSkus], noLongerOnSaleSkus };
     }
 
-    /** Resolve Mannco's canonical slug, then verify its internal item ID before importing a listing. */
-    private async findPricelistMatch(
-        onSaleItem: ManncoOnSaleItem,
-        pricelistItems: ManncoPricelistItem[]
-    ): Promise<{ sku: string; slug: string } | null> {
-        const matchingPricelistItems = pricelistItems.filter(
-            item => normaliseListingName(item.name) === normaliseListingName(onSaleItem.name)
-        );
-        if (matchingPricelistItems.length === 0) return null;
-
-        const matches: Array<{ sku: string; slug: string }> = [];
-        for (const pricelistItem of matchingPricelistItems) {
-            const slug = manncoSlug(pricelistItem);
-            try {
-                const details = await this.getItemDetails(slug, true);
-                if (details.informations.id === onSaleItem.item_id) {
-                    matches.push({ sku: pricelistItem.sku, slug });
-                }
-            } catch {
-                // A listing with a non-standard Mannco slug remains unmanaged.
-            }
-        }
-
-        return matches.length === 1 ? matches[0] : null;
-    }
-
     private saveData(): Promise<void> {
         return files.writeFile(this.dataPath, this.data, true).catch(err => {
             log.warn('Failed to save Mannco.store data:', err);
         });
     }
 
-    private async getItemPrices(): Promise<ManncoPriceItem[]> {
-        if (this.itemPrices !== null && Date.now() < this.itemPricesExpiresAt) {
-            return this.itemPrices;
-        }
-
-        if (Date.now() < this.itemPricesRetryAt) {
-            throw new Error('Mannco.store item catalogue is rate limited; reconciliation will retry automatically');
-        }
-
-        try {
-            this.itemPrices = await this.request<ManncoPriceItem[]>('get', '/item/prices?game=440&outofstock=1');
-            this.itemPricesExpiresAt = Date.now() + 5 * 60 * 1000;
-            return this.itemPrices;
-        } catch (err) {
-            const status = (err as AxiosError).response?.status;
-            if (status === 429) {
-                this.itemPricesRetryAt = Date.now() + 5 * 60 * 1000;
-            }
-            throw err;
-        }
-    }
-
-    private async getItemDetails(slug: string, suppressError = false): Promise<ManncoItemDetails> {
-        const cached = this.itemDetailsBySlug.get(slug);
-        if (cached) return cached;
-
-        const details = await this.request<ManncoItemDetails>(
-            'get',
-            `/item/details/${encodeURIComponent(slug)}`,
-            undefined,
-            true,
-            !suppressError
-        );
-        this.itemDetailsBySlug.set(slug, details);
-        return details;
-    }
 
     private async waitForDepositCompletion(tradeId: string): Promise<boolean> {
         const deadline = Date.now() + 15 * 60 * 1000;
@@ -684,14 +672,22 @@ export default class ManncoStoreManager extends EventEmitter {
 
             return response.data.content;
         } catch (err) {
-            const status = (err as AxiosError).response?.status;
+            const axiosError = err as AxiosError<ManncoResponse<unknown>>;
+            const status = axiosError.response?.status;
             if (retry && status === 401) {
                 this.jwt = null;
                 await this.login();
                 return this.request<T>(method, path, data, false, emitError);
             }
 
-            const filtered = filterAxiosError(err as AxiosError);
+            const content = axiosError.response?.data?.content;
+            const apiMessage =
+                typeof content === 'string'
+                    ? content
+                    : typeof axiosError.response?.data?.message === 'string'
+                    ? axiosError.response.data.message
+                    : null;
+            const filtered = apiMessage ? new Error(`Mannco.store: ${apiMessage}`) : filterAxiosError(axiosError);
             if (emitError) {
                 this.emit('error', filtered);
             }

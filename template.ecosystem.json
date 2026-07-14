@@ -30,6 +30,7 @@
                 "STEAMSUPPLY_API_KEY": "",
                 "STEAMAPIS_API_KEY": "",
                 "EXPRESSLOAD_API_KEY": "",
+                "STEAMBOT_INFO_API_KEY": "",
                 "JOURNAL_TF_ENABLE": false,
                 "JOURNAL_TF_API_KEY": "",
 

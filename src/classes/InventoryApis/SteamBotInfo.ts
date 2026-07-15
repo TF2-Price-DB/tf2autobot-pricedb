@@ -15,7 +15,7 @@ export default class SteamBotInfo extends InventoryApi {
         const apiKey = encodeURIComponent(this.getApiKey());
         return [
             `https://api.steambot.info/v1/${apiKey}/inventory/${steamID}/${appID}/${contextID}`,
-            { count: 5000, language: 'en' }
+            { count: 2000, language: 'en' }
         ];
     }
 

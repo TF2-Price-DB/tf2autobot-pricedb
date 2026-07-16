@@ -1278,7 +1278,9 @@ export default class Bot {
                                         !this.options.manncoStoreApiKey ||
                                         !this.options.miscSettings.manncoStore.enable
                                     ) {
-                                        log.debug('Skipping Mannco.store manager initialization (not configured or disabled)');
+                                        log.debug(
+                                            'Skipping Mannco.store manager initialization (not configured or disabled)'
+                                        );
                                         cb(null);
                                         return;
                                     }
@@ -1305,11 +1307,12 @@ export default class Bot {
                                     this.pricelist.on('price', (_priceKey: string, entry: Entry) => {
                                         if (entry.sellUsd !== undefined) {
                                             void this.manncoStoreManager
-                                                .repriceSku(entry.sku, entry.sellUsd, {
-                                                    sku: entry.sku
-                                                })
+                                                .repriceSku(entry.sku, entry.sellUsd)
                                                 .catch(err => {
-                                                    log.error(`Failed to update Mannco.store listing for ${entry.sku}:`, err);
+                                                    log.error(
+                                                        `Failed to update Mannco.store listing for ${entry.sku}:`,
+                                                        err
+                                                    );
                                                 });
                                         }
                                         const buyOrder = this.manncoStoreManager.getBuyOrder(entry.sku);
@@ -1322,7 +1325,10 @@ export default class Bot {
                                                     entry.buyUsd
                                                 )
                                                 .catch(err => {
-                                                    log.error(`Failed to update Mannco.store buy order for ${entry.sku}:`, err);
+                                                    log.error(
+                                                        `Failed to update Mannco.store buy order for ${entry.sku}:`,
+                                                        err
+                                                    );
                                                 });
                                         }
                                     });
@@ -1357,7 +1363,10 @@ export default class Bot {
                                                         if (entry?.sellUsd === undefined) continue;
 
                                                         try {
-                                                            await this.manncoStoreManager.repriceSku(sku, entry.sellUsd);
+                                                            await this.manncoStoreManager.repriceSku(
+                                                                sku,
+                                                                entry.sellUsd
+                                                            );
                                                         } catch (err) {
                                                             log.warn(
                                                                 `Could not apply the pricelist USD sell price to imported Mannco.store listing ${sku}:`,
@@ -1381,6 +1390,14 @@ export default class Bot {
                                                     log.warn('Could not reconcile Mannco.store listings:', err);
                                                 });
                                             }, 5 * 60 * 1000);
+                                            setInterval(() => {
+                                                void this.manncoStoreManager.reconcileOperations().catch(err => {
+                                                    log.warn(
+                                                        'Could not reconcile Mannco.store pending operations:',
+                                                        err
+                                                    );
+                                                });
+                                            }, 30 * 1000);
                                             cb(null);
                                         })
                                         .catch(err => cb(err as Error));
@@ -1578,7 +1595,7 @@ export default class Bot {
 
     private get getCookies(): string[] {
         const cookies = this.community._jar
-            .getCookies('https://steamcommunity.com')
+            .getCookiesSync('https://steamcommunity.com')
             .filter(cookie => ['sessionid', 'steamLogin', 'steamLoginSecure'].includes(cookie.key))
             .map(cookie => `${cookie.key}=${cookie.value}`);
         return cookies;

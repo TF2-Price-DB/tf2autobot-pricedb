@@ -13,6 +13,8 @@ declare module 'steam-user' {
             locked: boolean,
             canInviteFriends: boolean
         ) => void;
+        gamesPlayed(apps: Apps, force?: boolean): void;
+        getTradeURL(): Promise<{ token: string; url: string }>;
         friendMessage: (senderID: SteamID, message: string) => void;
         friendRelationship: (steamID: SteamID, relationship: number) => void;
         groupRelationship: (groupID: SteamID, relationship: number) => void;

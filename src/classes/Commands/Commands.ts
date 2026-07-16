@@ -222,6 +222,10 @@ export default class Commands {
                 void this.manncoPriceCommand(steamID, message);
             } else if (command === 'mcowithdraw' && isAdmin) {
                 void this.manncoWithdrawCommand(steamID, message);
+            } else if (command === 'mcostatus' && isAdmin) {
+                void this.manncoStatusCommand(steamID);
+            } else if (command === 'mcoresend' && isAdmin) {
+                void this.manncoResendCommand(steamID, message);
             } else if (command === 'withdrawall' && isAdmin) {
                 void this.withdrawAllCommand(steamID, message);
             } else if (command === 'add' && isAdmin) {
@@ -939,6 +943,20 @@ export default class Commands {
 
     // Admin commands
 
+    private sendChunkedManncoMessage(steamID: SteamID, heading: string, lines: string[]): void {
+        const maxLength = 3500;
+        let message = heading;
+        for (const line of lines) {
+            if (message.length + line.length + 1 > maxLength) {
+                this.bot.sendMessage(steamID, message);
+                message = `${heading} (continued)\n${line}`;
+            } else {
+                message += `\n${line}`;
+            }
+        }
+        this.bot.sendMessage(steamID, message);
+    }
+
     private async manncoOnSaleCommand(steamID: SteamID): Promise<void> {
         if (!this.bot.manncoStoreManager) {
             return this.bot.sendMessage(steamID, '❌ Mannco.store is not configured or enabled.');
@@ -950,10 +968,8 @@ export default class Commands {
                 return this.bot.sendMessage(steamID, 'Mannco.store has no items currently on sale.');
             }
 
-            const message = items
-                .map(item => `${item.name} — $${(item.price / 100).toFixed(2)} — assetid=${item.ids}`)
-                .join('\n');
-            this.bot.sendMessage(steamID, `Mannco.store items on sale:\n${message}`);
+            const lines = items.map(item => `${item.name} — $${(item.price / 100).toFixed(2)} — assetid=${item.ids}`);
+            this.sendChunkedManncoMessage(steamID, `Mannco.store items on sale (${items.length}):`, lines);
         } catch (err) {
             this.bot.sendMessage(steamID, `❌ Could not get Mannco.store listings: ${(err as Error).message}`);
         }
@@ -997,13 +1013,19 @@ export default class Commands {
         const params = CommandParser.parseParams(rawParams);
         const assetId =
             typeof params.assetid === 'string' || typeof params.assetid === 'number' ? String(params.assetid) : null;
-        if (assetId === null || typeof params.price !== 'number') {
-            return this.bot.sendMessage(steamID, '❌ Usage: !mcoupdate assetid=<asset id>&price=<cents>');
+        if (assetId === null || typeof params.price !== 'number' || params.confirm !== true) {
+            return this.bot.sendMessage(
+                steamID,
+                '❌ Usage: !mcoupdate assetid=<asset id>&price=<cents>&confirm=true. A matching buy order may instantly sell the item.'
+            );
         }
 
         try {
             await this.bot.manncoStoreManager.listInventory(assetId.split(/[;,]/), params.price);
-            this.bot.sendMessage(steamID, `✅ Updated Mannco.store price to $${(params.price / 100).toFixed(2)}.`);
+            this.bot.sendMessage(
+                steamID,
+                `✅ Updated Mannco.store price to $${(params.price / 100).toFixed(2)}; it may have sold instantly.`
+            );
         } catch (err) {
             this.bot.sendMessage(steamID, `❌ Could not update Mannco.store price: ${(err as Error).message}`);
         }
@@ -1027,10 +1049,58 @@ export default class Commands {
         }
 
         try {
-            await this.bot.manncoStoreManager.withdrawInventory(assetId.split(/[;,]/));
-            this.bot.sendMessage(steamID, '✅ Mannco.store withdrawal requested; the matching Steam trade will be accepted automatically.');
+            const response = await this.bot.manncoStoreManager.withdrawInventory(assetId.split(/[;,]/));
+            this.bot.sendMessage(
+                steamID,
+                `✅ Mannco.store withdrawal requested for ${response.updated} item(s)` +
+                    (response.locked > 0 ? `; ${response.locked} item(s) remain locked.` : '.') +
+                    ' The matching Steam trade will be accepted automatically.'
+            );
         } catch (err) {
             this.bot.sendMessage(steamID, `❌ Mannco.store withdrawal failed: ${(err as Error).message}`);
+        }
+    }
+
+    private async manncoStatusCommand(steamID: SteamID): Promise<void> {
+        if (!this.bot.manncoStoreManager) {
+            return this.bot.sendMessage(steamID, '❌ Mannco.store is not configured or enabled.');
+        }
+
+        try {
+            await this.bot.manncoStoreManager.reconcileOperations();
+            const operations = this.bot.manncoStoreManager.getOperations();
+            if (operations.length === 0) {
+                return this.bot.sendMessage(steamID, 'Mannco.store has no tracked deposit or withdrawal operations.');
+            }
+            this.sendChunkedManncoMessage(
+                steamID,
+                'Mannco.store operation status:',
+                operations.map(operation => {
+                    const offer = operation.offerId ? ` — offer=${operation.offerId}` : '';
+                    const error = operation.lastError ? ` — ${operation.lastError}` : '';
+                    return `${operation.id} — ${operation.type} — ${operation.status}${offer}${error}`;
+                })
+            );
+        } catch (err) {
+            this.bot.sendMessage(steamID, `❌ Could not get Mannco.store operation status: ${(err as Error).message}`);
+        }
+    }
+
+    private async manncoResendCommand(steamID: SteamID, message: string): Promise<void> {
+        if (!this.bot.manncoStoreManager) {
+            return this.bot.sendMessage(steamID, '❌ Mannco.store is not configured or enabled.');
+        }
+        const params = CommandParser.parseParams(CommandParser.removeCommand(removeLinkProtocol(message)));
+        const tradeId =
+            typeof params.tradeid === 'number' ? params.tradeid : typeof params.id === 'number' ? params.id : null;
+        if (tradeId === null) {
+            return this.bot.sendMessage(steamID, '❌ Usage: !mcoresend tradeid=<Mannco trade id>');
+        }
+        try {
+            await this.bot.manncoStoreManager.resendTrade(tradeId);
+            this.bot.sendMessage(steamID, `✅ Requested Mannco.store resend for trade ${tradeId}.`);
+        } catch (err) {
+            this.bot.sendMessage(steamID, `❌ Could not resend Mannco.store trade: ${(err as Error).message}`);
         }
     }
 
@@ -1044,7 +1114,8 @@ export default class Commands {
             return this.bot.sendMessage(steamID, '❌ Usage: !mcobuy sku=<pricelist sku>&quantity=<quantity>');
         }
 
-        const quantity = params.quantity === undefined ? (params.amount === undefined ? 1 : params.amount) : params.quantity;
+        const quantity =
+            params.quantity === undefined ? (params.amount === undefined ? 1 : params.amount) : params.quantity;
         if (typeof quantity !== 'number' || !Number.isSafeInteger(quantity) || quantity < 1 || quantity > 5000) {
             return this.bot.sendMessage(steamID, '❌ "quantity" must be a whole number from 1 to 5000.');
         }
@@ -1054,7 +1125,10 @@ export default class Commands {
             return this.bot.sendMessage(steamID, '❌ This SKU does not exist in the pricelist.');
         }
         if (entry.buyUsd === undefined) {
-            return this.bot.sendMessage(steamID, '❌ This SKU needs a USD buy price before it can create a Mannco.store buy order.');
+            return this.bot.sendMessage(
+                steamID,
+                '❌ This SKU needs a USD buy price before it can create a Mannco.store buy order.'
+            );
         }
 
         try {
@@ -1062,7 +1136,9 @@ export default class Commands {
             await this.bot.manncoStoreManager.upsertBuyOrder(entry.sku, itemId, quantity, entry.buyUsd, entry.name);
             this.bot.sendMessage(
                 steamID,
-                `✅ Mannco.store buy order created for ${quantity} ${entry.name} at $${(entry.buyUsd / 100).toFixed(2)} each.`
+                `✅ Mannco.store buy order created for ${quantity} ${entry.name} at $${(entry.buyUsd / 100).toFixed(
+                    2
+                )} each.`
             );
         } catch (err) {
             this.bot.sendMessage(steamID, `❌ Mannco.store buy order failed: ${(err as Error).message}`);
@@ -1086,11 +1162,13 @@ export default class Commands {
                 return this.bot.sendMessage(steamID, `Mannco.store has no active buy orders on page ${page}.`);
             }
 
-            this.bot.sendMessage(
+            this.sendChunkedManncoMessage(
                 steamID,
-                `Mannco.store buy orders (page ${page}):\n${orders
-                    .map(order => `${order.name} — $${(order.price / 100).toFixed(2)} × ${order.amount} — itemid=${order.itemid}`)
-                    .join('\n')}`
+                `Mannco.store buy orders (page ${page}):`,
+                orders.map(
+                    order =>
+                        `${order.name} — $${(order.price / 100).toFixed(2)} × ${order.amount} — itemid=${order.itemid}`
+                )
             );
         } catch (err) {
             this.bot.sendMessage(steamID, `❌ Could not get Mannco.store buy orders: ${(err as Error).message}`);
@@ -1129,10 +1207,20 @@ export default class Commands {
                       .filter(assetId => assetId.length > 0)
                 : [];
         if (typeof params.sku !== 'string' && requestedAssetIds.length === 0) {
-            return this.bot.sendMessage(steamID, '❌ Usage: !mcosell sku=<sku>&amount=<quantity> or !mcosell assetid=<asset id>');
+            return this.bot.sendMessage(
+                steamID,
+                '❌ Usage: !mcosell sku=<sku>&amount=<quantity>&confirm=true or !mcosell assetid=<asset id>&confirm=true'
+            );
+        }
+        if (params.confirm !== true) {
+            return this.bot.sendMessage(
+                steamID,
+                '⚠️ Mannco.store may instantly sell deposited items at an existing buy order. Repeat with &confirm=true to continue.'
+            );
         }
 
-        const amount = requestedAssetIds.length > 0 ? requestedAssetIds.length : params.amount === undefined ? 1 : params.amount;
+        const amount =
+            requestedAssetIds.length > 0 ? requestedAssetIds.length : params.amount === undefined ? 1 : params.amount;
         if (typeof amount !== 'number' || !Number.isSafeInteger(amount) || amount <= 0) {
             return this.bot.sendMessage(steamID, '❌ "amount" must be a positive whole number.');
         }
@@ -1159,10 +1247,14 @@ export default class Commands {
 
         const entry = this.bot.pricelist.getPrice({ priceKey: sku, onlyEnabled: false });
         if (entry === null || entry.sellUsd === undefined) {
-            return this.bot.sendMessage(steamID, '❌ This SKU needs a pricelist USD sell price before it can be listed.');
+            return this.bot.sendMessage(
+                steamID,
+                '❌ This SKU needs a pricelist USD sell price before it can be listed.'
+            );
         }
 
-        const inventoryAssetIds = requestedAssetIds.length > 0 ? requestedAssetIds : inventory.findBySKU(entry.sku, true);
+        const inventoryAssetIds =
+            requestedAssetIds.length > 0 ? requestedAssetIds : inventory.findBySKU(entry.sku, true);
         if (inventoryAssetIds.length < amount) {
             return this.bot.sendMessage(
                 steamID,
@@ -1186,7 +1278,9 @@ export default class Commands {
             const selected = available.slice(0, amount);
             this.bot.sendMessage(
                 steamID,
-                `⌛ Creating a Mannco.store deposit for ${amount} ${entry.name} at $${(entry.sellUsd / 100).toFixed(2)} each.`
+                `⌛ Creating a Mannco.store deposit for ${amount} ${entry.name} at $${(entry.sellUsd / 100).toFixed(
+                    2
+                )} each.`
             );
 
             const trade = await this.bot.manncoStoreManager.depositAndList(entry.sku, selected, entry.sellUsd);

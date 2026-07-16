@@ -5,7 +5,7 @@ import log from '../lib/logger';
 import * as files from '../lib/files';
 
 interface ManncoResponse<T> {
-    err: number;
+    err: boolean;
     success: boolean;
     content: T;
     message?: string;
@@ -26,11 +26,34 @@ interface ManncoDepositInformation {
 }
 
 export interface ManncoDepositTrade {
-    id: string;
+    id: string | number;
     [key: string]: unknown;
 }
 
 export type ManncoDepositStatus = -1 | 0 | 3;
+
+interface ManncoDepositStatusResponse {
+    trade?: {
+        id?: string | number;
+        status?: ManncoDepositStatus;
+        items_received?: string;
+        game?: number;
+        offerid?: string;
+    };
+}
+
+export interface ManncoOperation {
+    id: string;
+    type: 'deposit' | 'withdrawal';
+    status: 'creating' | 'pending' | 'matched' | 'accepted' | 'completed' | 'failed';
+    createdAt: number;
+    expectedSteamAssetIds: string[];
+    manncoAssetIds: string[];
+    sku?: string;
+    price?: number;
+    offerId?: string;
+    lastError?: string;
+}
 
 export interface ManncoOnSaleItem {
     ids: string;
@@ -72,9 +95,11 @@ interface ManncoInventoryItem {
 }
 
 interface ManncoActiveTrade {
+    id?: string | number;
     status: number;
-    offerid: string;
+    offerid?: string;
     game: number;
+    items_received?: string;
 }
 
 interface ManncoWithdrawResponse {
@@ -87,6 +112,7 @@ interface ManncoStoreData {
     listings: Record<string, { assetIds: string[] }>;
     buyOrders: Record<string, { itemId: number; amount: number; name: string }>;
     manncoItems: Record<string, number>;
+    operations: Record<string, ManncoOperation>;
 }
 
 interface PriceDbManncoItem {
@@ -126,7 +152,19 @@ function isManncoStoreData(value: unknown): value is ManncoStoreData {
                 itemId => typeof itemId === 'number' && Number.isSafeInteger(itemId) && itemId > 0
             ));
 
-    return hasValidListings && hasValidBuyOrders && hasValidManncoItems;
+    const hasValidOperations =
+        value.operations === undefined ||
+        (isRecord(value.operations) &&
+            Object.values(value.operations).every(
+                operation =>
+                    isRecord(operation) &&
+                    typeof operation.id === 'string' &&
+                    (operation.type === 'deposit' || operation.type === 'withdrawal') &&
+                    Array.isArray(operation.expectedSteamAssetIds) &&
+                    Array.isArray(operation.manncoAssetIds)
+            ));
+
+    return hasValidListings && hasValidBuyOrders && hasValidManncoItems && hasValidOperations;
 }
 
 /**
@@ -144,16 +182,9 @@ export default class ManncoStoreManager extends EventEmitter {
 
     private readonly buyOrderValuesBySku = new Map<string, string>();
 
-    private data: ManncoStoreData = { listings: {}, buyOrders: {}, manncoItems: {} };
+    private data: ManncoStoreData = { listings: {}, buyOrders: {}, manncoItems: {}, operations: {} };
 
-    private readonly pendingDepositAssetIds: string[][] = [];
-
-    private readonly pendingWithdrawalOfferIds = new Set<string>();
-
-    constructor(
-        private readonly apiKey: string,
-        private readonly dataPath: string
-    ) {
+    constructor(private readonly apiKey: string, private readonly dataPath: string) {
         super();
         this.api = axios.create({
             baseURL: 'https://api.mannco.store',
@@ -173,11 +204,16 @@ export default class ManncoStoreManager extends EventEmitter {
     async init(): Promise<void> {
         const data: unknown = await files.readFile(this.dataPath, true);
         if (isManncoStoreData(data)) {
-            this.data = { listings: data.listings, buyOrders: data.buyOrders, manncoItems: data.manncoItems || {} };
+            this.data = {
+                listings: data.listings,
+                buyOrders: data.buyOrders,
+                manncoItems: data.manncoItems || {},
+                operations: data.operations || {}
+            };
         }
         await this.login();
         try {
-            await this.refreshPendingWithdrawals();
+            await this.reconcileOperations();
         } catch (err) {
             log.warn('Could not restore pending Mannco.store withdrawals:', err);
         }
@@ -211,13 +247,17 @@ export default class ManncoStoreManager extends EventEmitter {
         });
     }
 
-    async getDepositTradeStatus(tradeId: string): Promise<ManncoDepositStatus> {
-        return this.request<ManncoDepositStatus>('get', `/deposit/tradeStatus/${tradeId}`);
+    async getDepositTradeStatus(tradeId: string): Promise<ManncoDepositStatusResponse> {
+        const content = await this.request<ManncoDepositStatusResponse>('get', `/deposit/tradeStatus/${tradeId}`);
+        if (!content.trade || ![-1, 0, 3].includes(content.trade.status)) {
+            throw new Error(`Mannco.store returned an invalid status for deposit ${tradeId}`);
+        }
+        return content;
     }
 
     async listInventory(assetIds: string[], price: number): Promise<unknown> {
-        if (!Number.isSafeInteger(price) || price <= 0) {
-            throw new Error('Mannco.store listing price must be a positive integer number of cents');
+        if (!Number.isSafeInteger(price) || price < 1 || price > 5000000) {
+            throw new Error('Mannco.store listing price must be a whole number from 1 to 5000000 cents');
         }
 
         if (assetIds.length === 0) {
@@ -298,17 +338,105 @@ export default class ManncoStoreManager extends EventEmitter {
             throw new Error('Mannco.store did not find a withdrawable item with that asset ID');
         }
         this.removeListingAssets(assetIds);
-        await this.refreshPendingWithdrawals();
+        const operation = this.createOperation('withdrawal', assetIds);
+        operation.status = 'pending';
+        await this.saveData();
+        await this.reconcileOperations();
         return response;
     }
 
-    private async refreshPendingWithdrawals(): Promise<void> {
+    /** Restore and refresh persisted operations after startup and while the bot is running. */
+    async reconcileOperations(): Promise<void> {
         const content = await this.request<{ trades: ManncoActiveTrade[] }>('get', '/trades/active');
-        for (const trade of content.trades || []) {
-            if (trade.game === 440 && trade.status === 0 && typeof trade.offerid === 'string') {
-                this.pendingWithdrawalOfferIds.add(trade.offerid);
+        const activeTrades = (content.trades || []).filter(trade => trade.game === 440 && trade.status === 0);
+        let changed = false;
+
+        for (const operation of Object.values(this.data.operations)) {
+            if (operation.status === 'completed' || operation.status === 'failed') continue;
+
+            if (operation.type === 'deposit' && /^deposit:\d+$/.test(operation.id)) {
+                try {
+                    const status = await this.getDepositTradeStatus(operation.id.slice('deposit:'.length));
+                    const trade = status.trade;
+                    if (trade.items_received) {
+                        operation.manncoAssetIds = this.splitAssetIds(trade.items_received);
+                    }
+                    if (trade.offerid) operation.offerId = trade.offerid;
+                    if (trade.status === -1) operation.status = 'failed';
+                    if (trade.status === 3) {
+                        if (
+                            operation.sku &&
+                            operation.price !== undefined &&
+                            operation.manncoAssetIds.length === operation.expectedSteamAssetIds.length
+                        ) {
+                            await this.listInventory(operation.manncoAssetIds, operation.price);
+                            this.registerListingAssets(operation.sku, operation.manncoAssetIds);
+                        }
+                        operation.status = 'completed';
+                    }
+                    changed = true;
+                } catch (err) {
+                    operation.lastError = (err as Error).message;
+                    changed = true;
+                }
+            }
+
+            if (operation.type === 'withdrawal' && !operation.offerId) {
+                const candidate = activeTrades.find(trade => {
+                    if (typeof trade.offerid !== 'string' || this.isOfferTracked(trade.offerid)) return false;
+                    const received = this.splitAssetIds(trade.items_received || '');
+                    return (
+                        received.length > 0 &&
+                        operation.expectedSteamAssetIds.every(assetId => received.includes(assetId))
+                    );
+                });
+                if (candidate?.offerid) {
+                    operation.offerId = candidate.offerid;
+                    operation.status = 'pending';
+                    changed = true;
+                }
+            }
+
+            if (
+                operation.type === 'withdrawal' &&
+                operation.status === 'accepted' &&
+                operation.offerId &&
+                !activeTrades.some(trade => trade.offerid === operation.offerId)
+            ) {
+                operation.status = 'completed';
+                changed = true;
             }
         }
+        if (changed) await this.saveData();
+    }
+
+    async resendTrade(tradeId: number): Promise<void> {
+        if (!Number.isSafeInteger(tradeId) || tradeId <= 0) {
+            throw new Error('Mannco.store trade ID must be a positive whole number');
+        }
+        await this.request('get', `/trade/resend?id=${tradeId}`);
+    }
+
+    getOperations(): ManncoOperation[] {
+        return Object.values(this.data.operations).sort((a, b) => b.createdAt - a.createdAt);
+    }
+
+    private createOperation(type: ManncoOperation['type'], expectedSteamAssetIds: string[]): ManncoOperation {
+        const id = `${type}:creating:${Date.now()}:${Math.random().toString(36).slice(2, 8)}`;
+        const operation: ManncoOperation = {
+            id,
+            type,
+            status: 'creating',
+            createdAt: Date.now(),
+            expectedSteamAssetIds: [...expectedSteamAssetIds],
+            manncoAssetIds: []
+        };
+        this.data.operations[id] = operation;
+        return operation;
+    }
+
+    private isOfferTracked(offerId: string): boolean {
+        return Object.values(this.data.operations).some(operation => operation.offerId === offerId);
     }
 
     registerListingAssets(sku: string, assetIds: string[]): void {
@@ -346,25 +474,44 @@ export default class ManncoStoreManager extends EventEmitter {
         }
 
         const steamAssetIds = assets.map(asset => asset.assetid);
-        this.pendingDepositAssetIds.push(steamAssetIds);
+        const operation = this.createOperation('deposit', steamAssetIds);
+        operation.sku = sku;
+        operation.price = price;
+        await this.saveData();
         const inventoryBefore = await this.getInventoryItems();
 
         let trade: ManncoDepositTrade;
         try {
             trade = await this.createDepositTrade(prices, depositKeys);
         } catch (err) {
-            this.removePendingDeposit(steamAssetIds);
+            operation.status = 'failed';
+            operation.lastError = (err as Error).message;
+            await this.saveData();
             throw err;
         }
-        const completed = await this.waitForDepositCompletion(trade.id);
-        if (!completed) {
-            this.removePendingDeposit(steamAssetIds);
+        delete this.data.operations[operation.id];
+        operation.id = `deposit:${trade.id}`;
+        operation.status = 'pending';
+        this.data.operations[operation.id] = operation;
+        await this.saveData();
+
+        const status = await this.waitForDepositCompletion(String(trade.id));
+        if (status.status !== 3) {
+            operation.status = 'failed';
+            operation.lastError = `Mannco.store deposit ${trade.id} did not complete`;
+            await this.saveData();
             throw new Error(`Mannco.store deposit ${trade.id} did not complete`);
         }
 
-        const manncoAssetIds = this.findNewManncoAssetIds(inventoryBefore, await this.getInventoryItems(), assets);
+        const manncoAssetIds =
+            status.items_received.length > 0
+                ? status.items_received
+                : this.findNewManncoAssetIds(inventoryBefore, await this.getInventoryItems(), assets);
+        operation.manncoAssetIds = manncoAssetIds;
         if (manncoAssetIds.length !== assets.length) {
-            log.warn(`Could not uniquely map all deposited Mannco.store assets for ${sku}; automatic repricing is disabled for them`);
+            log.warn(
+                `Could not uniquely map all deposited Mannco.store assets for ${sku}; automatic repricing is disabled for them`
+            );
         } else {
             await this.listInventory(manncoAssetIds, price);
             this.registerListingAssets(sku, manncoAssetIds);
@@ -374,6 +521,8 @@ export default class ManncoStoreManager extends EventEmitter {
                 await this.saveData();
             }
         }
+        operation.status = 'completed';
+        await this.saveData();
         this.emit('listingCreated', { sku, assetIds: manncoAssetIds, price, tradeId: trade.id });
         return trade;
     }
@@ -383,16 +532,17 @@ export default class ManncoStoreManager extends EventEmitter {
         inventoryAfter: ManncoInventoryItem[],
         depositedAssets: ManncoDepositAsset[]
     ): string[] {
-        const beforeIds = new Set(inventoryBefore.flatMap(item => item.ids.split(';')));
+        const beforeIds = new Set(inventoryBefore.flatMap(item => this.splitAssetIds(item.ids)));
         const depositedItemIds = new Set(depositedAssets.map(asset => asset.itemId));
         return inventoryAfter
             .filter(item => depositedItemIds.has(item.item_id))
-            .flatMap(item => item.ids.split(';'))
+            .flatMap(item => this.splitAssetIds(item.ids))
             .filter(assetId => assetId.length > 0 && !beforeIds.has(assetId));
     }
 
-    /** Only accepts an incoming offer when it contains precisely a bot-initiated deposit's assets. */
+    /** Only accepts an incoming offer when it contains precisely a persisted bot-initiated deposit's assets. */
     matchesPendingDepositOffer(offer: {
+        id?: string;
         itemsToGive: Array<{ assetid: string }>;
         itemsToReceive: unknown[];
     }): boolean {
@@ -401,52 +551,69 @@ export default class ManncoStoreManager extends EventEmitter {
         }
 
         const offerAssetIds = offer.itemsToGive.map(item => item.assetid).sort();
-        const index = this.pendingDepositAssetIds.findIndex(assetIds => {
-            const expected = assetIds.slice().sort();
-            return expected.length === offerAssetIds.length && expected.every((assetId, i) => assetId === offerAssetIds[i]);
+        const operation = Object.values(this.data.operations).find(candidate => {
+            if (candidate.type !== 'deposit' || !['creating', 'pending', 'matched'].includes(candidate.status))
+                return false;
+            const expected = candidate.expectedSteamAssetIds.slice().sort();
+            return (
+                expected.length === offerAssetIds.length && expected.every((assetId, i) => assetId === offerAssetIds[i])
+            );
         });
 
-        if (index === -1) {
+        if (!operation) {
             return false;
         }
 
-        this.pendingDepositAssetIds.splice(index, 1);
+        operation.status = 'matched';
+        if (offer.id) operation.offerId = String(offer.id);
+        void this.saveData();
         return true;
     }
 
     /** Accept only the exact active Mannco withdrawal offer returned by their trade API. */
-    matchesPendingWithdrawalOffer(offer: {
-        id: string;
-        itemsToGive: unknown[];
-        itemsToReceive: unknown[];
-    }): boolean {
+    matchesPendingWithdrawalOffer(offer: { id: string; itemsToGive: unknown[]; itemsToReceive: unknown[] }): boolean {
         if (
             offer.itemsToGive.length !== 0 ||
             offer.itemsToReceive.length === 0 ||
-            !this.pendingWithdrawalOfferIds.has(String(offer.id))
+            !Object.values(this.data.operations).some(
+                operation =>
+                    operation.type === 'withdrawal' &&
+                    operation.offerId === String(offer.id) &&
+                    ['pending', 'matched'].includes(operation.status)
+            )
         ) {
             return false;
         }
 
-        this.pendingWithdrawalOfferIds.delete(String(offer.id));
+        const operation = Object.values(this.data.operations).find(candidate => candidate.offerId === String(offer.id));
+        if (operation) {
+            operation.status = 'matched';
+            void this.saveData();
+        }
         return true;
     }
 
-    private removePendingDeposit(assetIds: string[]): void {
-        const index = this.pendingDepositAssetIds.findIndex(
-            pending => pending.length === assetIds.length && pending.every(assetId => assetIds.includes(assetId))
-        );
-        if (index !== -1) {
-            this.pendingDepositAssetIds.splice(index, 1);
-        }
+    async markOfferAccepted(offerId: string): Promise<void> {
+        const operation = Object.values(this.data.operations).find(candidate => candidate.offerId === offerId);
+        if (!operation) return;
+        operation.offerId = offerId;
+        operation.status = 'accepted';
+        operation.lastError = undefined;
+        await this.saveData();
+    }
+
+    async markOfferAcceptanceFailed(offerId: string, err: Error): Promise<void> {
+        const operation = Object.values(this.data.operations).find(candidate => candidate.offerId === offerId);
+        if (!operation) return;
+        operation.offerId = offerId;
+        operation.status = 'matched';
+        operation.lastError = err.message;
+        await this.saveData();
     }
 
     /** Update already-listed Mannco assets when their pricelist USD sell price changes. */
-    async repriceSku(sku: string, price: number, pricelistItem?: ManncoPricelistItem): Promise<void> {
-        let assetIds = this.listedAssetsBySku.get(sku) || this.data.listings[sku]?.assetIds;
-        if ((!assetIds || assetIds.length === 0) && pricelistItem) {
-            assetIds = await this.findAndRegisterOnSaleAssets(pricelistItem);
-        }
+    async repriceSku(sku: string, price: number): Promise<void> {
+        const assetIds = this.listedAssetsBySku.get(sku) || this.data.listings[sku]?.assetIds;
         if (!assetIds || assetIds.length === 0) {
             return;
         }
@@ -503,7 +670,13 @@ export default class ManncoStoreManager extends EventEmitter {
     }
 
     async upsertBuyOrder(sku: string, itemId: number, amount: number, value: number, name?: string): Promise<void> {
-        if (!Number.isSafeInteger(itemId) || itemId <= 0 || !Number.isSafeInteger(amount) || amount < 1 || amount > 5000) {
+        if (
+            !Number.isSafeInteger(itemId) ||
+            itemId <= 0 ||
+            !Number.isSafeInteger(amount) ||
+            amount < 1 ||
+            amount > 5000
+        ) {
             throw new Error('Mannco.store buy-order item ID and amount are invalid');
         }
         if (!Number.isSafeInteger(value) || value <= 0) {
@@ -578,7 +751,9 @@ export default class ManncoStoreManager extends EventEmitter {
                 skus.push(pricelistItem.sku);
                 skusByManncoItemId.set(itemId, skus);
             } catch (err) {
-                log.debug(`Could not resolve PriceDB Mannco mapping for ${pricelistItem.sku}: ${(err as Error).message}`);
+                log.debug(
+                    `Could not resolve PriceDB Mannco mapping for ${pricelistItem.sku}: ${(err as Error).message}`
+                );
             }
         }
 
@@ -620,28 +795,38 @@ export default class ManncoStoreManager extends EventEmitter {
         });
     }
 
+    private splitAssetIds(ids: string): string[] {
+        return ids.split(/[;,]/).filter(assetId => assetId.length > 0);
+    }
 
-    private async waitForDepositCompletion(tradeId: string): Promise<boolean> {
+    private async waitForDepositCompletion(
+        tradeId: string
+    ): Promise<{ status: ManncoDepositStatus; items_received: string[] }> {
         const deadline = Date.now() + 15 * 60 * 1000;
         while (Date.now() < deadline) {
-            const status = await this.getDepositTradeStatus(tradeId);
-            if (status === 3) {
-                return true;
+            const response = await this.getDepositTradeStatus(tradeId);
+            const trade = response.trade;
+            if (trade.status === 3) {
+                return { status: trade.status, items_received: this.splitAssetIds(trade.items_received || '') };
             }
-            if (status === -1) {
-                return false;
+            if (trade.status === -1) {
+                return { status: trade.status, items_received: [] };
             }
             await new Promise(resolve => setTimeout(resolve, 10000));
         }
 
-        return false;
+        return { status: -1, items_received: [] };
     }
 
     private async login(): Promise<void> {
         try {
-            const response = await this.api.post<ManncoResponse<{ jwt: string }>>('/user/login', { apiKey: this.apiKey });
+            const response = await this.api.post<ManncoResponse<{ jwt: string }>>('/user/login', {
+                apiKey: this.apiKey
+            });
             if (!response.data.success || !response.data.content?.jwt) {
-                throw new Error(response.data.message || 'Mannco.store login failed');
+                throw new Error(
+                    typeof response.data.content === 'string' ? response.data.content : 'Mannco.store login failed'
+                );
             }
 
             this.jwt = response.data.content.jwt;
@@ -670,7 +855,10 @@ export default class ManncoStoreManager extends EventEmitter {
             });
 
             if (!response.data.success) {
-                throw new Error(response.data.message || `Mannco.store API request failed (${response.data.err})`);
+                const content = response.data.content;
+                throw new Error(
+                    typeof content === 'string' ? `Mannco.store: ${content}` : 'Mannco.store rejected the request'
+                );
             }
 
             return response.data.content;
@@ -680,6 +868,13 @@ export default class ManncoStoreManager extends EventEmitter {
             if (retry && status === 401) {
                 this.jwt = null;
                 await this.login();
+                return this.request<T>(method, path, data, false, emitError);
+            }
+
+            if (retry && status === 429) {
+                const retryAfter = Number(axiosError.response?.headers?.['retry-after']);
+                const delay = Number.isFinite(retryAfter) ? Math.min(Math.max(retryAfter, 1), 60) * 1000 : 1000;
+                await new Promise(resolve => setTimeout(resolve, delay));
                 return this.request<T>(method, path, data, false, emitError);
             }
 

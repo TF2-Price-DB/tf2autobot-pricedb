@@ -24,10 +24,12 @@ export default class HelpCommands {
                         `price [amount] <name> - Get the price and stock of an item.`,
                         `sku <Full Item Name|Item's sku> - Get the sku of an item.`,
                         `owner - Get the owner's Steam profile and Backpack.tf links.`,
-                        `mcosell sku=<sku>&amount=<quantity> or assetid=<asset id> - Deposit and list bot inventory on Mannco.store (admin only).`,
+                        `mcosell sku=<sku>&amount=<quantity>&confirm=true or assetid=<asset id>&confirm=true - Deposit and list bot inventory on Mannco.store (admin only).`,
                         `mcobuy sku=<sku>&quantity=<quantity> - Create a Mannco.store buy order (admin only).`,
                         `mcobuyorders [page=<number>] - List active Mannco.store buy orders (admin only).`,
                         `mcobuyremove itemid=<Mannco item id> - Remove a Mannco.store buy order (admin only).`,
+                        `mcostatus - Show tracked Mannco.store deposits and withdrawals (admin only).`,
+                        `mcoresend tradeid=<Mannco trade id> - Ask Mannco.store to resend an eligible trade (admin only).`,
                         `discord - Get a link to join TF2Autobot and/or the owner's discord server.`,
                         `more - Show more available commands list.`
                     ].join(`\n- ${prefix}`)
@@ -100,15 +102,17 @@ export default class HelpCommands {
                 steamID,
                 '.\n✨=== Mannco.store ===✨\n- ' +
                     [
-                        `mcosell sku=<sku>&amount=<quantity> or assetid=<asset id> - Deposit and list bot inventory.`,
+                        `mcosell sku=<sku>&amount=<quantity>&confirm=true or assetid=<asset id>&confirm=true - Deposit and list bot inventory.`,
                         `mcobuy sku=<sku>&quantity=<quantity> - Create a buy order.`,
                         `mcobuyorders [page=<number>] - List active buy orders (50 per page).`,
                         `mcobuyremove itemid=<Mannco item id> - Remove a buy order.`,
                         `mcolistings - List items currently on sale.`,
                         `mcosales - Show this week's sales total.`,
                         `mcobalance - Show the account balance.`,
-                        `mcoupdate assetid=<asset id>&price=<cents> - Set an asset price.`,
-                        `mcowithdraw assetid=<asset id> - Withdraw assets to Steam.`
+                        `mcoupdate assetid=<asset id>&price=<cents>&confirm=true - Set an asset price (may instantly sell).`,
+                        `mcowithdraw assetid=<asset id> - Withdraw assets to Steam.`,
+                        `mcostatus - Show tracked deposits and withdrawals.`,
+                        `mcoresend tradeid=<Mannco trade id> - Resend an eligible Mannco.store trade.`
                     ].join(`\n- ${prefix}`)
             );
 

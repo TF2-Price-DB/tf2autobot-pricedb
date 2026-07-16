@@ -147,17 +147,23 @@ export default class Trades {
 
         if (this.bot.manncoStoreManager?.matchesPendingDepositOffer(offer)) {
             offer.log('info', 'accepting matched Mannco.store deposit offer');
-            void this.acceptOffer(offer).catch(err => {
-                log.error(`Failed to accept Mannco.store deposit offer #${offer.id}:`, err);
-            });
+            void this.acceptOffer(offer)
+                .then(() => this.bot.manncoStoreManager.markOfferAccepted(String(offer.id)))
+                .catch(err => {
+                    void this.bot.manncoStoreManager.markOfferAcceptanceFailed(String(offer.id), err as Error);
+                    log.error(`Failed to accept Mannco.store deposit offer #${offer.id}:`, err);
+                });
             return;
         }
 
         if (this.bot.manncoStoreManager?.matchesPendingWithdrawalOffer(offer)) {
             offer.log('info', 'accepting matched Mannco.store withdrawal offer');
-            void this.acceptOffer(offer).catch(err => {
-                log.error(`Failed to accept Mannco.store withdrawal offer #${offer.id}:`, err);
-            });
+            void this.acceptOffer(offer)
+                .then(() => this.bot.manncoStoreManager.markOfferAccepted(String(offer.id)))
+                .catch(err => {
+                    void this.bot.manncoStoreManager.markOfferAcceptanceFailed(String(offer.id), err as Error);
+                    log.error(`Failed to accept Mannco.store withdrawal offer #${offer.id}:`, err);
+                });
             return;
         }
 
@@ -707,7 +713,6 @@ export default class Trades {
                                         );
                                     }
                                 }
-
                             }
                         });
                     }

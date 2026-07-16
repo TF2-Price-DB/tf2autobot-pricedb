@@ -4,6 +4,10 @@
 
 This is a fork of [TF2Autobot](https://github.com/idinium96/tf2autobot), with changes made to work and use [pricedb.io](https://pricedb.io) as the default pricing source after the shutdown of prices.tf.
 
+## Requirements
+
+-   Node.js 22.x or a newer LTS release
+
 It keeps the core behaviour and setup flow of the original project, but:
 
 -   Uses [pricedb.io](https://pricedb.io) as the default pricer.

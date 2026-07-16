@@ -32,14 +32,18 @@ export interface ManncoDepositTrade {
 
 export type ManncoDepositStatus = -1 | 0 | 3;
 
-interface ManncoDepositStatusResponse {
-    trade?: {
+interface ManncoDepositStatusTrade {
         id?: string | number;
         status?: ManncoDepositStatus;
         items_received?: string;
+        item_to_received?: string;
+    state?: number;
         game?: number;
-        offerid?: string;
-    };
+        offerid?: string | number;
+}
+
+interface ManncoDepositStatusResponse {
+    trade?: ManncoDepositStatusTrade & { trade?: ManncoDepositStatusTrade };
 }
 
 export interface ManncoOperation {
@@ -100,6 +104,7 @@ interface ManncoActiveTrade {
     offerid?: string;
     game: number;
     items_received?: string;
+    items_send?: string;
 }
 
 interface ManncoWithdrawResponse {
@@ -249,10 +254,26 @@ export default class ManncoStoreManager extends EventEmitter {
 
     async getDepositTradeStatus(tradeId: string): Promise<ManncoDepositStatusResponse> {
         const content = await this.request<ManncoDepositStatusResponse>('get', `/deposit/tradeStatus/${tradeId}`);
-        if (!content.trade || ![-1, 0, 3].includes(content.trade.status)) {
+        if (!content.trade) {
             throw new Error(`Mannco.store returned an invalid status for deposit ${tradeId}`);
         }
-        return content;
+
+        // Mannco creates the outer deposit record before it creates the nested
+        // Steam trade. This is a valid pending state, not an API error.
+        const hasSteamTrade = content.trade.trade !== undefined;
+        const trade = content.trade.trade || content.trade;
+        if (!hasSteamTrade && trade.status === undefined) return { trade: { ...trade, status: 0 } };
+        if (![-1, 0, 3].includes(trade.status)) throw new Error(`Mannco.store returned an invalid status for deposit ${tradeId}`);
+
+        const manncoAssetIds = this.getManncoAssetIds(trade.item_to_received);
+        return {
+            trade: {
+                ...trade,
+                // Nested responses expose the original Steam IDs in items_received.
+                // Prefer the replacement Mannco inventory IDs when available.
+                items_received: manncoAssetIds.join(',') || trade.items_received
+            }
+        };
     }
 
     async listInventory(assetIds: string[], price: number): Promise<unknown> {
@@ -274,6 +295,14 @@ export default class ManncoStoreManager extends EventEmitter {
         const content = await this.request<{ items: ManncoOnSaleItem[] }>('get', '/inventory/onSale');
         return content.items || [];
     }
+
+    private async areAssetsOnSale(assetIds: string[]): Promise<boolean> {
+        const onSaleAssetIds = new Set(
+            (await this.getOnSaleItems()).flatMap(item => this.splitAssetIds(item.ids))
+        );
+        return assetIds.every(assetId => onSaleAssetIds.has(assetId));
+    }
+
 
     async getBalance(): Promise<number> {
         const content = await this.request<{ balance: number }>('get', '/user/balance');
@@ -361,7 +390,7 @@ export default class ManncoStoreManager extends EventEmitter {
                     if (trade.items_received) {
                         operation.manncoAssetIds = this.splitAssetIds(trade.items_received);
                     }
-                    if (trade.offerid) operation.offerId = trade.offerid;
+                    if (trade.offerid) operation.offerId = String(trade.offerid);
                     if (trade.status === -1) operation.status = 'failed';
                     if (trade.status === 3) {
                         if (
@@ -369,10 +398,12 @@ export default class ManncoStoreManager extends EventEmitter {
                             operation.price !== undefined &&
                             operation.manncoAssetIds.length === operation.expectedSteamAssetIds.length
                         ) {
-                            await this.listInventory(operation.manncoAssetIds, operation.price);
+                            if (!(await this.areAssetsOnSale(operation.manncoAssetIds)))
+                                await this.listInventory(operation.manncoAssetIds, operation.price);
                             this.registerListingAssets(operation.sku, operation.manncoAssetIds);
                         }
                         operation.status = 'completed';
+                        operation.lastError = undefined;
                     }
                     changed = true;
                 } catch (err) {
@@ -384,7 +415,7 @@ export default class ManncoStoreManager extends EventEmitter {
             if (operation.type === 'withdrawal' && !operation.offerId) {
                 const candidate = activeTrades.find(trade => {
                     if (typeof trade.offerid !== 'string' || this.isOfferTracked(trade.offerid)) return false;
-                    const received = this.splitAssetIds(trade.items_received || '');
+                    const received = this.splitAssetIds(`${trade.items_received || ''},${trade.items_send || ''}`);
                     return (
                         received.length > 0 &&
                         operation.expectedSteamAssetIds.every(assetId => received.includes(assetId))
@@ -513,7 +544,8 @@ export default class ManncoStoreManager extends EventEmitter {
                 `Could not uniquely map all deposited Mannco.store assets for ${sku}; automatic repricing is disabled for them`
             );
         } else {
-            await this.listInventory(manncoAssetIds, price);
+            if (!(await this.areAssetsOnSale(manncoAssetIds)))
+                await this.listInventory(manncoAssetIds, price);
             this.registerListingAssets(sku, manncoAssetIds);
             const itemIds = [...new Set(assets.map(asset => asset.itemId))];
             if (itemIds.length === 1) {
@@ -818,6 +850,27 @@ export default class ManncoStoreManager extends EventEmitter {
         return ids.split(/[;,]/).filter(assetId => assetId.length > 0);
     }
 
+    private getManncoAssetIds(items: string | undefined): string[] {
+        if (!items) return [];
+        try {
+            const parsed: unknown = JSON.parse(items);
+            if (!Array.isArray(parsed)) return [];
+            return parsed.flatMap(item => {
+                if (
+                    typeof item === 'object' &&
+                    item !== null &&
+                    'new_assetid' in item &&
+                    typeof item.new_assetid === 'string'
+                ) {
+                    return [item.new_assetid];
+                }
+                return [];
+            });
+        } catch {
+            return [];
+        }
+    }
+
     private async waitForDepositCompletion(
         tradeId: string
     ): Promise<{ status: ManncoDepositStatus; items_received: string[] }> {
@@ -884,7 +937,9 @@ export default class ManncoStoreManager extends EventEmitter {
         } catch (err) {
             const axiosError = err as AxiosError<ManncoResponse<unknown>>;
             const status = axiosError.response?.status;
-            if (retry && status === 401) {
+            const message = err instanceof Error ? err.message : '';
+            const sessionRejected = /need to be connected to access this resource/i.test(message);
+            if (retry && (status === 401 || sessionRejected)) {
                 this.jwt = null;
                 await this.login();
                 return this.request<T>(method, path, data, false, emitError);

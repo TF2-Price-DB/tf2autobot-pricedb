@@ -25,13 +25,27 @@ describe('ManncoStoreManager', () => {
         return new ManncoStoreManager('key', 'mannco-test.json');
     }
 
-    test('parses the documented nested deposit trade status response', async () => {
+    test('unwraps Mannco nested deposit status and returns replacement asset IDs', async () => {
         api.request.mockResolvedValue({
-            data: { success: true, err: false, content: { trade: { status: 3, items_received: '1,2' } } }
+            data: {
+                success: true,
+                err: false,
+                content: { trade: { trade: { status: 3, items_received: '1', item_to_received: '[{"new_assetid":"2"}]' } } }
+            }
         });
 
         await expect(createManager().getDepositTradeStatus('42')).resolves.toEqual({
-            trade: { status: 3, items_received: '1,2' }
+            trade: { status: 3, items_received: '2', item_to_received: '[{"new_assetid":"2"}]' }
+        });
+    });
+
+    test('treats an outer-only deposit record as pending while Mannco creates the Steam trade', async () => {
+        api.request.mockResolvedValue({
+            data: { success: true, err: false, content: { trade: { id: 1033, state: 0, game: 440 } } }
+        });
+
+        await expect(createManager().getDepositTradeStatus('1033')).resolves.toEqual({
+            trade: { id: 1033, state: 0, game: 440, status: 0 }
         });
     });
 
@@ -48,6 +62,18 @@ describe('ManncoStoreManager', () => {
 
         await expect(createManager().getBalance()).resolves.toBe(123);
         expect(api.post).toHaveBeenCalledTimes(2);
+    });
+
+    test('refreshes the JWT when Mannco reports an expired session in its response envelope', async () => {
+        api.request
+            .mockResolvedValueOnce({
+                data: { success: false, err: true, content: 'You need to be connected to access this resource' }
+            })
+            .mockResolvedValueOnce({ data: { success: true, err: false, content: { balance: 456 } } });
+
+        await expect(createManager().getBalance()).resolves.toBe(456);
+        expect(api.post).toHaveBeenCalledTimes(2);
+        expect(api.request).toHaveBeenCalledTimes(2);
     });
 
     test('retries a rate-limited request after Retry-After', async () => {

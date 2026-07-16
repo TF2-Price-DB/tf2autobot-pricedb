@@ -593,6 +593,25 @@ export default class ManncoStoreManager extends EventEmitter {
         return true;
     }
 
+    /**
+     * A withdrawal offer can arrive between the command's initial reconciliation
+     * and the next periodic check. Refresh active trades at offer-arrival time so
+     * the offer ID is persisted before the normal gift handler sees it.
+     */
+    async reconcileAndMatchPendingWithdrawalOffer(offer: {
+        id: string;
+        itemsToGive: unknown[];
+        itemsToReceive: unknown[];
+    }): Promise<boolean> {
+        const hasPendingWithdrawal = Object.values(this.data.operations).some(
+            operation =>
+                operation.type === 'withdrawal' && ['pending', 'matched'].includes(operation.status) && !operation.offerId
+        );
+        if (!hasPendingWithdrawal) return this.matchesPendingWithdrawalOffer(offer);
+
+        await this.reconcileOperations();
+        return this.matchesPendingWithdrawalOffer(offer);
+    }
     async markOfferAccepted(offerId: string): Promise<void> {
         const operation = Object.values(this.data.operations).find(candidate => candidate.offerId === offerId);
         if (!operation) return;

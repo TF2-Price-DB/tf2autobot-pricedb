@@ -138,6 +138,10 @@ export default class Trades {
     }
 
     onNewOffer(offer: TradeOffer): void {
+        void this.handleNewOffer(offer);
+    }
+
+    private async handleNewOffer(offer: TradeOffer): Promise<void> {
         if (offer.isGlitched()) {
             offer.log('debug', 'is glitched');
             return;
@@ -156,7 +160,17 @@ export default class Trades {
             return;
         }
 
-        if (this.bot.manncoStoreManager?.matchesPendingWithdrawalOffer(offer)) {
+        let isManncoWithdrawal = false;
+        try {
+            isManncoWithdrawal =
+                (await this.bot.manncoStoreManager?.reconcileAndMatchPendingWithdrawalOffer(offer)) ?? false;
+        } catch (err) {
+            offer.log('warn', 'could not reconcile pending Mannco.store withdrawal; leaving offer active');
+            log.error(`Could not reconcile Mannco.store withdrawal for offer #${offer.id}:`, err);
+            return;
+        }
+
+        if (isManncoWithdrawal) {
             offer.log('info', 'accepting matched Mannco.store withdrawal offer');
             void this.acceptOffer(offer)
                 .then(() => this.bot.manncoStoreManager.markOfferAccepted(String(offer.id)))

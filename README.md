@@ -11,8 +11,8 @@ This is a fork of [TF2Autobot](https://github.com/idinium96/tf2autobot), with ch
 It keeps the core behaviour and setup flow of the original project, but:
 
 -   Uses [pricedb.io](https://pricedb.io) as the default pricer.
--   Integrates the [pricedb.io](https://crit.tf) Store API so backpack.tf sell listings can be mirrored to pricedb.io.
--   Key Pricing Configuration to allow the key value context to be set (default same behaviour as autobot)
+-   Integrates the [pricedb.io](https://pricedb.io) Store API so backpack.tf sell listings can be mirrored to pricedb.io.
+-   Integrates Mannco.store inventory, buy-order, and withdrawal workflows.
 
 If you already know how to run TF2Autobot, you can treat this as a drop‑in replacement with the extra pricedb.io integration enabled.
 
@@ -138,6 +138,49 @@ If you want to use crit.tf follow the below
     ```
 
 After these changes, rebuild (if needed) and fully restart the bot so the new environment variable is picked up.
+
+---
+
+## Mannco.store configuration
+
+Mannco.store is optional and is enabled only when both its API key and the `options.json` setting below are present. Create an API key in your [Mannco.store account settings](https://mannco.store/), then set it in your process environment:
+
+```bash
+MANNCO_STORE_API_KEY=your_mannco_store_api_key_here
+```
+
+The supplied [ecosystem template](template.ecosystem.json) already contains this variable. In `options.json`, enable the integration:
+
+```json
+"miscSettings": {
+  "manncoStore": {
+    "enable": true
+  }
+}
+```
+
+Mannco listings use USD cents from the bot pricelist: `sellUsd` is required to deposit/list an item and `buyUsd` is required to create a buy order. A value of `76` represents `$0.76`. Mannco deposits and withdrawals are matched to their Steam trades and accepted automatically.
+
+### Mannco.store admin commands
+
+All Mannco commands require the sender to be a bot admin and require admin commands to be enabled. Parameter values use `&`, and multiple asset IDs can be separated by commas or semicolons.
+
+| Command                                                    | Description                                                                                                                     |
+| ---------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| `!mcosell sku=<sku>&amount=<quantity>&confirm=true`        | Deposit and list the requested number of matching tradable bot items at the pricelist USD sell price. `amount` defaults to `1`. |
+| `!mcosell assetid=<asset id>[,<asset id>]&confirm=true`    | Deposit and list one or more specific bot assets of the same SKU.                                                               |
+| `!mcolistings`                                             | List the bot's current Mannco.store sale listings and asset IDs.                                                                |
+| `!mcoupdate assetid=<asset id>&price=<cents>&confirm=true` | Change the price of one or more Mannco inventory assets. An eligible buy order can complete the sale immediately.               |
+| `!mcowithdraw assetid=<asset id>[,<asset id>]`             | Request one or more assets back to Steam; the matching trade is accepted automatically.                                         |
+| `!mcostatus`                                               | Reconcile and display tracked deposits and withdrawals, including completed/failed Mannco trade status.                         |
+| `!mcoresend tradeid=<Mannco trade id>`                     | Ask Mannco.store to resend an eligible trade.                                                                                   |
+| `!mcobuy sku=<sku>&quantity=<quantity>`                    | Create or update a buy order using the pricelist USD buy price. `quantity` defaults to `1`.                                     |
+| `!mcobuyorders [page=<number>]`                            | List active Mannco.store buy orders; page numbering starts at `0`.                                                              |
+| `!mcobuyremove itemid=<Mannco item id>`                    | Remove an active Mannco.store buy order.                                                                                        |
+| `!mcobalance`                                              | Show the Mannco.store balance.                                                                                                  |
+| `!mcosales`                                                | Show the last week's Mannco.store sales summary.                                                                                |
+
+Use `!mcolistings` to find Mannco asset IDs for `!mcoupdate` and `!mcowithdraw`. `!mcosell` and `!mcoupdate` require `confirm=true` because a matching Mannco buy order can sell the item immediately. See the [Mannco.store API documentation](https://docs.mannco.store/) for platform-level trade details.
 
 ---
 

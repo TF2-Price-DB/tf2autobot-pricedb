@@ -30,7 +30,9 @@ describe('ManncoStoreManager', () => {
             data: {
                 success: true,
                 err: false,
-                content: { trade: { trade: { status: 3, items_received: '1', item_to_received: '[{"new_assetid":"2"}]' } } }
+                content: {
+                    trade: { trade: { status: 3, items_received: '1', item_to_received: '[{"new_assetid":"2"}]' } }
+                }
             }
         });
 
@@ -117,6 +119,42 @@ describe('ManncoStoreManager', () => {
         expect(manager.getOperations()[0].status).toBe('matched');
         await manager.markOfferAcceptanceFailed('99', new Error('Steam unavailable'));
         expect(manager.getOperations()[0]).toMatchObject({ status: 'matched', lastError: 'Steam unavailable' });
+    });
+
+    test('matches a deposit offer regardless of asset-ID order', () => {
+        const manager = createManager();
+        const testManager = manager as unknown as { data: { operations: Record<string, unknown> } };
+        testManager.data.operations = {
+            'deposit:42': {
+                id: 'deposit:42',
+                type: 'deposit',
+                status: 'pending',
+                createdAt: 1,
+                expectedSteamAssetIds: ['10', '2'],
+                manncoAssetIds: []
+            }
+        };
+
+        expect(
+            manager.matchesPendingDepositOffer({
+                id: '99',
+                itemsToGive: [{ assetid: '2' }, { assetid: '10' }],
+                itemsToReceive: []
+            })
+        ).toBe(true);
+    });
+
+    test('creates unique cryptographic operation IDs', () => {
+        const manager = createManager();
+        const testManager = manager as unknown as {
+            createOperation: (type: 'deposit' | 'withdrawal', assetIds: string[]) => { id: string };
+        };
+
+        const first = testManager.createOperation('withdrawal', ['1']);
+        const second = testManager.createOperation('withdrawal', ['1']);
+
+        expect(first.id).toMatch(/^withdrawal:creating:\d+:[0-9a-f-]{36}$/);
+        expect(second.id).not.toBe(first.id);
     });
 
     test('reconciles a withdrawal when its Steam offer arrives before the periodic check', async () => {

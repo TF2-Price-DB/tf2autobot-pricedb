@@ -1,4 +1,5 @@
 import axios, { AxiosError, AxiosInstance } from 'axios';
+import { randomUUID } from 'crypto';
 import { EventEmitter } from 'events';
 import filterAxiosError from '@tf2autobot/filter-axios-error';
 import log from '../lib/logger';
@@ -33,13 +34,13 @@ export interface ManncoDepositTrade {
 export type ManncoDepositStatus = -1 | 0 | 3;
 
 interface ManncoDepositStatusTrade {
-        id?: string | number;
-        status?: ManncoDepositStatus;
-        items_received?: string;
-        item_to_received?: string;
+    id?: string | number;
+    status?: ManncoDepositStatus;
+    items_received?: string;
+    item_to_received?: string;
     state?: number;
-        game?: number;
-        offerid?: string | number;
+    game?: number;
+    offerid?: string | number;
 }
 
 interface ManncoDepositStatusResponse {
@@ -263,7 +264,8 @@ export default class ManncoStoreManager extends EventEmitter {
         const hasSteamTrade = content.trade.trade !== undefined;
         const trade = content.trade.trade || content.trade;
         if (!hasSteamTrade && trade.status === undefined) return { trade: { ...trade, status: 0 } };
-        if (![-1, 0, 3].includes(trade.status)) throw new Error(`Mannco.store returned an invalid status for deposit ${tradeId}`);
+        if (![-1, 0, 3].includes(trade.status))
+            throw new Error(`Mannco.store returned an invalid status for deposit ${tradeId}`);
 
         const manncoAssetIds = this.getManncoAssetIds(trade.item_to_received);
         return {
@@ -297,12 +299,9 @@ export default class ManncoStoreManager extends EventEmitter {
     }
 
     private async areAssetsOnSale(assetIds: string[]): Promise<boolean> {
-        const onSaleAssetIds = new Set(
-            (await this.getOnSaleItems()).flatMap(item => this.splitAssetIds(item.ids))
-        );
+        const onSaleAssetIds = new Set((await this.getOnSaleItems()).flatMap(item => this.splitAssetIds(item.ids)));
         return assetIds.every(assetId => onSaleAssetIds.has(assetId));
     }
-
 
     async getBalance(): Promise<number> {
         const content = await this.request<{ balance: number }>('get', '/user/balance');
@@ -467,7 +466,7 @@ export default class ManncoStoreManager extends EventEmitter {
     }
 
     private createOperation(type: ManncoOperation['type'], expectedSteamAssetIds: string[]): ManncoOperation {
-        const id = `${type}:creating:${Date.now()}:${Math.random().toString(36).slice(2, 8)}`;
+        const id = `${type}:creating:${Date.now()}:${randomUUID()}`;
         const operation: ManncoOperation = {
             id,
             type,
@@ -558,8 +557,7 @@ export default class ManncoStoreManager extends EventEmitter {
                 `Could not uniquely map all deposited Mannco.store assets for ${sku}; automatic repricing is disabled for them`
             );
         } else {
-            if (!(await this.areAssetsOnSale(manncoAssetIds)))
-                await this.listInventory(manncoAssetIds, price);
+            if (!(await this.areAssetsOnSale(manncoAssetIds))) await this.listInventory(manncoAssetIds, price);
             this.registerListingAssets(sku, manncoAssetIds);
             const itemIds = [...new Set(assets.map(asset => asset.itemId))];
             if (itemIds.length === 1) {
@@ -596,11 +594,11 @@ export default class ManncoStoreManager extends EventEmitter {
             return false;
         }
 
-        const offerAssetIds = offer.itemsToGive.map(item => item.assetid).sort();
+        const offerAssetIds = offer.itemsToGive.map(item => item.assetid).sort((a, b) => a.localeCompare(b));
         const operation = Object.values(this.data.operations).find(candidate => {
             if (candidate.type !== 'deposit' || !['creating', 'pending', 'matched'].includes(candidate.status))
                 return false;
-            const expected = candidate.expectedSteamAssetIds.slice().sort();
+            const expected = candidate.expectedSteamAssetIds.slice().sort((a, b) => a.localeCompare(b));
             return (
                 expected.length === offerAssetIds.length && expected.every((assetId, i) => assetId === offerAssetIds[i])
             );
@@ -651,13 +649,16 @@ export default class ManncoStoreManager extends EventEmitter {
     }): Promise<boolean> {
         const hasPendingWithdrawal = Object.values(this.data.operations).some(
             operation =>
-                operation.type === 'withdrawal' && ['pending', 'matched'].includes(operation.status) && !operation.offerId
+                operation.type === 'withdrawal' &&
+                ['pending', 'matched'].includes(operation.status) &&
+                !operation.offerId
         );
         if (!hasPendingWithdrawal) return this.matchesPendingWithdrawalOffer(offer);
 
         await this.reconcileOperations();
         return this.matchesPendingWithdrawalOffer(offer);
     }
+
     async markOfferAccepted(offerId: string): Promise<void> {
         const operation = Object.values(this.data.operations).find(candidate => candidate.offerId === offerId);
         if (!operation) return;
@@ -870,12 +871,7 @@ export default class ManncoStoreManager extends EventEmitter {
             const parsed: unknown = JSON.parse(items);
             if (!Array.isArray(parsed)) return [];
             return parsed.flatMap(item => {
-                if (
-                    typeof item === 'object' &&
-                    item !== null &&
-                    'new_assetid' in item &&
-                    typeof item.new_assetid === 'string'
-                ) {
+                if (isRecord(item) && typeof item.new_assetid === 'string') {
                     return [item.new_assetid];
                 }
                 return [];

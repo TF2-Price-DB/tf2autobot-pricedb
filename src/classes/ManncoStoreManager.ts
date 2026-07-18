@@ -716,7 +716,7 @@ export default class ManncoStoreManager extends EventEmitter {
 
         let response: PriceDbManncoItem;
         try {
-            response = (await this.priceDbApi.get<PriceDbManncoItem>('/mannco', { params: { sku } })).data;
+            response = (await this.priceDbApi.get<PriceDbManncoItem>(`/mannco/${encodeURIComponent(sku)}`)).data;
         } catch (err) {
             const status = (err as AxiosError).response?.status;
             if (status === 404) {

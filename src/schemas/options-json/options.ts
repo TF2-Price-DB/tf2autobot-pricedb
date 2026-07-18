@@ -1621,9 +1621,12 @@ export const optionsSchema: jsonschema.Schema = {
                 },
                 expressLoad: {
                     $ref: '#/definitions/only-enable'
+                },
+                steamBotInfo: {
+                    $ref: '#/definitions/only-enable'
                 }
             },
-            required: ['steamSupply', 'steamApis', 'expressLoad'],
+            required: ['steamSupply', 'steamApis', 'expressLoad', 'steamBotInfo'],
             additionalProperties: false
         },
         discordChat: {

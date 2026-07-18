@@ -529,6 +529,9 @@ export const DEFAULTS: JsonOptions = {
         },
         expressLoad: {
             enable: false
+        },
+        steamBotInfo: {
+            enable: false
         }
     },
 
@@ -1692,6 +1695,7 @@ interface InventoryApis {
     steamSupply?: OnlyEnable;
     steamApis?: OnlyEnable;
     expressLoad?: OnlyEnable;
+    steamBotInfo?: OnlyEnable;
 }
 
 // ------------ Discord Chat ---------------
@@ -2280,6 +2284,7 @@ export default interface Options extends JsonOptions {
     steamSupplyApiKey?: string;
     steamApisApiKey?: string;
     expressLoadApiKey?: string;
+    steamBotInfoApiKey?: string;
     journalTfEnable?: boolean;
     journalTfApiKey?: string;
 
@@ -2605,6 +2610,7 @@ export function loadOptions(options?: Options): Options {
         steamSupplyApiKey: getOption('steamsupplyApiKey', '', String, incomingOptions),
         steamApisApiKey: getOption('steamapisApiKey', '', String, incomingOptions),
         expressLoadApiKey: getOption('expressloadApiKey', '', String, incomingOptions),
+        steamBotInfoApiKey: getOption('steambotInfoApiKey', '', String, incomingOptions),
         journalTfEnable: getOption('journalTfEnable', false, jsonParseBoolean, incomingOptions),
         journalTfApiKey: getOption('journalTfApiKey', '', String, incomingOptions),
 

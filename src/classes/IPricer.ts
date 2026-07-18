@@ -30,6 +30,10 @@ export default interface IPricer {
     init(enabled: boolean): void;
 
     bindHandlePriceEvent(onPriceChange: (item: GetItemPriceResponse) => void): void;
+
+    bindHandlePricelistEntryEnabledEvent?(
+        onPricelistEntryEnabledChange: (event: PricelistEntryEnabledEvent) => void
+    ): void;
 }
 
 export type RequestCheckFn = (sku: string) => Promise<RequestCheckResponse>;
@@ -46,6 +50,8 @@ export interface Item {
     time: number;
     buy: Currencies | null;
     sell: Currencies | null;
+    buyUsd?: number;
+    sellUsd?: number;
 }
 
 export interface Links {
@@ -62,7 +68,14 @@ export interface GetItemPriceResponse {
     time?: number;
     buy?: Currencies;
     sell?: Currencies;
+    buyUsd?: number;
+    sellUsd?: number;
     message?: string;
+}
+
+export interface PricelistEntryEnabledEvent {
+    sku: string;
+    enabled: boolean;
 }
 
 export interface Sale {

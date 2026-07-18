@@ -2,5 +2,8 @@
 module.exports = {
     preset: 'ts-jest',
     testEnvironment: 'node',
-    testMatch: ['**/__tests__/**/*.ts?(x)', '**/?(*.)+(spec|test).ts?(x)']
+    testMatch: ['**/__tests__/**/*.ts?(x)', '**/?(*.)+(spec|test).ts?(x)'],
+    moduleNameMapper: {
+        '^dot-prop$': '<rootDir>/src/__mocks__/dot-prop.ts'
+    }
 };

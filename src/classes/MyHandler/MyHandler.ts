@@ -1159,13 +1159,8 @@ export default class MyHandler extends Handler {
         const itemPrices: Prices = {};
 
         const keyPrices = this.bot.pricelist.getKeyPrices;
-        // Original autobot behavior: single keyPrice for entire offer based on keyOurSide
-        // Used for autokeys (key-only trades) OR when useSeparateKeyRates is disabled
+        // Original autobot behavior: one key price for the entire offer.
         const keyPrice = keyPrices[keyOurSide ? 'sell' : 'buy'];
-        // Detect if this is a key-only trade (autokeys) - no items, just keys and/or metal
-        const isKeyOnlyTrade = exchange.contains.keys && !exchange.contains.items;
-        // Use separate key rates only for item trades when the setting is enabled
-        const useSeparateRates = !isKeyOnlyTrade && opt.miscSettings.counterOffer.useSeparateKeyRates;
         let hasOverstockAndIsPartialPriced = false;
         let assetidsToCheck: string[] = [];
         let skuToCheck: string[] = [];
@@ -1191,13 +1186,7 @@ export default class MyHandler extends Handler {
             if (exchange[which].contains.pricedAssets) {
                 for (const id of exchange[which].pricedAssetIds) {
                     const match = this.bot.pricelist.getPrice({ priceKey: id });
-                    // Add value of items - use separate rates only for item trades when setting enabled
-                    const keyPriceToUse = useSeparateRates
-                        ? which === 'our'
-                            ? keyPrices.sell
-                            : keyPrices.buy
-                        : keyPrice;
-                    exchange[which].value += match[intentString].toValue(keyPriceToUse.metal);
+                    exchange[which].value += match[intentString].toValue(keyPrice.metal);
                     exchange[which].keys += match[intentString].keys;
                     exchange[which].scrap += Currencies.toScrap(match[intentString].metal);
                     itemPrices[id] = {
@@ -1283,13 +1272,7 @@ export default class MyHandler extends Handler {
                         // If we found a matching price and the item is not a key, or the we are not trading items
                         // (meaning that we are trading keys) then add the price of the item
 
-                        // Add value of items - use separate rates only for item trades when setting enabled
-                        const keyPriceToUse = useSeparateRates
-                            ? which === 'our'
-                                ? keyPrices.sell
-                                : keyPrices.buy
-                            : keyPrice;
-                        exchange[which].value += match[intentString].toValue(keyPriceToUse.metal) * amount;
+                        exchange[which].value += match[intentString].toValue(keyPrice.metal) * amount;
                         exchange[which].keys += match[intentString].keys * amount;
                         exchange[which].scrap += Currencies.toScrap(match[intentString].metal) * amount;
 
@@ -1403,14 +1386,8 @@ export default class MyHandler extends Handler {
                         }
                         //
                     } else if (sku === '5021;6' && exchange.contains.items) {
-                        // Offer contains keys and we are not trading keys, add key value
-                        // Use separate rates only for item trades when setting enabled
-                        const keyPriceToUse = useSeparateRates
-                            ? which === 'our'
-                                ? keyPrices.sell
-                                : keyPrices.buy
-                            : keyPrice;
-                        exchange[which].value += keyPriceToUse.toValue() * amount;
+                        // Offer contains keys alongside items; value them at the offer's single key rate.
+                        exchange[which].value += keyPrice.toValue() * amount;
                         exchange[which].keys += amount;
                         //
                     } else if (
@@ -1458,13 +1435,7 @@ export default class MyHandler extends Handler {
                                 ) {
                                     // if offerReceived.invalidItems.givePrice is set to true (enable) and items is not skins/war paint/crate/cases,
                                     // then give that item price and include in exchange
-                                    // Use separate rates only for item trades when setting enabled
-                                    const keyPriceToUse = useSeparateRates
-                                        ? which === 'our'
-                                            ? keyPrices.sell
-                                            : keyPrices.buy
-                                        : keyPrice;
-                                    exchange[which].value += price[intentString].toValue(keyPriceToUse.metal) * amount;
+                                    exchange[which].value += price[intentString].toValue(keyPrice.metal) * amount;
                                     exchange[which].keys += price[intentString].keys * amount;
                                     exchange[which].scrap += Currencies.toScrap(price[intentString].metal) * amount;
                                 }
@@ -1496,19 +1467,10 @@ export default class MyHandler extends Handler {
 
         // Doing this so that the prices will always be displayed as only metal
         if (opt.miscSettings.showOnlyMetal.enable) {
-            if (useSeparateRates) {
-                // Item trade with separate rates enabled
-                exchange.our.scrap += exchange.our.keys * keyPrices.sell.toValue();
-                exchange.our.keys = 0;
-                exchange.their.scrap += exchange.their.keys * keyPrices.buy.toValue();
-                exchange.their.keys = 0;
-            } else {
-                // Autokeys or separate rates disabled - use single keyPrice
-                exchange.our.scrap += exchange.our.keys * keyPrice.toValue();
-                exchange.our.keys = 0;
-                exchange.their.scrap += exchange.their.keys * keyPrice.toValue();
-                exchange.their.keys = 0;
-            }
+            exchange.our.scrap += exchange.our.keys * keyPrice.toValue();
+            exchange.our.keys = 0;
+            exchange.their.scrap += exchange.their.keys * keyPrice.toValue();
+            exchange.their.keys = 0;
         }
 
         offer.data('value', {
@@ -1522,13 +1484,7 @@ export default class MyHandler extends Handler {
                 keys: exchange.their.keys,
                 metal: Currencies.toRefined(exchange.their.scrap)
             },
-            rate: keyPrice.metal,
-            ...(useSeparateRates && {
-                rates: {
-                    buy: keyPrices.buy.metal,
-                    sell: keyPrices.sell.metal
-                }
-            })
+            rate: keyPrice.metal
         });
 
         offer.data('prices', itemPrices);

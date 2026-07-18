@@ -6,6 +6,7 @@ import SteamCommunity from '@tf2autobot/steamcommunity';
 import SteamTotp from 'steam-totp';
 import ListingManager, { Listing } from '@tf2autobot/bptf-listings';
 import PriceDBStoreManager from './PriceDBStoreManager';
+import ManncoStoreManager, { ManncoPricelistItem } from './ManncoStoreManager';
 import JournalTfManager from './JournalTfManager';
 import SchemaManager, { Effect, StrangeParts } from '@tf2autobot/tf2-schema';
 import BptfLogin from '@tf2autobot/bptf-login';
@@ -102,6 +103,8 @@ export default class Bot {
     listingManager: ListingManager;
 
     pricedbStoreManager: PriceDBStoreManager;
+
+    manncoStoreManager: ManncoStoreManager;
 
     journalTfManager?: JournalTfManager;
 
@@ -626,17 +629,17 @@ export default class Bot {
                 if (process.platform === 'win32') {
                     messages = [
                         '\n💻 To update run the following command inside your tf2autobot directory using Command Prompt:\n',
-                        '/code rmdir /s /q node_modules dist && git reset HEAD --hard && git pull --prune && npm install --no-audit && npm run build && node dist/app.js'
+                        '/code rmdir /s /q node_modules dist && git reset HEAD --hard && git pull --prune && npm ci --no-audit && npm run build && node dist/app.js'
                     ];
                 } else if (['win32', 'linux', 'darwin', 'openbsd', 'freebsd'].includes(process.platform)) {
                     messages = [
                         '\n💻 To update run the following command inside your tf2autobot directory:\n',
-                        '/code rm -r node_modules dist && git reset HEAD --hard && git pull --prune && npm install --no-audit && npm run build && pm2 restart ecosystem.json'
+                        '/code rm -r node_modules dist && git reset HEAD --hard && git pull --prune && npm ci --no-audit && npm run build && pm2 restart ecosystem.json'
                     ];
                 } else {
                     messages = [
                         '❌ Failed to find what OS your server is running! Kindly run the following standard command for most users inside your tf2autobot folder:\n',
-                        '/code rm -r node_modules dist && git reset HEAD --hard && git pull --prune && npm install --no-audit && npm run build && pm2 restart ecosystem.json'
+                        '/code rm -r node_modules dist && git reset HEAD --hard && git pull --prune && npm ci --no-audit && npm run build && pm2 restart ecosystem.json'
                     ];
                 }
 
@@ -1271,6 +1274,135 @@ export default class Bot {
                                         .catch(err => cb(err as Error));
                                 },
                                 (cb: Callback): void => {
+                                    if (
+                                        !this.options.manncoStoreApiKey ||
+                                        !this.options.miscSettings.manncoStore.enable
+                                    ) {
+                                        log.debug(
+                                            'Skipping Mannco.store manager initialization (not configured or disabled)'
+                                        );
+                                        cb(null);
+                                        return;
+                                    }
+
+                                    this.manncoStoreManager = new ManncoStoreManager(
+                                        this.options.manncoStoreApiKey,
+                                        this.handler.getPaths.files.manncoData
+                                    );
+                                    this.manncoStoreManager.on('error', (err: unknown) => {
+                                        log.error('Mannco.store manager error:', err);
+                                    });
+
+                                    this.manncoStoreManager.on('listingUpdated', listing => {
+                                        log.debug('Mannco.store listing updated:', listing.sku);
+                                    });
+
+                                    this.manncoStoreManager.on('listingsNoLongerOnSale', (skus: string[]) => {
+                                        log.info(
+                                            `Mannco.store listings are no longer on sale: ${skus.join(', ')}. ` +
+                                                'They may have sold, been withdrawn, or been instantly bought.'
+                                        );
+                                    });
+
+                                    this.pricelist.on('price', (_priceKey: string, entry: Entry) => {
+                                        if (entry.sellUsd !== undefined) {
+                                            void this.manncoStoreManager
+                                                .repriceSku(entry.sku, entry.sellUsd)
+                                                .catch(err => {
+                                                    log.error(
+                                                        `Failed to update Mannco.store listing for ${entry.sku}:`,
+                                                        err
+                                                    );
+                                                });
+                                        }
+                                        const buyOrder = this.manncoStoreManager.getBuyOrder(entry.sku);
+                                        if (entry.autoprice && entry.buyUsd !== undefined && buyOrder) {
+                                            void this.manncoStoreManager
+                                                .upsertBuyOrder(
+                                                    entry.sku,
+                                                    buyOrder.itemId,
+                                                    buyOrder.amount,
+                                                    entry.buyUsd
+                                                )
+                                                .catch(err => {
+                                                    log.error(
+                                                        `Failed to update Mannco.store buy order for ${entry.sku}:`,
+                                                        err
+                                                    );
+                                                });
+                                        }
+                                    });
+
+                                    this.manncoStoreManager
+                                        .init()
+                                        .then(async () => {
+                                            const reconcileManncoListings = async (): Promise<void> => {
+                                                const pricelistItems = Object.keys(this.pricelist.getPrices).reduce(
+                                                    (items: ManncoPricelistItem[], sku: string) => {
+                                                        const entry = this.pricelist.getPrice({
+                                                            priceKey: sku,
+                                                            onlyEnabled: false
+                                                        });
+                                                        if (entry?.sellUsd !== undefined) {
+                                                            items.push({ sku: entry.sku, sellUsd: entry.sellUsd });
+                                                        }
+                                                        return items;
+                                                    },
+                                                    []
+                                                );
+                                                const reconciliation = await this.manncoStoreManager.reconcileListings(
+                                                    await this.manncoStoreManager.getOnSaleItems(),
+                                                    pricelistItems
+                                                );
+                                                if (reconciliation.importedSkus.length > 0) {
+                                                    for (const sku of reconciliation.importedSkus) {
+                                                        const entry = this.pricelist.getPrice({
+                                                            priceKey: sku,
+                                                            onlyEnabled: false
+                                                        });
+                                                        if (entry?.sellUsd === undefined) continue;
+
+                                                        try {
+                                                            await this.manncoStoreManager.repriceSku(
+                                                                sku,
+                                                                entry.sellUsd
+                                                            );
+                                                        } catch (err) {
+                                                            log.warn(
+                                                                `Could not apply the pricelist USD sell price to imported Mannco.store listing ${sku}:`,
+                                                                err
+                                                            );
+                                                        }
+                                                    }
+                                                    log.info(
+                                                        `Imported ${reconciliation.importedSkus.length} existing Mannco.store listing SKU(s)`
+                                                    );
+                                                }
+                                            };
+
+                                            try {
+                                                await reconcileManncoListings();
+                                            } catch (err) {
+                                                log.warn('Could not reconcile Mannco.store listings at startup:', err);
+                                            }
+                                            setInterval(() => {
+                                                void reconcileManncoListings().catch(err => {
+                                                    log.warn('Could not reconcile Mannco.store listings:', err);
+                                                });
+                                            }, 5 * 60 * 1000);
+                                            setInterval(() => {
+                                                void this.manncoStoreManager.reconcileOperations().catch(err => {
+                                                    log.warn(
+                                                        'Could not reconcile Mannco.store pending operations:',
+                                                        err
+                                                    );
+                                                });
+                                            }, 30 * 1000);
+                                            cb(null);
+                                        })
+                                        .catch(err => cb(err as Error));
+                                },
+                                (cb: Callback): void => {
                                     if (this.options.skipUpdateProfileSettings) {
                                         cb(null);
                                         return;
@@ -1463,7 +1595,7 @@ export default class Bot {
 
     private get getCookies(): string[] {
         const cookies = this.community._jar
-            .getCookies('https://steamcommunity.com')
+            .getCookiesSync('https://steamcommunity.com')
             .filter(cookie => ['sessionid', 'steamLogin', 'steamLoginSecure'].includes(cookie.key))
             .map(cookie => `${cookie.key}=${cookie.value}`);
         return cookies;
@@ -1691,24 +1823,15 @@ export default class Bot {
         }
     }
 
-    private refreshTradeOfferUrl(): Promise<void> {
-        return new Promise((resolve, reject) => {
-            this.community.getTradeURL((err, url) => {
-                if (err) {
-                    reject(err);
-                    return;
-                }
+    private async refreshTradeOfferUrl(): Promise<void> {
+        const { url } = await this.client.getTradeURL();
 
-                if (!url) {
-                    reject(new Error('Steam did not return a trade offer URL'));
-                    return;
-                }
+        if (!url) {
+            throw new Error('Steam did not return a trade offer URL');
+        }
 
-                this.tradeOfferUrl = url;
-                this.cacheTradeOfferUrl(url);
-                resolve();
-            });
-        });
+        this.tradeOfferUrl = url;
+        this.cacheTradeOfferUrl(url);
     }
 
     private scheduleTradeOfferUrlRetry(attempt = 1): void {

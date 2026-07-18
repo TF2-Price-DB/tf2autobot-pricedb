@@ -13,6 +13,8 @@ declare module 'steam-user' {
             locked: boolean,
             canInviteFriends: boolean
         ) => void;
+        gamesPlayed(apps: Apps, force?: boolean): void;
+        getTradeURL(): Promise<{ token: string; url: string }>;
         friendMessage: (senderID: SteamID, message: string) => void;
         friendRelationship: (steamID: SteamID, relationship: number) => void;
         groupRelationship: (groupID: SteamID, relationship: number) => void;
@@ -508,6 +510,8 @@ declare module 'steam-user' {
         setPersona(state: number, name?: string): void;
 
         gamesPlayed(apps: Apps, force?: boolean): void;
+
+        getTradeURL(): Promise<{ token: string; url: string }>;
 
         chatMessage(recipient: SteamID | string, message: string): void;
 

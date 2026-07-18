@@ -4,6 +4,7 @@ import IPricer, {
     GetItemPriceResponse,
     GetPricelistResponse,
     Item,
+    PricelistEntryEnabledEvent,
     PricerOptions,
     RequestCheckResponse
 } from '../../../classes/IPricer';
@@ -25,6 +26,8 @@ export default class CustomPricer implements IPricer {
         return {
             buy: r.buy ? new Currencies(r.buy) : null,
             sell: r.sell ? new Currencies(r.sell) : null,
+            buyUsd: r.buyUsd,
+            sellUsd: r.sellUsd,
             sku: r.sku,
             source: r.source,
             time: r.time
@@ -43,6 +46,8 @@ export default class CustomPricer implements IPricer {
             time: response.time,
             buy: response.buy ? new Currencies(response.buy) : null,
             sell: response.sell ? new Currencies(response.sell) : null,
+            buyUsd: response.buyUsd,
+            sellUsd: response.sellUsd,
             message: response.message
         };
     }
@@ -62,7 +67,9 @@ export default class CustomPricer implements IPricer {
                 source: i.source,
                 time: i.time,
                 buy: i.buy ? new Currencies(i.buy) : null,
-                sell: i.sell ? new Currencies(i.sell) : null
+                sell: i.sell ? new Currencies(i.sell) : null,
+                buyUsd: i.buyUsd,
+                sellUsd: i.sellUsd
             }))
         };
     }
@@ -97,6 +104,14 @@ export default class CustomPricer implements IPricer {
         this.socketManager.on('price', (data: CustomPricesGetItemPriceResponse) => {
             const item = this.parsePricesGetItemPriceResponse(data);
             onPriceChange(item);
+        });
+    }
+
+    bindHandlePricelistEntryEnabledEvent(
+        onPricelistEntryEnabledChange: (event: PricelistEntryEnabledEvent) => void
+    ): void {
+        this.socketManager.on('enabled', (event: PricelistEntryEnabledEvent) => {
+            onPricelistEntryEnabledChange(event);
         });
     }
 }

@@ -4,11 +4,15 @@
 
 This is a fork of [TF2Autobot](https://github.com/idinium96/tf2autobot), with changes made to work and use [pricedb.io](https://pricedb.io) as the default pricing source after the shutdown of prices.tf.
 
+## Requirements
+
+-   Node.js 22.x or a newer LTS release
+
 It keeps the core behaviour and setup flow of the original project, but:
 
 -   Uses [pricedb.io](https://pricedb.io) as the default pricer.
--   Integrates the [pricedb.io](https://crit.tf) Store API so backpack.tf sell listings can be mirrored to pricedb.io.
--   Key Pricing Configuration to allow the key value context to be set (default same behaviour as autobot)
+-   Integrates the [pricedb.io](https://pricedb.io) Store API so backpack.tf sell listings can be mirrored to pricedb.io.
+-   Integrates Mannco.store inventory, buy-order, and withdrawal workflows.
 
 If you already know how to run TF2Autobot, you can treat this as a drop‑in replacement with the extra pricedb.io integration enabled.
 
@@ -137,50 +141,46 @@ After these changes, rebuild (if needed) and fully restart the bot so the new en
 
 ---
 
-## Key Pricing Configuration
+## Mannco.store configuration
 
-The bot supports configurable key pricing behavior when calculating trade values to ensure accurate valuations.
+Mannco.store is optional and is enabled only when both its API key and the `options.json` setting below are present. Create an API key in your [Mannco.store account settings](https://mannco.store/), then set it in your process environment:
 
-### Configuration Option
+```bash
+MANNCO_STORE_API_KEY=your_mannco_store_api_key_here
+```
 
-In your `options.json`, under `miscSettings.counterOffer`, you can control how key prices are used:
+The supplied [ecosystem template](template.ecosystem.json) already contains this variable. In `options.json`, enable the integration:
 
 ```json
-"counterOffer": {
-  "enable": true,
-  "useSeparateKeyRates": true
+"miscSettings": {
+  "manncoStore": {
+    "enable": true
+  }
 }
 ```
 
-### Behavior
+Mannco listings use USD cents from the bot pricelist: `sellUsd` is required to deposit/list an item and `buyUsd` is required to create a buy order. A value of `76` represents `$0.76`. Mannco deposits and withdrawals are matched to their Steam trades and accepted automatically.
 
-**When `useSeparateKeyRates: true`:**
+### Mannco.store admin commands
 
--   Uses **sell price** when calculating the value of keys the bot is giving
--   Uses **buy price** when calculating the value of keys the bot is receiving
--   This ensures bot-favorable pricing in all trade calculations
+All Mannco commands require the sender to be a bot admin and require admin commands to be enabled. Parameter values use `&`, and multiple asset IDs can be separated by commas or semicolons.
 
-**When `useSeparateKeyRates: false` (default):**
+| Command                                                    | Description                                                                                                                     |
+| ---------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| `!mcosell sku=<sku>&amount=<quantity>&confirm=true`        | Deposit and list the requested number of matching tradable bot items at the pricelist USD sell price. `amount` defaults to `1`. |
+| `!mcosell assetid=<asset id>[,<asset id>]&confirm=true`    | Deposit and list one or more specific bot assets of the same SKU.                                                               |
+| `!mcolistings`                                             | List the bot's current Mannco.store sale listings and asset IDs.                                                                |
+| `!mcoupdate assetid=<asset id>&price=<cents>&confirm=true` | Change the price of one or more Mannco inventory assets. An eligible buy order can complete the sale immediately.               |
+| `!mcowithdraw assetid=<asset id>[,<asset id>]`             | Request one or more assets back to Steam; the matching trade is accepted automatically.                                         |
+| `!mcostatus`                                               | Reconcile and display tracked deposits and withdrawals, including completed/failed Mannco trade status.                         |
+| `!mcoresend tradeid=<Mannco trade id>`                     | Ask Mannco.store to resend an eligible trade.                                                                                   |
+| `!mcobuy sku=<sku>&quantity=<quantity>`                    | Create or update a buy order using the pricelist USD buy price. `quantity` defaults to `1`.                                     |
+| `!mcobuyorders [page=<number>]`                            | List active Mannco.store buy orders; page numbering starts at `0`.                                                              |
+| `!mcobuyremove itemid=<Mannco item id>`                    | Remove an active Mannco.store buy order.                                                                                        |
+| `!mcobalance`                                              | Show the Mannco.store balance.                                                                                                  |
+| `!mcosales`                                                | Show the last week's Mannco.store sales summary.                                                                                |
 
--   Uses **sell price** for keys on both sides of the trade
--   Maintains the original bot behavior
-
-### Why This Matters
-
-When processing offers, the bot needs to calculate the total value of items on each side of the trade. Keys are valued differently depending on whether the bot is buying or selling them.
-
-With `useSeparateKeyRates: true`, the bot will:
-
--   Value keys in "our items" (bot is giving) at the **sell price**
--   Value keys in "their items" (bot is receiving) at the **buy price**
-
-This prevents value calculation errors and ensures the bot maintains proper profit margins when keys are involved in trades. The setting affects both initial offer processing and counter offer generation.
-
-**Example:**
-If key buy price is 60 ref and sell price is 61 ref:
-
--   `useSeparateKeyRates: true`: When bot gives 1 key, it's valued at 61 ref; when bot receives 1 key, it's valued at 60 ref
--   `useSeparateKeyRates: false`: All keys valued at 61 ref (sell price) regardless of direction (default autobot behaviour)
+Use `!mcolistings` to find Mannco asset IDs for `!mcoupdate` and `!mcowithdraw`. `!mcosell` and `!mcoupdate` require `confirm=true` because a matching Mannco buy order can sell the item immediately. See the [Mannco.store API documentation](https://docs.mannco.store/) for platform-level trade details.
 
 ---
 

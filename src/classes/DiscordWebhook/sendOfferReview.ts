@@ -220,4 +220,5 @@ interface Links {
     steam: string;
     bptf: string;
     reptf: string;
+    mannco: string;
 }

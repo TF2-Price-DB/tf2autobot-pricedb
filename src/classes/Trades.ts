@@ -67,10 +67,6 @@ export default class Trades {
 
     private restartOnEscrowCheckFailed: NodeJS.Timeout;
 
-    private retryAcceptOffer: UnknownDictionary<boolean> = {};
-
-    private resetRetryAcceptOfferTimeout: NodeJS.Timeout;
-
     private retryFetchInventoryTimeout: NodeJS.Timeout;
 
     private calledRetryFetchFreq = 0;
@@ -142,12 +138,49 @@ export default class Trades {
     }
 
     onNewOffer(offer: TradeOffer): void {
+        void this.handleNewOffer(offer);
+    }
+
+    private async handleNewOffer(offer: TradeOffer): Promise<void> {
         if (offer.isGlitched()) {
             offer.log('debug', 'is glitched');
             return;
         }
 
         offer.log('info', 'received offer');
+
+        if (this.bot.manncoStoreManager?.matchesPendingDepositOffer(offer)) {
+            offer.log('info', 'accepting matched Mannco.store deposit offer');
+            void this.acceptOffer(offer)
+                .then(() => this.bot.manncoStoreManager.markOfferAccepted(String(offer.id)))
+                .catch(err => {
+                    void this.bot.manncoStoreManager.markOfferAcceptanceFailed(String(offer.id), err as Error);
+                    log.error(`Failed to accept Mannco.store deposit offer #${offer.id}:`, err);
+                });
+            return;
+        }
+
+        let isManncoWithdrawal = false;
+        try {
+            isManncoWithdrawal =
+                (await this.bot.manncoStoreManager?.reconcileAndMatchPendingWithdrawalOffer(offer)) ?? false;
+        } catch (err) {
+            offer.log('warn', 'could not reconcile pending Mannco.store withdrawal; leaving offer active');
+            log.error(`Could not reconcile Mannco.store withdrawal for offer #${offer.id}:`, err);
+            return;
+        }
+
+        if (isManncoWithdrawal) {
+            offer.log('info', 'accepting matched Mannco.store withdrawal offer');
+            void this.acceptOffer(offer)
+                .then(() => this.bot.manncoStoreManager.markOfferAccepted(String(offer.id)))
+                .catch(err => {
+                    void this.bot.manncoStoreManager.markOfferAcceptanceFailed(String(offer.id), err as Error);
+                    log.error(`Failed to accept Mannco.store withdrawal offer #${offer.id}:`, err);
+                });
+            return;
+        }
+
         this.enqueueOffer(offer);
     }
 
@@ -694,21 +727,6 @@ export default class Trades {
                                         );
                                     }
                                 }
-
-                                if (!this.retryAcceptOffer[offer.id]) {
-                                    // Only retry once
-                                    clearTimeout(this.resetRetryAcceptOfferTimeout);
-                                    this.retryAcceptOffer[offer.id] = true;
-
-                                    setTimeout(() => {
-                                        // Auto-retry after 30 seconds
-                                        void this.retryActionAfterFailure(offer.id, 'accept');
-                                    }, 30 * 1000);
-                                }
-
-                                this.resetRetryAcceptOfferTimeout = setTimeout(() => {
-                                    this.retryAcceptOffer = {};
-                                }, 2 * 60 * 1000);
                             }
                         });
                     }
@@ -770,10 +788,9 @@ export default class Trades {
                             : "Your offer contains wrong value. You've probably made a few mistakes, here's the correct offer."
                     );
 
-                    function getPureValue(sku: PureSKU, side?: 'our' | 'their') {
+                    function getPureValue(sku: PureSKU) {
                         if (sku === '5021;6') {
-                            // Use sell price for our keys, buy price for their keys
-                            return side === 'our' ? keyPriceSellScrap : keyPriceBuyScrap;
+                            return keyPriceScrap;
                         }
                         const pures: PureSKU[] = ['5000;6', '5001;6', '5002;6'];
                         const index = pures.indexOf(sku);
@@ -788,7 +805,8 @@ export default class Trades {
                         overpay?: boolean,
                         whichSide?: 'our' | 'their'
                     ) {
-                        const value = getPureValue(sku, whichSide);
+                        void whichSide;
+                        const value = getPureValue(sku);
                         if (!value) return 0;
                         if (possibleKeyTrade && sku == '5021;6') {
                             const ret =
@@ -838,7 +856,7 @@ export default class Trades {
                                 amount *
                                 (possibleKeyTrade && sku == '5021;6' && side == 'Their'
                                     ? Currencies.toScrap(prices['5021;6'].buy.metal)
-                                    : getPureValue(sku, whichSide));
+                                    : getPureValue(sku));
                         }
 
                         dataDict[whichSide][sku] ??= 0;
@@ -854,8 +872,8 @@ export default class Trades {
                         // Backup it should never make it to here as an error
                         log.debug('Checking final mismatch...');
                         if (
-                            tradeValues.our.keys * keyPriceSellScrap + tradeValues.our.scrap !==
-                            tradeValues.their.keys * keyPriceBuyScrap + tradeValues.their.scrap
+                            tradeValues.our.keys * keyPriceScrap + tradeValues.our.scrap !==
+                            tradeValues.their.keys * keyPriceScrap + tradeValues.their.scrap
                         ) {
                             return reject(
                                 new Error(
@@ -880,12 +898,12 @@ export default class Trades {
 
                         counter.data('value', {
                             our: {
-                                total: tradeValues.our.keys * keyPriceSellScrap + tradeValues.our.scrap,
+                                total: tradeValues.our.keys * keyPriceScrap + tradeValues.our.scrap,
                                 keys: tradeValues.our.keys,
                                 metal: Currencies.toRefined(tradeValues.our.scrap)
                             },
                             their: {
-                                total: tradeValues.their.keys * keyPriceBuyScrap + tradeValues.their.scrap,
+                                total: tradeValues.their.keys * keyPriceScrap + tradeValues.their.scrap,
                                 keys: tradeValues.their.keys,
                                 metal: Currencies.toRefined(tradeValues.their.scrap)
                             },
@@ -937,21 +955,16 @@ export default class Trades {
                     const dataDict = offer.data('dict') as ItemsDict;
                     const prices = offer.data('prices') as Prices;
 
-                    // Use live key prices so the counter is never based on a stale/wrong rate.
-                    // Default (useSeparateKeyRates:false): sell price for all keys.
-                    // useSeparateKeyRates:true: sell for keys bot gives, buy for keys bot receives.
+                    // Use the current sell price for all keys, matching original Autobot behaviour.
                     const liveKeyPrices = this.bot.pricelist.getKeyPrices;
-                    const keyPriceSellScrap = Currencies.toScrap(liveKeyPrices.sell.metal);
-                    const keyPriceBuyScrap = opt.miscSettings.counterOffer.useSeparateKeyRates
-                        ? Currencies.toScrap(liveKeyPrices.buy.metal)
-                        : keyPriceSellScrap;
+                    const keyPriceScrap = Currencies.toScrap(liveKeyPrices.sell.metal);
                     const tradeValues = {
                         our: {
-                            scrap: values.our.total - values.our.keys * keyPriceSellScrap,
+                            scrap: values.our.total - values.our.keys * keyPriceScrap,
                             keys: values.our.keys
                         },
                         their: {
-                            scrap: values.their.total - values.their.keys * keyPriceBuyScrap,
+                            scrap: values.their.total - values.their.keys * keyPriceScrap,
                             keys: values.their.keys
                         }
                     };
@@ -972,8 +985,6 @@ export default class Trades {
                     let NonPureWorth = (['our', 'their'] as ['our', 'their'])
                         .map((side, index) => {
                             const buySell = index ? 'buy' : 'sell';
-                            // Use correct key price based on side when useSeparateKeyRates is enabled
-                            const sideKeyPrice = side === 'our' ? keyPriceSellScrap : keyPriceBuyScrap;
                             return (
                                 Object.keys(dataDict[side])
                                     .map(assetKey => {
@@ -994,7 +1005,7 @@ export default class Trades {
 
                                         return (
                                             dataDict[side][assetKey] *
-                                            (prices[assetKey][buySell].keys * sideKeyPrice +
+                                            (prices[assetKey][buySell].keys * keyPriceScrap +
                                                 Currencies.toScrap(prices[assetKey][buySell].metal))
                                         );
                                     })
@@ -1234,26 +1245,36 @@ export default class Trades {
         });
     }
 
-    acceptConfirmation(offer: TradeOffer): Promise<void> {
-        return new Promise((resolve, reject) => {
-            log.debug(`Accepting mobile confirmation...`, {
-                offerId: offer.id
-            });
-
-            const start = dayjs().valueOf();
-            log.debug('actedOnConfirmationTimestamp', start);
-
-            this.bot.community.acceptConfirmationForObject(this.bot.options.steamIdentitySecret, offer.id, err => {
-                const confirmationTime = dayjs().valueOf() - start;
-                offer.data('confirmationTime', confirmationTime);
-
-                if (err) {
-                    return reject(err);
-                }
-
-                return resolve();
-            });
+    async acceptConfirmation(offer: TradeOffer): Promise<void> {
+        log.debug(`Accepting mobile confirmation...`, {
+            offerId: offer.id
         });
+
+        const start = dayjs().valueOf();
+        log.debug('actedOnConfirmationTimestamp', start);
+
+        for (let i = 0; i < 5; i++) {
+            try {
+                await new Promise<void>((resolve, reject) => {
+                    this.bot.community.acceptConfirmationForObject(
+                        this.bot.options.steamIdentitySecret,
+                        offer.id,
+                        err => (err ? reject(err) : resolve())
+                    );
+                });
+                break;
+            } catch (err) {
+                const message =
+                    err instanceof Error ? err.message : JSON.stringify(err, Object.getOwnPropertyNames(err));
+                // Already confirmed / confirmation gone
+                if (message.startsWith('Could not find confirmation for object')) break;
+                if (i === 4) throw err;
+                log.warn(`Retrying mobile confirmation for offer #${offer.id} (${i + 1}/5): ${message}`);
+                await timersPromises.setTimeout((i + 1) * 5 * 1000);
+            }
+        }
+
+        offer.data('confirmationTime', dayjs().valueOf() - start);
     }
 
     private acceptOfferRetry(offer: TradeOffer, attempts = 0): Promise<string> {

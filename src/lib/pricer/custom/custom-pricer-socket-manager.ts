@@ -76,7 +76,7 @@ export default class CustomPricerSocketManager {
         }
     }
 
-    on(name: string, handler: OmitThisParameter<(T: any) => void>): void {
+    on<T>(name: string, handler: OmitThisParameter<(data: T) => void>): void {
         this.socket.on(name, handler);
     }
 }

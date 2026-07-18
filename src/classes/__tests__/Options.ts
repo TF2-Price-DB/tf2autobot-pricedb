@@ -75,6 +75,14 @@ test('Parsing Options', () => {
     expect(result.normalize.festivized.their).toBeFalsy();
     cleanPath(path.resolve(__dirname, '..', '..', '..', 'files', 'abc123'));
 
+    // Deprecated option is retained so existing options files remain valid.
+    result = Options.loadOptions({
+        steamAccountName: 'abc123',
+        miscSettings: { counterOffer: { useSeparateKeyRates: true } }
+    });
+    expect(result.miscSettings.counterOffer.useSeparateKeyRates).toBe(true);
+    cleanPath(path.resolve(__dirname, '..', '..', '..', 'files', 'abc123'));
+
     // test missing options in json
     const defaults = deepMerge({}, defaultOptions);
     // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access

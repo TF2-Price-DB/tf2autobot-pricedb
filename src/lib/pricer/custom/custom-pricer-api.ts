@@ -20,6 +20,8 @@ export interface CustomPricesGetItemPriceResponse extends CustomPricesResponse {
     time?: number;
     buy?: PricesCurrency;
     sell?: PricesCurrency;
+    buyUsd?: number;
+    sellUsd?: number;
     message?: string;
 }
 
@@ -35,6 +37,8 @@ export interface PricesItem {
     time: number;
     buy: PricesCurrency | null;
     sell: PricesCurrency | null;
+    buyUsd?: number;
+    sellUsd?: number;
 }
 
 export interface CustomPricesItemMessageEvent {
@@ -50,6 +54,8 @@ export interface CustomPricesGetItemPriceResponse extends CustomPricesResponse {
     time?: number;
     buy?: PricesCurrency;
     sell?: PricesCurrency;
+    buyUsd?: number;
+    sellUsd?: number;
     message?: string;
 }
 

@@ -35,6 +35,14 @@ export const pricelistSchema: jsonschema.Schema = {
         sell: {
             $ref: 'tf2-currencies'
         },
+        buyUsd: {
+            type: 'integer',
+            minimum: 1
+        },
+        sellUsd: {
+            type: 'integer',
+            minimum: 1
+        },
         promoted: {
             type: 'integer',
             enum: [0, 1]

@@ -204,6 +204,28 @@ export default class Commands {
                 this.withdrawCommand(steamID, message, prefix);
             } else if (command === 'withdrawmptf' && isAdmin) {
                 void this.withdrawMptfCommand(steamID, message);
+            } else if (command === 'mcosell' && isAdmin) {
+                void this.manncoListCommand(steamID, message);
+            } else if (command === 'mcobuy' && isAdmin) {
+                void this.manncoBuyCommand(steamID, message);
+            } else if (command === 'mcobuyorders' && isAdmin) {
+                void this.manncoBuyOrdersCommand(steamID, message);
+            } else if (command === 'mcobuyremove' && isAdmin) {
+                void this.manncoBuyRemoveCommand(steamID, message);
+            } else if (command === 'mcolistings' && isAdmin) {
+                void this.manncoOnSaleCommand(steamID);
+            } else if (command === 'mcosales' && isAdmin) {
+                void this.manncoSalesCommand(steamID);
+            } else if (command === 'mcobalance' && isAdmin) {
+                void this.manncoBalanceCommand(steamID);
+            } else if (command === 'mcoupdate' && isAdmin) {
+                void this.manncoPriceCommand(steamID, message);
+            } else if (command === 'mcowithdraw' && isAdmin) {
+                void this.manncoWithdrawCommand(steamID, message);
+            } else if (command === 'mcostatus' && isAdmin) {
+                void this.manncoStatusCommand(steamID);
+            } else if (command === 'mcoresend' && isAdmin) {
+                void this.manncoResendCommand(steamID, message);
             } else if (command === 'withdrawall' && isAdmin) {
                 void this.withdrawAllCommand(steamID, message);
             } else if (command === 'add' && isAdmin) {
@@ -920,6 +942,353 @@ export default class Commands {
     }
 
     // Admin commands
+
+    private sendChunkedManncoMessage(steamID: SteamID, heading: string, lines: string[]): void {
+        const maxLength = 3500;
+        let message = heading;
+        for (const line of lines) {
+            if (message.length + line.length + 1 > maxLength) {
+                this.bot.sendMessage(steamID, message);
+                message = `${heading} (continued)\n${line}`;
+            } else {
+                message += `\n${line}`;
+            }
+        }
+        this.bot.sendMessage(steamID, message);
+    }
+
+    private async manncoOnSaleCommand(steamID: SteamID): Promise<void> {
+        if (!this.bot.manncoStoreManager) {
+            return this.bot.sendMessage(steamID, '❌ Mannco.store is not configured or enabled.');
+        }
+
+        try {
+            const items = await this.bot.manncoStoreManager.getOnSaleItems();
+            if (items.length === 0) {
+                return this.bot.sendMessage(steamID, 'Mannco.store has no items currently on sale.');
+            }
+
+            const lines = items.map(item => `${item.name} — $${(item.price / 100).toFixed(2)} — assetid=${item.ids}`);
+            this.sendChunkedManncoMessage(steamID, `Mannco.store items on sale (${items.length}):`, lines);
+        } catch (err) {
+            this.bot.sendMessage(steamID, `❌ Could not get Mannco.store listings: ${(err as Error).message}`);
+        }
+    }
+
+    private async manncoBalanceCommand(steamID: SteamID): Promise<void> {
+        if (!this.bot.manncoStoreManager) {
+            return this.bot.sendMessage(steamID, '❌ Mannco.store is not configured or enabled.');
+        }
+
+        try {
+            const balance = await this.bot.manncoStoreManager.getBalance();
+            this.bot.sendMessage(steamID, `💵 Mannco.store balance: $${(balance / 100).toFixed(2)}`);
+        } catch (err) {
+            this.bot.sendMessage(steamID, `❌ Could not get Mannco.store balance: ${(err as Error).message}`);
+        }
+    }
+
+    private async manncoSalesCommand(steamID: SteamID): Promise<void> {
+        if (!this.bot.manncoStoreManager) {
+            return this.bot.sendMessage(steamID, '❌ Mannco.store is not configured or enabled.');
+        }
+
+        try {
+            const sales = await this.bot.manncoStoreManager.getSalesHistory();
+            this.bot.sendMessage(
+                steamID,
+                `Mannco.store sales in the last week: ${sales.count}. Recent records: ${sales.values.length}.`
+            );
+        } catch (err) {
+            this.bot.sendMessage(steamID, `❌ Could not get Mannco.store sales history: ${(err as Error).message}`);
+        }
+    }
+
+    private async manncoPriceCommand(steamID: SteamID, message: string): Promise<void> {
+        if (!this.bot.manncoStoreManager) {
+            return this.bot.sendMessage(steamID, '❌ Mannco.store is not configured or enabled.');
+        }
+
+        const rawParams = CommandParser.removeCommand(removeLinkProtocol(message)).trim();
+        const params = CommandParser.parseParams(rawParams);
+        const assetId =
+            typeof params.assetid === 'string' || typeof params.assetid === 'number' ? String(params.assetid) : null;
+        if (assetId === null || typeof params.price !== 'number' || params.confirm !== true) {
+            return this.bot.sendMessage(
+                steamID,
+                '❌ Usage: !mcoupdate assetid=<asset id>&price=<cents>&confirm=true. A matching buy order may instantly sell the item.'
+            );
+        }
+
+        try {
+            await this.bot.manncoStoreManager.listInventory(assetId.split(/[;,]/), params.price);
+            this.bot.sendMessage(
+                steamID,
+                `✅ Updated Mannco.store price to $${(params.price / 100).toFixed(2)}; it may have sold instantly.`
+            );
+        } catch (err) {
+            this.bot.sendMessage(steamID, `❌ Could not update Mannco.store price: ${(err as Error).message}`);
+        }
+    }
+
+    private async manncoWithdrawCommand(steamID: SteamID, message: string): Promise<void> {
+        if (!this.bot.manncoStoreManager) {
+            return this.bot.sendMessage(steamID, '❌ Mannco.store is not configured or enabled.');
+        }
+
+        const rawParams = CommandParser.removeCommand(removeLinkProtocol(message)).trim();
+        const params = CommandParser.parseParams(rawParams);
+        const assetId =
+            typeof params.assetid === 'string' || typeof params.assetid === 'number'
+                ? String(params.assetid)
+                : /^[0-9]+(?:[;,][0-9]+)*$/.test(rawParams)
+                ? rawParams
+                : null;
+        if (assetId === null) {
+            return this.bot.sendMessage(steamID, '❌ Usage: !mcowithdraw <asset id>');
+        }
+
+        try {
+            const response = await this.bot.manncoStoreManager.withdrawInventory(assetId.split(/[;,]/));
+            this.bot.sendMessage(
+                steamID,
+                `✅ Mannco.store withdrawal requested for ${response.updated} item(s)` +
+                    (response.locked > 0 ? `; ${response.locked} item(s) remain locked.` : '.') +
+                    ' The matching Steam trade will be accepted automatically.'
+            );
+        } catch (err) {
+            this.bot.sendMessage(steamID, `❌ Mannco.store withdrawal failed: ${(err as Error).message}`);
+        }
+    }
+
+    private async manncoStatusCommand(steamID: SteamID): Promise<void> {
+        if (!this.bot.manncoStoreManager) {
+            return this.bot.sendMessage(steamID, '❌ Mannco.store is not configured or enabled.');
+        }
+
+        try {
+            await this.bot.manncoStoreManager.reconcileOperations();
+            const operations = this.bot.manncoStoreManager.getOperations();
+            if (operations.length === 0) {
+                return this.bot.sendMessage(steamID, 'Mannco.store has no tracked deposit or withdrawal operations.');
+            }
+            this.sendChunkedManncoMessage(
+                steamID,
+                'Mannco.store operation status:',
+                operations.map(operation => {
+                    const offer = operation.offerId ? ` — offer=${operation.offerId}` : '';
+                    const error = operation.lastError ? ` — ${operation.lastError}` : '';
+                    return `${operation.id} — ${operation.type} — ${operation.status}${offer}${error}`;
+                })
+            );
+        } catch (err) {
+            this.bot.sendMessage(steamID, `❌ Could not get Mannco.store operation status: ${(err as Error).message}`);
+        }
+    }
+
+    private async manncoResendCommand(steamID: SteamID, message: string): Promise<void> {
+        if (!this.bot.manncoStoreManager) {
+            return this.bot.sendMessage(steamID, '❌ Mannco.store is not configured or enabled.');
+        }
+        const params = CommandParser.parseParams(CommandParser.removeCommand(removeLinkProtocol(message)));
+        const tradeId =
+            typeof params.tradeid === 'number' ? params.tradeid : typeof params.id === 'number' ? params.id : null;
+        if (tradeId === null) {
+            return this.bot.sendMessage(steamID, '❌ Usage: !mcoresend tradeid=<Mannco trade id>');
+        }
+        try {
+            await this.bot.manncoStoreManager.resendTrade(tradeId);
+            this.bot.sendMessage(steamID, `✅ Requested Mannco.store resend for trade ${tradeId}.`);
+        } catch (err) {
+            this.bot.sendMessage(steamID, `❌ Could not resend Mannco.store trade: ${(err as Error).message}`);
+        }
+    }
+
+    private async manncoBuyCommand(steamID: SteamID, message: string): Promise<void> {
+        if (!this.bot.manncoStoreManager) {
+            return this.bot.sendMessage(steamID, '❌ Mannco.store is not configured or enabled.');
+        }
+
+        const params = CommandParser.parseParams(CommandParser.removeCommand(removeLinkProtocol(message)));
+        if (typeof params.sku !== 'string') {
+            return this.bot.sendMessage(steamID, '❌ Usage: !mcobuy sku=<pricelist sku>&quantity=<quantity>');
+        }
+
+        const quantity =
+            params.quantity === undefined ? (params.amount === undefined ? 1 : params.amount) : params.quantity;
+        if (typeof quantity !== 'number' || !Number.isSafeInteger(quantity) || quantity < 1 || quantity > 5000) {
+            return this.bot.sendMessage(steamID, '❌ "quantity" must be a whole number from 1 to 5000.');
+        }
+
+        const entry = this.bot.pricelist.getPrice({ priceKey: params.sku, onlyEnabled: false });
+        if (entry === null) {
+            return this.bot.sendMessage(steamID, '❌ This SKU does not exist in the pricelist.');
+        }
+        if (entry.buyUsd === undefined) {
+            return this.bot.sendMessage(
+                steamID,
+                '❌ This SKU needs a USD buy price before it can create a Mannco.store buy order.'
+            );
+        }
+
+        try {
+            const itemId = await this.bot.manncoStoreManager.resolveManncoItemId(entry.sku);
+            await this.bot.manncoStoreManager.upsertBuyOrder(entry.sku, itemId, quantity, entry.buyUsd, entry.name);
+            this.bot.sendMessage(
+                steamID,
+                `✅ Mannco.store buy order created for ${quantity} ${entry.name} at $${(entry.buyUsd / 100).toFixed(
+                    2
+                )} each.`
+            );
+        } catch (err) {
+            this.bot.sendMessage(steamID, `❌ Mannco.store buy order failed: ${(err as Error).message}`);
+        }
+    }
+
+    private async manncoBuyOrdersCommand(steamID: SteamID, message: string): Promise<void> {
+        if (!this.bot.manncoStoreManager) {
+            return this.bot.sendMessage(steamID, '❌ Mannco.store is not configured or enabled.');
+        }
+
+        const params = CommandParser.parseParams(CommandParser.removeCommand(removeLinkProtocol(message)));
+        const page = params.page === undefined ? 0 : params.page;
+        if (typeof page !== 'number' || !Number.isSafeInteger(page) || page < 0) {
+            return this.bot.sendMessage(steamID, '❌ "page" must be a non-negative whole number.');
+        }
+
+        try {
+            const orders = await this.bot.manncoStoreManager.getBuyOrders(page);
+            if (orders.length === 0) {
+                return this.bot.sendMessage(steamID, `Mannco.store has no active buy orders on page ${page}.`);
+            }
+
+            this.sendChunkedManncoMessage(
+                steamID,
+                `Mannco.store buy orders (page ${page}):`,
+                orders.map(
+                    order =>
+                        `${order.name} — $${(order.price / 100).toFixed(2)} × ${order.amount} — itemid=${order.itemid}`
+                )
+            );
+        } catch (err) {
+            this.bot.sendMessage(steamID, `❌ Could not get Mannco.store buy orders: ${(err as Error).message}`);
+        }
+    }
+
+    private async manncoBuyRemoveCommand(steamID: SteamID, message: string): Promise<void> {
+        if (!this.bot.manncoStoreManager) {
+            return this.bot.sendMessage(steamID, '❌ Mannco.store is not configured or enabled.');
+        }
+
+        const params = CommandParser.parseParams(CommandParser.removeCommand(removeLinkProtocol(message)));
+        const itemId = typeof params.itemid === 'number' ? params.itemid : null;
+        if (itemId === null) {
+            return this.bot.sendMessage(steamID, '❌ Usage: !mcobuyremove itemid=<Mannco item id>');
+        }
+
+        try {
+            await this.bot.manncoStoreManager.removeBuyOrder(itemId);
+            this.bot.sendMessage(steamID, `✅ Removed Mannco.store buy order for itemid=${itemId}.`);
+        } catch (err) {
+            this.bot.sendMessage(steamID, `❌ Could not remove Mannco.store buy order: ${(err as Error).message}`);
+        }
+    }
+
+    private async manncoListCommand(steamID: SteamID, message: string): Promise<void> {
+        if (!this.bot.manncoStoreManager) {
+            return this.bot.sendMessage(steamID, '❌ Mannco.store is not configured or enabled.');
+        }
+
+        const params = CommandParser.parseParams(CommandParser.removeCommand(removeLinkProtocol(message)));
+        const requestedAssetIds =
+            typeof params.assetid === 'string' || typeof params.assetid === 'number'
+                ? String(params.assetid)
+                      .split(/[;,]/)
+                      .filter(assetId => assetId.length > 0)
+                : [];
+        if (typeof params.sku !== 'string' && requestedAssetIds.length === 0) {
+            return this.bot.sendMessage(
+                steamID,
+                '❌ Usage: !mcosell sku=<sku>&amount=<quantity>&confirm=true or !mcosell assetid=<asset id>&confirm=true'
+            );
+        }
+        if (params.confirm !== true) {
+            return this.bot.sendMessage(
+                steamID,
+                '⚠️ Mannco.store may instantly sell deposited items at an existing buy order. Repeat with &confirm=true to continue.'
+            );
+        }
+
+        const amount =
+            requestedAssetIds.length > 0 ? requestedAssetIds.length : params.amount === undefined ? 1 : params.amount;
+        if (typeof amount !== 'number' || !Number.isSafeInteger(amount) || amount <= 0) {
+            return this.bot.sendMessage(steamID, '❌ "amount" must be a positive whole number.');
+        }
+
+        const inventory = this.bot.inventoryManager.getInventory;
+        const assetSkus = [...new Set(requestedAssetIds.map(assetId => inventory.findByAssetid(assetId)))];
+        if (assetSkus.some(sku => sku === null) || assetSkus.length > 1) {
+            return this.bot.sendMessage(steamID, '❌ Each asset ID must be a tradable bot item of the same SKU.');
+        }
+
+        const sku = typeof params.sku === 'string' ? params.sku : assetSkus[0];
+        if (sku === null) {
+            return this.bot.sendMessage(steamID, '❌ Could not determine the SKU for the requested asset ID.');
+        }
+        if (assetSkus.length === 1 && assetSkus[0] !== sku) {
+            return this.bot.sendMessage(steamID, '❌ The requested asset ID does not match the supplied SKU.');
+        }
+        if (
+            requestedAssetIds.length > 0 &&
+            requestedAssetIds.some(assetId => !inventory.findBySKU(sku, true).includes(assetId))
+        ) {
+            return this.bot.sendMessage(steamID, '❌ Each asset ID must be a tradable bot item.');
+        }
+
+        const entry = this.bot.pricelist.getPrice({ priceKey: sku, onlyEnabled: false });
+        if (entry === null || entry.sellUsd === undefined) {
+            return this.bot.sendMessage(
+                steamID,
+                '❌ This SKU needs a pricelist USD sell price before it can be listed.'
+            );
+        }
+
+        const inventoryAssetIds =
+            requestedAssetIds.length > 0 ? requestedAssetIds : inventory.findBySKU(entry.sku, true);
+        if (inventoryAssetIds.length < amount) {
+            return this.bot.sendMessage(
+                steamID,
+                `❌ Only ${inventoryAssetIds.length} tradable ${entry.sku} item(s) are available.`
+            );
+        }
+
+        try {
+            const manncoItemId = await this.bot.manncoStoreManager.resolveManncoItemId(entry.sku);
+            const depositable = await this.bot.manncoStoreManager.getDepositableAssets();
+            const available = depositable.filter(
+                asset => inventoryAssetIds.includes(asset.assetid) && asset.itemId === manncoItemId
+            );
+            if (available.length < amount) {
+                return this.bot.sendMessage(
+                    steamID,
+                    `❌ Mannco.store only made ${available.length} of the requested assets depositable.`
+                );
+            }
+
+            const selected = available.slice(0, amount);
+            this.bot.sendMessage(
+                steamID,
+                `⌛ Creating a Mannco.store deposit for ${amount} ${entry.name} at $${(entry.sellUsd / 100).toFixed(
+                    2
+                )} each.`
+            );
+
+            const trade = await this.bot.manncoStoreManager.depositAndList(entry.sku, selected, entry.sellUsd);
+            this.bot.sendMessage(steamID, `✅ Mannco.store deposit ${trade.id} completed and the item(s) are listed.`);
+        } catch (err) {
+            this.bot.sendMessage(steamID, `❌ Mannco.store listing failed: ${(err as Error).message}`);
+        }
+    }
 
     private async depositCommand(steamID: SteamID, message: string, prefix: string): Promise<void> {
         const currentCart = Cart.getCart(steamID);

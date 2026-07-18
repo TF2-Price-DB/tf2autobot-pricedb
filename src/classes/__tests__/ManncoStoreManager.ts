@@ -151,4 +151,43 @@ describe('ManncoStoreManager', () => {
         ).resolves.toBe(true);
         expect(manager.getOperations()[0]).toMatchObject({ offerId: '9237043215', status: 'matched' });
     });
+
+    test('completes a withdrawal from Mannco trade history when its Steam offer was accepted as a gift', async () => {
+        const manager = createManager();
+        const testManager = manager as unknown as { data: { operations: Record<string, unknown> } };
+        testManager.data.operations = {
+            'withdrawal:creating:1:test': {
+                id: 'withdrawal:creating:1:test',
+                type: 'withdrawal',
+                status: 'pending',
+                createdAt: 1,
+                expectedSteamAssetIds: ['17266300609'],
+                manncoAssetIds: []
+            }
+        };
+        api.request
+            .mockResolvedValueOnce({ data: { success: true, err: false, content: { trades: [] } } })
+            .mockResolvedValueOnce({
+                data: {
+                    success: true,
+                    err: false,
+                    content: {
+                        trades: [
+                            {
+                                game: 440,
+                                status: 3,
+                                offerid: '9240590198',
+                                items_received: '17266300609'
+                            }
+                        ]
+                    }
+                }
+            });
+
+        await manager.reconcileOperations();
+        expect(manager.getOperations()[0]).toMatchObject({
+            offerId: '9240590198',
+            status: 'completed'
+        });
+    });
 });

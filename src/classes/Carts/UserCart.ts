@@ -156,15 +156,9 @@ export default class UserCart extends Cart {
 
     private getWhichCurrencies(which: 'our' | 'their'): Currencies {
         const keyPrices = this.bot.pricelist.getKeyPrices;
-        const useSeparateKeyRates = this.bot.options.miscSettings.counterOffer.useSeparateKeyRates;
-        // For pure currency trades (key-for-metal, autokeys), always honour the correct side rate.
-        // For item trades, only use side rate when useSeparateKeyRates is explicitly enabled.
-        const keyPrice =
-            this.isPureCurrencyTrade || useSeparateKeyRates
-                ? which === 'our'
-                    ? keyPrices.sell
-                    : keyPrices.buy
-                : keyPrices.sell;
+        // Pure currency trades (key-for-metal, autokeys) use the appropriate
+        // side rate. Item trades retain the original single sell-rate logic.
+        const keyPrice = this.isPureCurrencyTrade && which === 'their' ? keyPrices.buy : keyPrices.sell;
 
         let value = 0;
 

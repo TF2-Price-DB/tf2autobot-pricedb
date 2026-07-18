@@ -55,6 +55,13 @@ describe('ManncoStoreManager', () => {
         await expect(createManager().getBalance()).rejects.toThrow('Mannco.store: Not enough balance');
     });
 
+    test("resolves Mannco IDs from PriceDB's SKU path endpoint", async () => {
+        priceDbApi.get.mockResolvedValue({ data: { sku: '725;6;uncraftable', manncoId: 1575 } });
+
+        await expect(createManager().resolveManncoItemId('725;6;uncraftable')).resolves.toBe(1575);
+        expect(priceDbApi.get).toHaveBeenCalledWith('/mannco/725%3B6%3Buncraftable');
+    });
+
     test('refreshes the JWT once after an unauthorized response', async () => {
         api.request
             .mockRejectedValueOnce({ response: { status: 401, data: { content: 'forbidden' } } })

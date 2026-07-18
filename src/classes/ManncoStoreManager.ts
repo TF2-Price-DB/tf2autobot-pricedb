@@ -98,9 +98,9 @@ interface ManncoInventoryItem {
     item_id: number;
 }
 
-interface ManncoActiveTrade {
+interface ManncoTrade {
     id?: string | number;
-    status: number;
+    status: ManncoDepositStatus;
     offerid?: string;
     game: number;
     items_received?: string;
@@ -376,8 +376,16 @@ export default class ManncoStoreManager extends EventEmitter {
 
     /** Restore and refresh persisted operations after startup and while the bot is running. */
     async reconcileOperations(): Promise<void> {
-        const content = await this.request<{ trades: ManncoActiveTrade[] }>('get', '/trades/active');
+        // Active trades let us match a newly-arrived Steam offer, while the
+        // complete history is the authoritative source after Steam accepts it.
+        // A withdrawal can otherwise be accepted as a normal gift before its
+        // Mannco offer ID has been recorded, leaving it pending forever.
+        const [content, history] = await Promise.all([
+            this.request<{ trades: ManncoTrade[] }>('get', '/trades/active'),
+            this.request<{ trades: ManncoTrade[] }>('get', '/trades/all')
+        ]);
         const activeTrades = (content.trades || []).filter(trade => trade.game === 440 && trade.status === 0);
+        const tradeHistory = (history.trades || []).filter(trade => trade.game === 440);
         let changed = false;
 
         for (const operation of Object.values(this.data.operations)) {
@@ -412,30 +420,36 @@ export default class ManncoStoreManager extends EventEmitter {
                 }
             }
 
-            if (operation.type === 'withdrawal' && !operation.offerId) {
-                const candidate = activeTrades.find(trade => {
-                    if (typeof trade.offerid !== 'string' || this.isOfferTracked(trade.offerid)) return false;
-                    const received = this.splitAssetIds(`${trade.items_received || ''},${trade.items_send || ''}`);
+            if (operation.type === 'withdrawal') {
+                const relatedTrade = [...activeTrades, ...tradeHistory].find(trade => {
+                    if (typeof trade.offerid === 'string' && this.isOfferTracked(trade.offerid)) {
+                        return trade.offerid === operation.offerId;
+                    }
+                    const assetIds = this.splitAssetIds(`${trade.items_received || ''},${trade.items_send || ''}`);
                     return (
-                        received.length > 0 &&
-                        operation.expectedSteamAssetIds.every(assetId => received.includes(assetId))
+                        assetIds.length > 0 &&
+                        operation.expectedSteamAssetIds.every(assetId => assetIds.includes(assetId))
                     );
                 });
-                if (candidate?.offerid) {
-                    operation.offerId = candidate.offerid;
-                    operation.status = 'pending';
-                    changed = true;
-                }
-            }
 
-            if (
-                operation.type === 'withdrawal' &&
-                operation.status === 'accepted' &&
-                operation.offerId &&
-                !activeTrades.some(trade => trade.offerid === operation.offerId)
-            ) {
-                operation.status = 'completed';
-                changed = true;
+                if (relatedTrade) {
+                    if (relatedTrade.offerid && operation.offerId !== relatedTrade.offerid) {
+                        operation.offerId = relatedTrade.offerid;
+                        changed = true;
+                    }
+                    if (relatedTrade.status === 3 && operation.status !== 'completed') {
+                        operation.status = 'completed';
+                        operation.lastError = undefined;
+                        changed = true;
+                    } else if (relatedTrade.status === -1 && operation.status !== 'failed') {
+                        operation.status = 'failed';
+                        operation.lastError = 'Mannco.store reported that the withdrawal trade failed';
+                        changed = true;
+                    } else if (relatedTrade.status === 0 && !['matched', 'accepted'].includes(operation.status)) {
+                        operation.status = 'pending';
+                        changed = true;
+                    }
+                }
             }
         }
         if (changed) await this.saveData();

@@ -129,12 +129,12 @@ export default class StatusCommands {
     async statsWipeCommand(steamID: SteamID, message: string): Promise<void> {
         const params = CommandParser.parseParams(CommandParser.removeCommand(message));
 
-        if (params.i_am_sure != 'yes_i_am') {
+        if (params.confirm !== 'yes' || params.confirm !== true) {
             return this.bot.sendMessage(
                 steamID,
                 `⚠️ Are you sure you want to delete all stats?` +
                     `\n- This process is irreversible and will delete the record of accepted trades!` +
-                    `\n- If you're sure, try again with i_am_sure=yes_i_am as a parameter.`
+                    `\n- If you're sure, try again with confirm=true or confirm=yes as a parameter.`
             );
         }
 

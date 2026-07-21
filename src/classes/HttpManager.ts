@@ -3,7 +3,6 @@
 /* eslint-disable @typescript-eslint/no-unsafe-member-access */
 /* eslint-disable @typescript-eslint/no-unsafe-call */
 
-import bodyParser from 'body-parser';
 import express from 'express';
 import log from '../lib/logger';
 import Options from './Options';
@@ -25,8 +24,8 @@ export default class HttpManager {
      */
     constructor(protected options: Options, private readonly bot?: Bot) {
         this.app = express();
-        this.app.use(bodyParser.json());
-        this.app.use(bodyParser.urlencoded({ extended: false }));
+        this.app.use(express.json());
+        this.app.use(express.urlencoded({ extended: false }));
 
         this.registerRoutes();
     }

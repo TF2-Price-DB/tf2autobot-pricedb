@@ -2044,7 +2044,7 @@ export default class MyHandler extends Handler {
                     meta: meta
                 };
             } else {
-                // hhhmmmmm should we combine this?
+                // manual review disabled, decline any offer with any reason
                 if (hasOverstocked) {
                     offer.log('info', 'is offering too many, declining...');
 
@@ -2093,6 +2093,28 @@ export default class MyHandler extends Handler {
                         reason: '🟪_DUPE_CHECK_FAILED',
                         meta: meta
                     };
+                } else if (hasEscrowCheckFailed) {
+                    if (isIgnoreEscrowCheckFailed) {
+                        // Valid offer but failed to escrow check and manual review disabled
+                        // and options.offerReceived.escrowCheckFailed.ignoreFailed=true
+                        return;
+                    } // else decline
+                    return {
+                        action: 'decline',
+                        reason: '⬜_ESCROW_CHECK_FAILED',
+                        meta: meta
+                    };
+                } else if (hasBannedCheckFailed) {
+                    if (isIgnoreBannedCheckFailed) {
+                        // Valid offer but failed to ban check and manual review disabled
+                        // and options.offerReceived.bannedCheckFailed.ignoreFailed=true
+                        return;
+                    } // else decline
+                    return {
+                        action: 'decline',
+                        reason: '⬜_BANNED_CHECK_FAILED',
+                        meta: meta
+                    };
                 } else if (hasInvalidValue) {
                     // We are offering more than them, decline the offer
                     offer.log('info', 'is not offering enough, declining...');
@@ -2105,7 +2127,7 @@ export default class MyHandler extends Handler {
                 }
             }
         }
-
+        // else nothing wrong, process accept offer
         offer.log(
             'trade',
             `accepting. Summary:\n${JSON.stringify(summarize(offer, this.bot, 'summary-accepting', false), null, 4)}`

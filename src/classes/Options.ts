@@ -565,7 +565,8 @@ export const DEFAULTS: JsonOptions = {
             mentionOwner: {
                 enable: false,
                 itemSkus: [],
-                tradeValueInRef: 0
+                tradeValueInRef: 0,
+                withEscrow: true
             }
         },
         declinedTrade: {
@@ -1749,6 +1750,7 @@ interface MiscTradeSummary extends OnlyNote {
 interface MentionOwner extends OnlyEnable {
     itemSkus?: string[];
     tradeValueInRef?: number;
+    withEscrow?: boolean;
 }
 
 interface OfferReviewDW extends OnlyEnable {

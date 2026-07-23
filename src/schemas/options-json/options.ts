@@ -1698,6 +1698,9 @@ export const optionsSchema: jsonschema.Schema = {
                                 tradeValueInRef: {
                                     type: 'number',
                                     minimum: 0
+                                },
+                                withEscrow: {
+                                    type: 'boolean'
                                 }
                             },
                             required: ['enable', 'itemSkus', 'tradeValueInRef'],

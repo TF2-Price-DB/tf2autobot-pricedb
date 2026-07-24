@@ -389,7 +389,7 @@ export default class Trades {
                         }
 
                         const timeDiffInMs = now.diff(this.bot.lastTimeCallingDoPoll);
-                        if (timeDiffInMs === 0 || timeDiffInMs >= 10000) {
+                        if (timeDiffInMs >= 10000) {
                             this.bot.lastTimeCallingDoPoll = now.toDate();
                             this.bot.manager.doPoll();
                         }

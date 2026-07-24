@@ -148,7 +148,6 @@ export default class Trades {
         }
 
         offer.log('info', 'received offer');
-
         if (this.bot.manncoStoreManager?.matchesPendingDepositOffer(offer)) {
             offer.log('info', 'accepting matched Mannco.store deposit offer');
             void this.acceptOffer(offer)
@@ -181,6 +180,7 @@ export default class Trades {
             return;
         }
 
+        this.bot.manager.pollInterval = -1; // Temporarily disable polling trade offers
         this.enqueueOffer(offer);
     }
 
@@ -380,6 +380,11 @@ export default class Trades {
                 }
 
                 this.applyActionToOffer(response.action, response.reason, response.meta || {}, offer).finally(() => {
+                    if (this.receivedOffers.length === 0) {
+                        // no more offers in queue, reset polling trade offers
+                        this.bot.manager.pollInterval = 10 * 1000;
+                        this.bot.manager.doPoll();
+                    }
                     this.finishProcessingOffer(offer.id);
                 });
             })

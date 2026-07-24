@@ -889,7 +889,10 @@ export default class MyHandler extends Handler {
             } else if (isIgnoreHalted) {
                 // do nothing
                 offer.log('info', 'bot is halted, review disabled & set to ignore -> Do nothing');
-                return;
+                return {
+                    action: 'ignore',
+                    reason: '⬜_HALTED'
+                };
             } else {
                 offer.log('info', 'bot is halted, review disabled -> declining');
                 return {
@@ -2043,11 +2046,17 @@ export default class MyHandler extends Handler {
             } else if (isIgnoreEscrowCheckFailed && isOnlyEscrowCheckFailed) {
                 // If only ⬜_ESCROW_CHECK_FAILED (and with 🟥_INVALID_VALUE)
                 // and always ignore enabled, will do nothing.
-                return;
+                return {
+                    action: 'ignore',
+                    reason: '⬜_ESCROW_CHECK_FAILED'
+                };
             } else if (isIgnoreBannedCheckFailed && isOnlyBannedCheckFailed) {
                 // If only ⬜_BANNED_CHECK_FAILED  (and with 🟥_INVALID_VALUE)
                 // and always ignore enabled, will do nothing.
-                return;
+                return {
+                    action: 'ignore',
+                    reason: '⬜_BANNED_CHECK_FAILED'
+                };
             } else if (manualReviewEnabled) {
                 offer.log('info', `offer needs review (${uniqueReasons.join(', ')}), skipping...`);
 
@@ -2110,7 +2119,10 @@ export default class MyHandler extends Handler {
                     if (isIgnoreEscrowCheckFailed) {
                         // Valid offer but failed to escrow check and manual review disabled
                         // and options.offerReceived.escrowCheckFailed.ignoreFailed=true
-                        return;
+                        return {
+                            action: 'ignore',
+                            reason: '⬜_ESCROW_CHECK_FAILED'
+                        };
                     } // else decline
                     return {
                         action: 'decline',
@@ -2121,7 +2133,10 @@ export default class MyHandler extends Handler {
                     if (isIgnoreBannedCheckFailed) {
                         // Valid offer but failed to ban check and manual review disabled
                         // and options.offerReceived.bannedCheckFailed.ignoreFailed=true
-                        return;
+                        return {
+                            action: 'ignore',
+                            reason: '⬜_BANNED_CHECK_FAILED'
+                        };
                     } // else decline
                     return {
                         action: 'decline',

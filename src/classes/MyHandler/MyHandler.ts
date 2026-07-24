@@ -7,7 +7,8 @@ import TradeOfferManager, {
     Meta,
     WrongAboutOffer,
     Prices,
-    Items
+    Items,
+    ActionType
 } from '@tf2autobot/tradeoffer-manager';
 
 import pluralize from 'pluralize';
@@ -859,6 +860,18 @@ export default class MyHandler extends Handler {
 
             // Abort processing the offer.
             return;
+        }
+
+        // Check if there are any missing items in both sides
+        const isMissingItemsToGive = offer.itemsToGive.some(item => item.missing);
+        const isMissingItemsToReceive = offer.itemsToReceive.some(item => item.missing);
+
+        if (isMissingItemsToGive || isMissingItemsToReceive) {
+            // Ignore the trade, let polling offer automatically change offer state to 8 (InvalidItems)
+            return {
+                action: 'ignore',
+                reason: 'CONTAINS_MISSING_ITEMS'
+            };
         }
 
         const manualReviewEnabled = opt.manualReview.enable;
@@ -2376,12 +2389,7 @@ export default class MyHandler extends Handler {
         offer.data('meta', undefined);
     }
 
-    onOfferAction(
-        offer: TradeOffer,
-        action: 'accept' | 'decline' | 'skip' | 'counter',
-        reason: string,
-        meta: Meta
-    ): void {
+    onOfferAction(offer: TradeOffer, action: ActionType, reason: string, meta: Meta): void {
         if (offer.data('notify') !== true) {
             return;
         }
@@ -2855,7 +2863,7 @@ export default class MyHandler extends Handler {
 }
 
 interface OnNewTradeOffer {
-    action: 'accept' | 'decline' | 'skip' | 'counter';
+    action: ActionType;
     reason: string;
     meta?: Meta;
 }

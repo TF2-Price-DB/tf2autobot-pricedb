@@ -160,7 +160,8 @@ export default class Trades {
             return;
         }
 
-        this.bot.manager.pollInterval = -1; // Temporarily disable polling trade offers
+        log.debug('Temporarily disable pollInterval.');
+        this.bot.manager.pollInterval = -1;
         this.enqueueOffer(offer);
     }
 

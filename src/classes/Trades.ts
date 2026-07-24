@@ -380,23 +380,11 @@ export default class Trades {
                     return this.finishProcessingOffer(offer.id);
                 }
 
-                this.applyActionToOffer(response.action, response.reason, response.meta || {}, offer).finally(() => {
-                    if (this.receivedOffers.length === 0) {
-                        // no more offers in queue, reset polling trade offers
-                        this.bot.manager.pollInterval = 10 * 1000;
-                        const now = dayjs();
-                        if (this.bot.lastTimeCallingDoPoll === undefined) {
-                            this.bot.lastTimeCallingDoPoll = now.toDate();
-                        }
-
-                        const timeDiffInMs = now.diff(this.bot.lastTimeCallingDoPoll);
-                        if (timeDiffInMs >= 10000) {
-                            this.bot.lastTimeCallingDoPoll = now.toDate();
-                            this.bot.manager.doPoll();
-                        }
+                void this.applyActionToOffer(response.action, response.reason, response.meta || {}, offer).finally(
+                    () => {
+                        this.finishProcessingOffer(offer.id);
                     }
-                    this.finishProcessingOffer(offer.id);
-                });
+                );
             })
             .catch((err: Error) => {
                 log.error('Error occurred while handler was processing offer: ', err);
@@ -580,6 +568,17 @@ export default class Trades {
         log.debug('Processing next offer');
         if (this.processingOffer || this.receivedOffers.length === 0) {
             log.debug('Already processing offer or queue is empty');
+
+            log.debug('pollInterval re-enabled.');
+            this.bot.manager.pollInterval = 10 * 1000;
+            const now = dayjs();
+            const timeDiffInMs = now.diff(this.bot.lastTimeCallingDoPoll);
+            if (timeDiffInMs >= 10000) {
+                // Make sure to call doPoll only if first time or last call is more than or equal to 10 seconds
+                this.bot.lastTimeCallingDoPoll = now.toDate();
+                log.debug('doPoll called.');
+                this.bot.manager.doPoll();
+            }
             return;
         }
 

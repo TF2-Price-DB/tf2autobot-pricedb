@@ -1500,7 +1500,7 @@ export default class Bot {
                         return;
                     }
 
-                    this.manager.pollInterval = 5 * 1000;
+                    this.manager.pollInterval = 10 * 1000;
                     this.setReady = true;
                     this.handler.onReady();
                     this.manager.doPoll();

@@ -13,7 +13,8 @@ import { JournalTfBoughtItem, JournalTfSoldItem } from '../../../JournalTfManage
 export default async function processAccepted(
     offer: i.TradeOffer,
     bot: Bot,
-    timeTakenToComplete: number
+    timeTakenToComplete: number,
+    isAcceptedWithEscrow: boolean
 ): Promise<{ theirHighValuedItems: string[]; isDisableSKU: string[]; items: i.Items | undefined }> {
     const opt = bot.options;
 
@@ -215,7 +216,8 @@ export default async function processAccepted(
             isAcceptedWithEscrow ? null : timeTakenToComplete,
             timeTakenToProcessOrConstruct,
             timeTakenToCounterOffer,
-            isOfferSent
+            isOfferSent,
+            isAcceptedWithEscrow
         );
     } else {
         const itemsName = {
@@ -242,7 +244,8 @@ export default async function processAccepted(
             isOfferSent,
             isAcceptedWithEscrow ? null : timeTakenToComplete,
             timeTakenToProcessOrConstruct,
-            timeTakenToCounterOffer
+            timeTakenToCounterOffer,
+            isAcceptedWithEscrow
         );
     }
 
@@ -262,7 +265,8 @@ export async function sendToAdmin(
     isOfferSent: boolean,
     timeTakenToComplete: number,
     timeTakenToProcessOrConstruct: number,
-    timeTakenToCounterOffer: number | undefined
+    timeTakenToCounterOffer: number | undefined,
+    isAcceptedWithEscrow: boolean
 ): Promise<void> {
     const opt = bot.options;
     const slots = bot.tf2.backpackSlots;
@@ -286,7 +290,7 @@ export async function sendToAdmin(
     } with ${offer.partner.getSteamID64()} is accepted. ✅`;
 
     const message2 =
-        t.summarizeToChat(offer, bot, 'summary-accepted', false, value, true, isOfferSent) +
+        t.summarizeToChat(offer, bot, 'summary-accepted', false, value, true, isOfferSent, isAcceptedWithEscrow) +
         (isShowOfferMessage
             ? (cTOfferMessage && offer.message ? `\n\n${cTOfferMessage}` : '\n\n💬 Offer message:') +
               ` "${offer.message}"`

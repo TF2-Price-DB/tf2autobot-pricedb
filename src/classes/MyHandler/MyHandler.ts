@@ -2313,20 +2313,26 @@ export default class MyHandler extends Handler {
                     }
                 }
 
-                if (offer.state === TradeOfferManager.ETradeOfferState['Accepted'] && !this.sentSummary[offer.id]) {
+                if (
+                    [TradeOfferManager.ETradeOfferState['Accepted'], TradeOfferManager.ETradeOfferState['InEscrow']].includes(
+                        offer.state
+                    ) &&
+                    !this.sentSummary[offer.id]
+                ) {
                     // Only run this if the bot handled the offer and do not send again if already sent once
 
                     clearTimeout(this.resetSentSummaryTimeout);
                     this.sentSummary[offer.id] = true;
 
-                    offer.data('isAccepted', true);
-                    offer.log('trade', 'has been accepted.');
+                    const isAcceptedWithEscrow = offer.state === TradeOfferManager.ETradeOfferState['InEscrow'];
+                    offer.data(`isAccepted${isAcceptedWithEscrow ? '_withEscrow' : ''}`, true);
+                    offer.log('trade', `has been accepted${isAcceptedWithEscrow ? ' with trade hold' : ''}.`);
 
                     // Auto sell and buy keys if ref < minimum
 
                     this.autokeys.check();
 
-                    const result = await processAccepted(offer, this.bot, timeTakenToComplete);
+                    const result = await processAccepted(offer, this.bot, timeTakenToComplete, isAcceptedWithEscrow);
 
                     highValue.isDisableSKU = result.isDisableSKU;
                     highValue.theirItems = result.theirHighValuedItems;

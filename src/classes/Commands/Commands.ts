@@ -173,7 +173,7 @@ export default class Commands {
                 if (command === 'stock') {
                     return this.misc.miscCommand(steamID, command as Misc, message);
                 }
-                this.misc.miscCommand(steamID, command as Misc);
+                this.misc.miscCommand(steamID, command as Misc, prefix);
             } else if (['link', 'links'].includes(command)) {
                 this.misc.links(steamID);
             } else if (command === 'sku') {
@@ -257,13 +257,13 @@ export default class Commands {
             } else if (command === 'stopautoadd' && isAdmin) {
                 this.pManager.stopAutoAddCommand();
             } else if (['expand', 'delete', 'use'].includes(command) && isAdmin) {
-                void this.manager.TF2GCCommand(steamID, message, command as TF2GC);
+                void this.manager.TF2GCCommand(steamID, message, command as TF2GC, prefix);
             } else if (['name', 'avatar'].includes(command) && isAdmin) {
                 this.manager.nameAvatarCommand(steamID, message, command as NameAvatar, prefix);
             } else if (command === 'changename' && isAdmin) {
                 this.manager.changeNameCommand(steamID, message, prefix);
             } else if (['block', 'unblock'].includes(command) && isAdmin) {
-                this.manager.blockUnblockCommand(steamID, message, command as BlockUnblock);
+                this.manager.blockUnblockCommand(steamID, message, command as BlockUnblock, prefix);
             } else if (['blockedlist', 'blocklist', 'blist'].includes(command) && isAdmin) {
                 void this.manager.blockedListCommand(steamID);
             } else if (command === 'clearfriends' && isAdmin) {
@@ -279,7 +279,7 @@ export default class Commands {
             } else if (command === 'restart' && isAdmin) {
                 this.manager.restartCommand(steamID);
             } else if (command === 'updaterepo' && isAdmin) {
-                this.manager.updaterepoCommand(steamID);
+                this.manager.updaterepoCommand(steamID, prefix);
             } else if (command === 'refreshautokeys' && isAdmin) {
                 this.manager.refreshAutokeysCommand(steamID);
             } else if (command === 'refreshlist' && isAdmin) {
@@ -301,9 +301,9 @@ export default class Commands {
             } else if (command === 'trade' && isAdmin) {
                 this.review.tradeCommand(steamID, message, prefix);
             } else if (['accepttrade', 'accept', 'declinetrade', 'decline'].includes(command) && isAdmin) {
-                void this.review.actionOnTradeCommand(steamID, message, command as ActionOnTrade);
+                void this.review.actionOnTradeCommand(steamID, message, command as ActionOnTrade, prefix);
             } else if (['faccept', 'fdecline'].includes(command) && isAdmin) {
-                void this.review.forceAction(steamID, message, command as ForceAction);
+                void this.review.forceAction(steamID, message, command as ForceAction, prefix);
             } else if (command === 'offerinfo' && isAdmin) {
                 this.review.offerInfo(steamID, message, prefix);
             } else if (command === 'pricecheck' && isAdmin) {
@@ -331,9 +331,9 @@ export default class Commands {
             } else if (command === 'premium' && isAdmin) {
                 this.buyBPTFPremiumCommand(steamID, message);
             } else if (command === 'refreshschema' && isAdmin) {
-                this.manager.refreshSchema(steamID);
+                this.manager.refreshSchema(steamID, prefix);
             } else if (['crafttoken', 'ct'].includes(command) && isAdmin) {
-                this.crafting.craftTokenCommand(steamID, message);
+                this.crafting.craftTokenCommand(steamID, message, prefix);
             } else if (command === 'crittfgroup' && isAdmin) {
                 void this.misc.pricedbGroup(steamID);
             } else if (command === 'crittfinvite' && isAdmin) {

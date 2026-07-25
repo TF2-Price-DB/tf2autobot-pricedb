@@ -4,6 +4,44 @@
 
 This is a fork of [TF2Autobot](https://github.com/idinium96/tf2autobot), with changes made to work and use [pricedb.io](https://pricedb.io) as the default pricing source after the shutdown of prices.tf.
 
+## Update notes
+
+Automatic updates are disabled for this fork. Upstream TF2Autobot releases do not include this project's pricedb.io and Mannco.store integrations, so updating from upstream can overwrite fork-specific functionality.
+
+- The `!updaterepo` command is temporarily disabled for this version.
+- Before updating, make sure your system and the packages installed during initial setup are current.
+- Node.js v22.x is the minimum supported version; Node.js v24.x LTS is recommended. On Windows, use [Node.js](https://nodejs.org/). On Linux, use [NodeSource](https://github.com/nodesource/distributions) and select the Node.js runtime. Node.js v26.x currently has a known issue, so use v24.x or earlier.
+- Update npm and TypeScript (use `sudo` on Linux or run an elevated terminal on Windows):
+
+  ```sh
+  npm install -g npm@latest
+  npm install -g typescript@latest
+  ```
+
+- If you run the bot with PM2, update it and refresh the daemon:
+
+  ```sh
+  npm install -g pm2@latest
+  pm2 update
+  ```
+
+  If PM2 becomes stuck, reboot the system.
+
+- From the `tf2autobot` directory, rebuild the bot:
+
+  ```text
+  Windows: rmdir /s /q dist node_modules
+  Linux:   rm -rf dist node_modules
+  ```
+
+  These commands delete the `dist` and `node_modules` directories. Then run:
+
+  ```sh
+  npm ci --no-audit && npm run build
+  ```
+
+  Restart the bot when the build completes.
+
 ## Requirements
 
 -   Node.js 22.x or a newer LTS release

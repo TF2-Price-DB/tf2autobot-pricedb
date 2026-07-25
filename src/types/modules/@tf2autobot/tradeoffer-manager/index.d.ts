@@ -323,6 +323,8 @@ declare module '@tf2autobot/tradeoffer-manager' {
 
             pos: number;
 
+            missing: boolean;
+
             id: string;
 
             background_color: string;

@@ -6,7 +6,7 @@ This is a fork of [TF2Autobot](https://github.com/idinium96/tf2autobot), with ch
 
 ## Update notes
 
-Automatic updates are disabled for this fork. Upstream TF2Autobot releases do not include this project's pricedb.io and Mannco.store integrations, so updating from upstream can overwrite fork-specific functionality.
+Automatic updates are disabled for the current version.
 
 - The `!updaterepo` command is temporarily disabled for this version.
 - Before updating, make sure your system and the packages installed during initial setup are current.

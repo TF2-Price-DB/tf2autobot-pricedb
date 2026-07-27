@@ -76,7 +76,7 @@ export default class InventoryCostBasis {
                 await this.save();
             }
 
-            log.debug(`Loaded ${this.fifoEntries.length} FIFO entries from ${this.filePath}`);
+            log.debug(`Loaded ${this.fifoEntries.length} FIFO entries`);
         } catch (err) {
             if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
                 log.debug('No existing cost basis file found, starting fresh');

@@ -528,15 +528,23 @@ export const optionsSchema: jsonschema.Schema = {
                 game: {
                     type: 'object',
                     properties: {
-                        playOnlyTF2: {
-                            type: 'boolean'
-                        },
-                        customName: {
-                            type: 'string',
-                            maxLength: 60
+                        presence: {
+                            type: 'object',
+                            properties: {
+                                mode: {
+                                    type: 'string',
+                                    enum: ['tf2Only', 'customName', 'liveKeyStatus']
+                                },
+                                customName: {
+                                    type: 'string',
+                                    maxLength: 60
+                                }
+                            },
+                            required: ['mode'],
+                            additionalProperties: false
                         }
                     },
-                    required: ['playOnlyTF2', 'customName'],
+                    required: ['presence'],
                     additionalProperties: false
                 },
                 alwaysRemoveItemAttributes: {

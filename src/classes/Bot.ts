@@ -203,6 +203,14 @@ export default class Bot {
 
     private reconnectTimeout: NodeJS.Timeout = null;
 
+    private steamGamePresenceTimeout: NodeJS.Timeout = null;
+
+    private lastSteamGamePresence: string = null;
+
+    private lastSteamGamePresenceUpdate = 0;
+
+    private steamGamePresenceInterval: NodeJS.Timeout = null;
+
     private isLoginAttemptActive = false;
 
     private recoveryRestartRequested = false;
@@ -225,7 +233,76 @@ export default class Bot {
         this.reconnectAttempts = 0;
     }
 
+    private onKeyPriceChange(priceKey: string): void {
+        if (priceKey === '5021;6') {
+            this.updateSteamGamePresence();
+        }
+    }
+
+    private setSteamGamePresence(games: number | [string, number], value: string, force = false): void {
+        if (value === this.lastSteamGamePresence && !force) {
+            return;
+        }
+
+        const delay = Math.max(0, 60 * 1000 - (Date.now() - this.lastSteamGamePresenceUpdate));
+        if (!force && delay > 0) {
+            clearTimeout(this.steamGamePresenceTimeout);
+            this.steamGamePresenceTimeout = setTimeout(() => {
+                this.steamGamePresenceTimeout = null;
+                this.updateSteamGamePresence();
+            }, delay);
+            return;
+        }
+
+        this.client.gamesPlayed(games);
+        this.lastSteamGamePresence = value;
+        this.lastSteamGamePresenceUpdate = Date.now();
+    }
+
     private alreadyExecutedRefreshlist = false;
+
+    public updateSteamGamePresence(force = false): void {
+        const presence = this.options.miscSettings.game.presence;
+        if (presence?.mode === 'tf2Only') {
+            this.setSteamGamePresence(440, 'tf2Only', force);
+            return;
+        }
+
+        if (presence?.mode === 'liveKeyStatus') {
+            const keyPrices = this.pricelist?.getKeyPrices;
+            const inventory = this.inventoryManager?.getInventory;
+            if (!keyPrices || !inventory) {
+                log.warn('Unable to update live key status: key price or inventory is unavailable.');
+                return;
+            }
+
+            const stock = inventory.getAmount({ priceKey: '5021;6', includeNonNormalized: false });
+            const title =
+                `🔑 Buy ${keyPrices.buy.toString()} / Sell ${keyPrices.sell.toString()} | Keys: ${stock}`.slice(0, 60);
+            this.setSteamGamePresence([title, 440], title, force);
+            return;
+        }
+
+        const customName = presence?.customName || 'TF2Autobot';
+        this.setSteamGamePresence([customName, 440], customName, force);
+    }
+
+    public startSteamGamePresenceUpdater(): void {
+        if (this.options.miscSettings.game.presence?.mode !== 'liveKeyStatus') {
+            clearInterval(this.steamGamePresenceInterval);
+            this.steamGamePresenceInterval = null;
+        }
+
+        this.updateSteamGamePresence(true);
+
+        if (this.options.miscSettings.game.presence?.mode !== 'liveKeyStatus' || this.steamGamePresenceInterval) {
+            return;
+        }
+
+        this.steamGamePresenceInterval = setInterval(() => {
+            this.updateSteamGamePresence();
+        }, 5 * 60 * 1000);
+    }
 
     set isRecentlyExecuteRefreshlistCommand(setExecuted: boolean) {
         this.alreadyExecutedRefreshlist = setExecuted;
@@ -508,8 +585,12 @@ export default class Bot {
 
     async halt(): Promise<boolean> {
         this.halted = true;
+        clearInterval(this.steamGamePresenceInterval);
+        this.steamGamePresenceInterval = null;
+
         let removeAllListingsFailed = false;
 
+        clearTimeout(this.steamGamePresenceTimeout);
         log.debug('Setting status in Steam to "Snooze"');
         this.client.setPersona(EPersonaState.Snooze);
 
@@ -1110,6 +1191,7 @@ export default class Bot {
                             this.handler.onPricelist.bind(this.handler),
                             false
                         );
+                        this.addListener(this.pricelist, 'price', this.onKeyPriceChange.bind(this), true);
                         this.addListener(this.pricelist, 'price', this.handler.onPriceChange.bind(this.handler), true);
 
                         this.pricelist.init();
@@ -2157,11 +2239,7 @@ export default class Bot {
                     // Restore online status and game
                     if (this.ready) {
                         this.client.setPersona(EPersonaState.Online);
-                        this.client.gamesPlayed(
-                            this.options.miscSettings.game.playOnlyTF2
-                                ? 440
-                                : [this.options.miscSettings.game.customName || 'Team Fortress 2', 440]
-                        );
+                        this.updateSteamGamePresence(true);
                     }
                 } catch (err) {
                     log.error('Failed to reconnect:', err);

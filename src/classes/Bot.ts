@@ -21,8 +21,8 @@ import * as timersPromises from 'timers/promises';
 import fs from 'fs';
 import path from 'path';
 import * as files from '../lib/files';
+import { isUsableRefreshToken } from '../lib/refreshToken';
 
-import jwt from 'jsonwebtoken';
 import DiscordBot from './DiscordBot';
 import { Message as DiscordMessage } from 'discord.js';
 
@@ -202,6 +202,10 @@ export default class Bot {
 
     private reconnectTimeout: NodeJS.Timeout = null;
 
+    private isLoginAttemptActive = false;
+
+    private recoveryRestartRequested = false;
+
     private tradeOfferUrlRetryTimeout: NodeJS.Timeout = null;
 
     public autoRefreshListingsInterval: NodeJS.Timeout;
@@ -241,7 +245,7 @@ export default class Bot {
     constructor(public readonly botManager: BotManager, public options: Options, readonly priceSource: IPricer) {
         this.botManager = botManager;
 
-        this.client = new SteamUser();
+        this.client = new SteamUser({ autoRelogin: false });
         this.community = new SteamCommunity();
         this.manager = new TradeOfferManager({
             steam: this.client,
@@ -1707,8 +1711,9 @@ export default class Bot {
         });
     }
 
-    private async login(refreshToken?: string): Promise<void> {
+    private login(refreshToken?: string): Promise<void> {
         log.debug('Starting login attempt');
+        this.isLoginAttemptActive = true;
 
         const wait = this.loginWait();
         if (wait !== 0) {
@@ -1717,15 +1722,7 @@ export default class Bot {
 
         return new Promise((resolve, reject) => {
             setTimeout(() => {
-                const listeners = this.client.listeners('error');
-
-                this.client.removeAllListeners('error');
-
-                const gotEvent = (): void => {
-                    // eslint-disable-next-line @typescript-eslint/ban-ts-comment
-                    // @ts-ignore
-                    listeners.forEach(listener => this.client.on('error', listener));
-                };
+                const gotEvent = (): void => undefined;
 
                 const loggedOnEvent = (): void => {
                     gotEvent();
@@ -1733,6 +1730,7 @@ export default class Bot {
                     this.client.removeListener('error', errorEvent);
                     clearTimeout(timeout);
 
+                    this.isLoginAttemptActive = false;
                     resolve();
                 };
 
@@ -1741,6 +1739,7 @@ export default class Bot {
 
                     this.client.removeListener('loggedOn', loggedOnEvent);
                     clearTimeout(timeout);
+                    this.isLoginAttemptActive = false;
 
                     log.error('Failed to sign in to Steam: ', err);
 
@@ -1759,6 +1758,7 @@ export default class Bot {
                     this.client.removeListener('loggedOn', loggedOnEvent);
                     this.client.removeListener('error', errorEvent);
 
+                    this.isLoginAttemptActive = false;
                     log.debug('Did not get login response from Steam');
                     this.client.logOff();
 
@@ -1796,29 +1796,21 @@ export default class Bot {
 
         const refreshToken = (await files.readFile(tokenPath, false).catch(() => null)) as string;
 
-        if (!refreshToken) {
+        if (!refreshToken || !isUsableRefreshToken(refreshToken.trim())) {
+            if (refreshToken) {
+                log.warn('Discarding an invalid or expired Steam refresh token.');
+                await this.deleteRefreshToken();
+            }
             return null;
         }
 
-        const decoded = jwt.decode(refreshToken, { complete: true });
-
-        if (!decoded) {
-            return null;
-        }
-
-        const { exp } = decoded.payload as { exp: number };
-
-        if (exp < Date.now() / 1000) {
-            return null;
-        }
-
-        return refreshToken;
+        return refreshToken.trim();
     }
 
     private async deleteRefreshToken(): Promise<void> {
         const tokenPath = this.handler.getPaths.files.refreshToken;
 
-        await files.writeFile(tokenPath, '', false).catch(() => {
+        await files.deleteFile(tokenPath).catch(() => {
             // Ignore error
         });
     }
@@ -2031,16 +2023,51 @@ export default class Bot {
 
         // Check if we should attempt to reconnect
         const reconnectConfig = this.options.steamConnection?.autoReconnect;
-        if (!reconnectConfig?.enable || this.botManager.isStopping || this.isReconnecting) {
+        if (
+            !reconnectConfig?.enable ||
+            this.botManager.isStopping ||
+            this.isReconnecting ||
+            this.isLoginAttemptActive
+        ) {
+            return;
+        }
+
+        this.beginReconnect();
+    }
+
+    private onLoggedOff(): void {
+        log.info('Logged off from Steam');
+        this.handler.onLoggedOff();
+        this.beginReconnect();
+    }
+
+    private beginReconnect(): void {
+        const reconnectConfig = this.options.steamConnection?.autoReconnect;
+        if (
+            !reconnectConfig?.enable ||
+            this.botManager.isStopping ||
+            this.isReconnecting ||
+            this.isLoginAttemptActive
+        ) {
             return;
         }
 
         this.attemptReconnect();
     }
 
-    private onLoggedOff(): void {
-        log.info('Logged off from Steam');
-        this.handler.onLoggedOff();
+    private restartAfterSteamRecoveryFailure(err: Error): void {
+        if (this.recoveryRestartRequested) return;
+        this.recoveryRestartRequested = true;
+        log.error('Steam recovery failed; restarting the bot.', err);
+        void this.botManager
+            .restartProcess()
+            .then(restarted => {
+                if (!restarted) this.botManager.stop(err, false, true);
+            })
+            .catch(restartErr => {
+                log.error('Failed to restart after Steam recovery failure:', restartErr);
+                this.botManager.stop(err, false, true);
+            });
     }
 
     private attemptReconnect(): void {
@@ -2051,8 +2078,7 @@ export default class Bot {
 
         const maxAttempts = reconnectConfig.maxAttempts ?? 5;
         if (this.reconnectAttempts >= maxAttempts) {
-            log.error(`Maximum reconnection attempts (${maxAttempts}) reached. Stopping bot...`);
-            this.botManager.stop(new Error('Max reconnection attempts reached'), false, true);
+            this.restartAfterSteamRecoveryFailure(new Error('Max reconnection attempts reached'));
             return;
         }
 
@@ -2072,13 +2098,14 @@ export default class Bot {
 
         this.reconnectTimeout = setTimeout(() => {
             void (async () => {
+                this.reconnectTimeout = null;
                 try {
                     log.info('Reconnecting to Steam...');
                     await this.login(await this.getRefreshToken());
 
                     // Reset reconnection state on successful login
-                    this.isReconnecting = false;
-                    this.reconnectAttempts = 0;
+                    this.resetReconnectionState();
+                    this.recoveryRestartRequested = false;
 
                     log.info('Successfully reconnected to Steam!');
 
@@ -2093,7 +2120,7 @@ export default class Bot {
                     }
                 } catch (err) {
                     log.error('Failed to reconnect:', err);
-                    this.isReconnecting = false;
+                    // Keep the reconnect lock while scheduling the next attempt.
                     // Try again
                     this.attemptReconnect();
                 }
@@ -2102,17 +2129,22 @@ export default class Bot {
     }
 
     private async onError(err: CustomError): Promise<void> {
+        if (this.isLoginAttemptActive) {
+            return;
+        }
+
         if (err.eresult === EResult.LoggedInElsewhere) {
-            log.warn('Signed in elsewhere, stopping the bot...');
-            this.botManager.stop(err, false, true);
+            log.warn('Signed in elsewhere; restarting the bot...');
+            this.restartAfterSteamRecoveryFailure(err);
         } else if (err.eresult === EResult.AccessDenied) {
             await this.deleteRefreshToken();
+            this.beginReconnect();
         } else if (err.eresult === EResult.LogonSessionReplaced) {
             this.sessionReplaceCount++;
 
-            if (this.sessionReplaceCount > 0) {
+            if (this.sessionReplaceCount > 1) {
                 log.warn('Detected login session replace loop, stopping bot...');
-                this.botManager.stop(err, false, true);
+                this.restartAfterSteamRecoveryFailure(err);
                 return;
             }
 
@@ -2120,11 +2152,10 @@ export default class Bot {
 
             await this.deleteRefreshToken();
 
-            this.login(await this.getRefreshToken()).catch(error_ => {
-                if (error_) throw error_;
-            });
+            this.beginReconnect();
         } else {
-            throw err;
+            log.error('Unhandled Steam error; attempting recovery:', err);
+            this.beginReconnect();
         }
     }
 

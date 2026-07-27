@@ -171,7 +171,7 @@ export default class Commands {
                 this.queueCommand(steamID);
             } else if (['time', 'uptime', 'pure', 'rate', 'owner', 'discord', 'stock'].includes(command)) {
                 if (command === 'stock') {
-                    return this.misc.miscCommand(steamID, command as Misc, message);
+                    return this.misc.miscCommand(steamID, command as Misc, prefix, message);
                 }
                 this.misc.miscCommand(steamID, command as Misc, prefix);
             } else if (['link', 'links'].includes(command)) {

@@ -7,6 +7,7 @@ import SteamTotp from 'steam-totp';
 import ListingManager, { Listing } from '@tf2autobot/bptf-listings';
 import PriceDBStoreManager from './PriceDBStoreManager';
 import ManncoStoreManager, { ManncoPricelistItem } from './ManncoStoreManager';
+import sendManncoTransaction from './DiscordWebhook/sendManncoTransaction';
 import JournalTfManager from './JournalTfManager';
 import SchemaManager, { Effect, StrangeParts } from '@tf2autobot/tf2-schema';
 import BptfLogin from '@tf2autobot/bptf-login';
@@ -1356,6 +1357,22 @@ export default class Bot {
                                                     await this.manncoStoreManager.getOnSaleItems(),
                                                     pricelistItems
                                                 );
+                                                const transactions =
+                                                    await this.manncoStoreManager.checkCompletedTransactions();
+                                                for (const transaction of transactions) {
+                                                    sendManncoTransaction(transaction, this);
+                                                    this.messageAdmins(
+                                                        `Mannco.store ${
+                                                            transaction.type === 'sale' ? 'sale' : 'buy order completed'
+                                                        }: ` +
+                                                            `${transaction.quantity}x ${transaction.name} for $${(
+                                                                transaction.price / 100
+                                                            ).toFixed(2)}` +
+                                                            (transaction.sku ? ` (${transaction.sku})` : ''),
+                                                        []
+                                                    );
+                                                }
+
                                                 if (reconciliation.importedSkus.length > 0) {
                                                     for (const sku of reconciliation.importedSkus) {
                                                         const entry = this.pricelist.getPrice({

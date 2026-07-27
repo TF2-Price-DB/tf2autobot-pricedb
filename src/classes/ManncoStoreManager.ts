@@ -80,6 +80,25 @@ export interface ManncoSalesHistory {
     count: number;
 }
 
+export type ManncoTransactionType = 'sale' | 'buy';
+
+export interface ManncoTransactionEvent {
+    type: ManncoTransactionType;
+    id: string;
+    itemId?: number;
+    name: string;
+    quantity: number;
+    price: number;
+    assetIds: string[];
+    sku?: string;
+}
+
+interface ManncoHistoryState {
+    initialized: boolean;
+    sales: string[];
+    purchases: string[];
+}
+
 export interface ManncoBuyOrder {
     id: number;
     itemid: number;
@@ -119,6 +138,7 @@ interface ManncoStoreData {
     buyOrders: Record<string, { itemId: number; amount: number; name: string }>;
     manncoItems: Record<string, number>;
     operations: Record<string, ManncoOperation>;
+    history?: ManncoHistoryState;
 }
 
 interface PriceDbManncoItem {
@@ -130,6 +150,9 @@ const MANNCO_PRICEDB_API_URL = 'https://pricedb.io/api';
 
 function isRecord(value: unknown): value is Record<string, unknown> {
     return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+function isDefined<T>(value: T | undefined): value is T {
+    return value !== undefined;
 }
 
 function isManncoStoreData(value: unknown): value is ManncoStoreData {
@@ -188,7 +211,13 @@ export default class ManncoStoreManager extends EventEmitter {
 
     private readonly buyOrderValuesBySku = new Map<string, string>();
 
-    private data: ManncoStoreData = { listings: {}, buyOrders: {}, manncoItems: {}, operations: {} };
+    private data: ManncoStoreData = {
+        listings: {},
+        buyOrders: {},
+        manncoItems: {},
+        operations: {},
+        history: { initialized: false, sales: [], purchases: [] }
+    };
 
     constructor(private readonly apiKey: string, private readonly dataPath: string) {
         super();
@@ -318,6 +347,86 @@ export default class ManncoStoreManager extends EventEmitter {
             `/user/getSalesHistory?page=${page}&perpage=${limit}&range=1W`
         );
         return { values: Array.isArray(content.values) ? content.values : [], count: content.count || 0 };
+    }
+
+    async getPurchaseHistory(page = 0, limit = 50): Promise<ManncoSalesHistory> {
+        const content = await this.request<ManncoSalesHistory>(
+            'get',
+            `/user/getPurchaseHistory?page=${page}&count=${limit}`
+        );
+        return { values: Array.isArray(content.values) ? content.values : [], count: content.count || 0 };
+    }
+
+    async checkCompletedTransactions(): Promise<ManncoTransactionEvent[]> {
+        const [sales, purchases] = await Promise.all([this.getSalesHistory(0, 50), this.getPurchaseHistory()]);
+        const saleEvents = sales.values.map(value => this.parseHistoryEvent('sale', value)).filter(isDefined);
+        const purchaseEvents = purchases.values.map(value => this.parseHistoryEvent('buy', value)).filter(isDefined);
+        const history = this.data.history || { initialized: false, sales: [], purchases: [] };
+        this.data.history = history;
+
+        if (!history.initialized) {
+            history.sales = this.limitSeen(saleEvents.map(event => event.id));
+            history.purchases = this.limitSeen(purchaseEvents.map(event => event.id));
+            history.initialized = true;
+            await this.saveData();
+            return [];
+        }
+
+        const newSales = saleEvents.filter(event => !history.sales.includes(event.id));
+        const newPurchases = purchaseEvents.filter(event => !history.purchases.includes(event.id));
+        history.sales = this.limitSeen([...newSales.map(event => event.id), ...history.sales]);
+        history.purchases = this.limitSeen([...newPurchases.map(event => event.id), ...history.purchases]);
+
+        const trackedBuyOrders = new Map(
+            Object.entries(this.data.buyOrders).map(([sku, order]) => [order.itemId, { sku, name: order.name }])
+        );
+        const completedBuys = newPurchases.flatMap(event => {
+            const tracked = event.itemId === undefined ? undefined : trackedBuyOrders.get(event.itemId);
+            return tracked ? [{ ...event, sku: tracked.sku, name: event.name || tracked.name }] : [];
+        });
+
+        if (newSales.length > 0 || newPurchases.length > 0) await this.saveData();
+        return [...newSales, ...completedBuys];
+    }
+
+    private parseHistoryEvent(type: ManncoTransactionType, value: unknown): ManncoTransactionEvent | undefined {
+        if (!isRecord(value)) return undefined;
+        const numberValue = (...keys: string[]): number | undefined => {
+            for (const key of keys) {
+                const candidate = value[key];
+                if (typeof candidate === 'number' && Number.isSafeInteger(candidate) && candidate > 0) return candidate;
+                if (typeof candidate === 'string' && /^\d+$/.test(candidate)) return Number(candidate);
+            }
+            return undefined;
+        };
+        const stringValue = (...keys: string[]): string | undefined => {
+            for (const key of keys) if (typeof value[key] === 'string' && value[key].length > 0) return value[key];
+            return undefined;
+        };
+        const itemId = numberValue('item_id', 'itemid', 'iditem');
+        const price = numberValue('price', 'value') || 0;
+        const quantity = numberValue('count', 'amount', 'quantity') || 1;
+        const assetIds = this.splitAssetIds(stringValue('ids', 'assetid', 'idbackpack') || '');
+        const id = stringValue('id', 'transactionid', 'transactionId') || JSON.stringify(value);
+        const sku = assetIds.map(assetId => this.findSkuByAssetId(assetId)).find(isDefined);
+        return {
+            type,
+            id: `${type}:${id}`,
+            itemId,
+            name: stringValue('name', 'item_name') || `Mannco item ${itemId || 'unknown'}`,
+            quantity,
+            price,
+            assetIds,
+            sku
+        };
+    }
+
+    private findSkuByAssetId(assetId: string): string | undefined {
+        return Object.entries(this.data.listings).find(([, listing]) => listing.assetIds.includes(assetId))?.[0];
+    }
+
+    private limitSeen(ids: string[]): string[] {
+        return [...new Set(ids)].slice(0, 500);
     }
 
     async getBuyOrders(page = 0): Promise<ManncoBuyOrder[]> {

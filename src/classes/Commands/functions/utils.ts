@@ -11,6 +11,42 @@ import { genericNameAndMatch } from '../../Inventory';
 import { fixItem } from '../../../lib/items';
 import { testPriceKey } from '../../../lib/tools/export';
 
+interface UsdPriceParameterAliases {
+    buyUsd?: unknown;
+    buyUSD?: unknown;
+    BuyUsd?: unknown;
+    sellUsd?: unknown;
+    sellUSD?: unknown;
+    SellUsd?: unknown;
+}
+
+export function normalizeUsdParameterAliases(params: UsdPriceParameterAliases): string | null {
+    const aliases = [
+        { canonical: 'buyUsd', aliases: ['buyUSD', 'BuyUsd'] },
+        { canonical: 'sellUsd', aliases: ['sellUSD', 'SellUsd'] }
+    ] as const;
+
+    for (const { canonical, aliases: alternateKeys } of aliases) {
+        const suppliedKeys = [canonical, ...alternateKeys].filter(key => params[key] !== undefined);
+
+        if (suppliedKeys.length === 0) {
+            continue;
+        }
+
+        const value = params[suppliedKeys[0]];
+        if (suppliedKeys.some(key => params[key] !== value)) {
+            return `Conflicting USD price parameters: ${suppliedKeys.join(', ')} must have the same value.`;
+        }
+
+        params[canonical] = value;
+        for (const key of alternateKeys) {
+            delete params[key];
+        }
+    }
+
+    return null;
+}
+
 export function getItemAndAmount(
     steamID: SteamID,
     message: string,

@@ -235,4 +235,48 @@ describe('ManncoStoreManager', () => {
             status: 'completed'
         });
     });
+
+    test('silently baselines history and reports each new sale only once', async () => {
+        const manager = createManager();
+        const response = (values: unknown[]) => ({
+            data: { success: true, err: false, content: { values, count: values.length } }
+        });
+        const firstSale = { id: 'sale-1', item_id: 1575, name: 'Test Item', price: 90, count: 1 };
+
+        api.request.mockResolvedValueOnce(response([firstSale])).mockResolvedValueOnce(response([]));
+        await expect(manager.checkCompletedTransactions()).resolves.toEqual([]);
+
+        const secondSale = { id: 'sale-2', item_id: 1575, name: 'Test Item', price: 95, count: 2 };
+        api.request.mockResolvedValueOnce(response([secondSale, firstSale])).mockResolvedValueOnce(response([]));
+        await expect(manager.checkCompletedTransactions()).resolves.toEqual([
+            expect.objectContaining({ type: 'sale', id: 'sale:sale-2', quantity: 2, price: 95 })
+        ]);
+
+        api.request.mockResolvedValueOnce(response([secondSale, firstSale])).mockResolvedValueOnce(response([]));
+        await expect(manager.checkCompletedTransactions()).resolves.toEqual([]);
+    });
+
+    test('reports purchase history only for tracked buy orders', async () => {
+        const manager = createManager();
+        const testManager = manager as unknown as {
+            data: { buyOrders: Record<string, { itemId: number; amount: number; name: string }> };
+        };
+        testManager.data.buyOrders = { '725;6;uncraftable': { itemId: 1575, amount: 1, name: 'Tracked Item' } };
+        const response = (values: unknown[]) => ({
+            data: { success: true, err: false, content: { values, count: values.length } }
+        });
+
+        api.request.mockResolvedValueOnce(response([])).mockResolvedValueOnce(response([]));
+        await manager.checkCompletedTransactions();
+        api.request.mockResolvedValueOnce(response([])).mockResolvedValueOnce(
+            response([
+                { id: 'purchase-1', item_id: 1575, name: 'Tracked Item', price: 40, count: 1 },
+                { id: 'purchase-2', item_id: 999, name: 'Untracked Item', price: 50, count: 1 }
+            ])
+        );
+
+        await expect(manager.checkCompletedTransactions()).resolves.toEqual([
+            expect.objectContaining({ type: 'buy', id: 'buy:purchase-1', sku: '725;6;uncraftable', price: 40 })
+        ]);
+    });
 });

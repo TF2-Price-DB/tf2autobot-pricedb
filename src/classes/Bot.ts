@@ -6,7 +6,7 @@ import SteamCommunity from '@tf2autobot/steamcommunity';
 import SteamTotp from 'steam-totp';
 import ListingManager, { Listing } from '@tf2autobot/bptf-listings';
 import PriceDBStoreManager from './PriceDBStoreManager';
-import ManncoStoreManager, { ManncoPricelistItem } from './ManncoStoreManager';
+import ManncoStoreManager, { ManncoPricelistItem, ManncoRateLimitError } from './ManncoStoreManager';
 import sendManncoTransaction from './DiscordWebhook/sendManncoTransaction';
 import JournalTfManager from './JournalTfManager';
 import SchemaManager, { Effect, StrangeParts } from '@tf2autobot/tf2-schema';
@@ -210,6 +210,12 @@ export default class Bot {
     private lastSteamGamePresenceUpdate = 0;
 
     private steamGamePresenceInterval: NodeJS.Timeout = null;
+
+    private manncoStoreRetryTimeout: NodeJS.Timeout = null;
+
+    private manncoStoreListingsInterval: NodeJS.Timeout = null;
+
+    private manncoStoreOperationsInterval: NodeJS.Timeout = null;
 
     private isLoginAttemptActive = false;
 
@@ -591,6 +597,12 @@ export default class Bot {
         let removeAllListingsFailed = false;
 
         clearTimeout(this.steamGamePresenceTimeout);
+        clearTimeout(this.manncoStoreRetryTimeout);
+        this.manncoStoreRetryTimeout = null;
+        clearInterval(this.manncoStoreListingsInterval);
+        this.manncoStoreListingsInterval = null;
+        clearInterval(this.manncoStoreOperationsInterval);
+        this.manncoStoreOperationsInterval = null;
         log.debug('Setting status in Steam to "Snooze"');
         this.client.setPersona(EPersonaState.Snooze);
 
@@ -627,6 +639,84 @@ export default class Bot {
         this.startAutoRefreshListings();
 
         return recreateListingsFailed;
+    }
+
+    private async reconcileManncoStoreListings(): Promise<void> {
+        if (!this.manncoStoreManager?.isReady) return;
+
+        const pricelistItems = Object.keys(this.pricelist.getPrices).reduce(
+            (items: ManncoPricelistItem[], sku: string) => {
+                const entry = this.pricelist.getPrice({ priceKey: sku, onlyEnabled: false });
+                if (entry?.sellUsd !== undefined) items.push({ sku: entry.sku, sellUsd: entry.sellUsd });
+                return items;
+            },
+            []
+        );
+        const reconciliation = await this.manncoStoreManager.reconcileListings(
+            await this.manncoStoreManager.getOnSaleItems(),
+            pricelistItems
+        );
+        const transactions = await this.manncoStoreManager.checkCompletedTransactions();
+        for (const transaction of transactions) {
+            sendManncoTransaction(transaction, this);
+            this.messageAdmins(
+                `Mannco.store ${transaction.type === 'sale' ? 'sale' : 'buy order completed'}: ` +
+                    `${transaction.quantity}x ${transaction.name} for $${(transaction.price / 100).toFixed(2)}` +
+                    (transaction.sku ? ` (${transaction.sku})` : ''),
+                []
+            );
+        }
+
+        for (const sku of reconciliation.importedSkus) {
+            const entry = this.pricelist.getPrice({ priceKey: sku, onlyEnabled: false });
+            if (entry?.sellUsd === undefined) continue;
+            try {
+                await this.manncoStoreManager.repriceSku(sku, entry.sellUsd);
+            } catch (err) {
+                log.warn(`Could not apply the pricelist USD sell price to imported Mannco.store listing ${sku}:`, err);
+            }
+        }
+        if (reconciliation.importedSkus.length > 0) {
+            log.info(`Imported ${reconciliation.importedSkus.length} existing Mannco.store listing SKU(s)`);
+        }
+    }
+
+    private async activateManncoStore(): Promise<void> {
+        await this.manncoStoreManager.init();
+        try {
+            await this.reconcileManncoStoreListings();
+        } catch (err) {
+            log.warn('Could not reconcile Mannco.store listings at startup:', err);
+        }
+
+        if (!this.manncoStoreListingsInterval) {
+            this.manncoStoreListingsInterval = setInterval(() => {
+                void this.reconcileManncoStoreListings().catch(err => {
+                    log.warn('Could not reconcile Mannco.store listings:', err);
+                });
+            }, 5 * 60 * 1000);
+        }
+        if (!this.manncoStoreOperationsInterval) {
+            this.manncoStoreOperationsInterval = setInterval(() => {
+                void this.manncoStoreManager.reconcileOperations().catch(err => {
+                    log.warn('Could not reconcile Mannco.store pending operations:', err);
+                });
+            }, 30 * 1000);
+        }
+    }
+
+    private scheduleManncoStoreRetry(): void {
+        if (this.halted || this.manncoStoreRetryTimeout || this.manncoStoreManager.isReady) return;
+
+        this.manncoStoreRetryTimeout = setTimeout(() => {
+            this.manncoStoreRetryTimeout = null;
+            void this.activateManncoStore()
+                .then(() => log.info('Mannco.store manager recovered after rate limiting.'))
+                .catch(err => {
+                    log.warn('Mannco.store background initialization failed; retrying in 15 minutes:', err);
+                    this.scheduleManncoStoreRetry();
+                });
+        }, 15 * 60 * 1000);
     }
 
     private addListener(
@@ -1383,7 +1473,7 @@ export default class Bot {
                                         log.error('Mannco.store manager error:', err);
                                     });
 
-                                    this.manncoStoreManager.on('listingUpdated', listing => {
+                                    this.manncoStoreManager.on('listingUpdated', (listing: { sku: string }) => {
                                         log.debug('Mannco.store listing updated:', listing.sku);
                                     });
 
@@ -1395,6 +1485,7 @@ export default class Bot {
                                     });
 
                                     this.pricelist.on('price', (_priceKey: string, entry: Entry) => {
+                                        if (!this.manncoStoreManager.isReady) return;
                                         if (entry.sellUsd !== undefined) {
                                             void this.manncoStoreManager
                                                 .repriceSku(entry.sku, entry.sellUsd)
@@ -1423,90 +1514,38 @@ export default class Bot {
                                         }
                                     });
 
-                                    this.manncoStoreManager
-                                        .init()
-                                        .then(async () => {
-                                            const reconcileManncoListings = async (): Promise<void> => {
-                                                const pricelistItems = Object.keys(this.pricelist.getPrices).reduce(
-                                                    (items: ManncoPricelistItem[], sku: string) => {
-                                                        const entry = this.pricelist.getPrice({
-                                                            priceKey: sku,
-                                                            onlyEnabled: false
-                                                        });
-                                                        if (entry?.sellUsd !== undefined) {
-                                                            items.push({ sku: entry.sku, sellUsd: entry.sellUsd });
-                                                        }
-                                                        return items;
-                                                    },
-                                                    []
-                                                );
-                                                const reconciliation = await this.manncoStoreManager.reconcileListings(
-                                                    await this.manncoStoreManager.getOnSaleItems(),
-                                                    pricelistItems
-                                                );
-                                                const transactions =
-                                                    await this.manncoStoreManager.checkCompletedTransactions();
-                                                for (const transaction of transactions) {
-                                                    sendManncoTransaction(transaction, this);
-                                                    this.messageAdmins(
-                                                        `Mannco.store ${
-                                                            transaction.type === 'sale' ? 'sale' : 'buy order completed'
-                                                        }: ` +
-                                                            `${transaction.quantity}x ${transaction.name} for $${(
-                                                                transaction.price / 100
-                                                            ).toFixed(2)}` +
-                                                            (transaction.sku ? ` (${transaction.sku})` : ''),
-                                                        []
-                                                    );
+                                    let rateLimitAttempts = 0;
+                                    const initialiseManncoStore = (): void => {
+                                        void this.activateManncoStore()
+                                            .then(() => cb(null))
+                                            .catch(err => {
+                                                if (!(err instanceof ManncoRateLimitError)) {
+                                                    cb(err as Error);
+                                                    return;
                                                 }
 
-                                                if (reconciliation.importedSkus.length > 0) {
-                                                    for (const sku of reconciliation.importedSkus) {
-                                                        const entry = this.pricelist.getPrice({
-                                                            priceKey: sku,
-                                                            onlyEnabled: false
-                                                        });
-                                                        if (entry?.sellUsd === undefined) continue;
-
-                                                        try {
-                                                            await this.manncoStoreManager.repriceSku(
-                                                                sku,
-                                                                entry.sellUsd
-                                                            );
-                                                        } catch (err) {
-                                                            log.warn(
-                                                                `Could not apply the pricelist USD sell price to imported Mannco.store listing ${sku}:`,
-                                                                err
-                                                            );
-                                                        }
-                                                    }
-                                                    log.info(
-                                                        `Imported ${reconciliation.importedSkus.length} existing Mannco.store listing SKU(s)`
-                                                    );
-                                                }
-                                            };
-
-                                            try {
-                                                await reconcileManncoListings();
-                                            } catch (err) {
-                                                log.warn('Could not reconcile Mannco.store listings at startup:', err);
-                                            }
-                                            setInterval(() => {
-                                                void reconcileManncoListings().catch(err => {
-                                                    log.warn('Could not reconcile Mannco.store listings:', err);
-                                                });
-                                            }, 5 * 60 * 1000);
-                                            setInterval(() => {
-                                                void this.manncoStoreManager.reconcileOperations().catch(err => {
+                                                if (rateLimitAttempts++ < 3) {
                                                     log.warn(
-                                                        'Could not reconcile Mannco.store pending operations:',
-                                                        err
+                                                        `Mannco.store login rate limited; retrying in ${Math.ceil(
+                                                            err.retryAfterMs / 1000
+                                                        )} seconds (${rateLimitAttempts}/3).`
                                                     );
-                                                });
-                                            }, 30 * 1000);
-                                            cb(null);
-                                        })
-                                        .catch(err => cb(err as Error));
+                                                    this.manncoStoreRetryTimeout = setTimeout(() => {
+                                                        this.manncoStoreRetryTimeout = null;
+                                                        initialiseManncoStore();
+                                                    }, err.retryAfterMs);
+                                                    return;
+                                                }
+
+                                                log.warn(
+                                                    'Mannco.store remains rate limited after four login attempts; ' +
+                                                        'continuing startup and retrying initialization every 15 minutes.'
+                                                );
+                                                this.scheduleManncoStoreRetry();
+                                                cb(null);
+                                            });
+                                    };
+                                    initialiseManncoStore();
                                 },
                                 (cb: Callback): void => {
                                     if (this.options.skipUpdateProfileSettings) {

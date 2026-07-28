@@ -147,6 +147,35 @@ interface PriceDbManncoItem {
 }
 
 const MANNCO_PRICEDB_API_URL = 'https://pricedb.io/api';
+const MANNCO_DEFAULT_RATE_LIMIT_DELAY_MS = 60 * 1000;
+const MANNCO_MAX_RATE_LIMIT_DELAY_MS = 15 * 60 * 1000;
+
+export class ManncoRateLimitError extends Error {
+    constructor(public readonly retryAfterMs: number) {
+        super(`Mannco.store rate limit exceeded; retry after ${Math.ceil(retryAfterMs / 1000)} seconds.`);
+        this.name = 'ManncoRateLimitError';
+    }
+}
+
+/** Returns a bounded retry delay for a Mannco HTTP 429 response. */
+export function getManncoRateLimitDelay(error: unknown): number | null {
+    const axiosError = error as AxiosError<ManncoResponse<unknown>>;
+    if (axiosError.response?.status !== 429) return null;
+
+    const retryAfterHeader = axiosError.response.headers?.['retry-after'] as unknown;
+    const retryAfter = Number(Array.isArray(retryAfterHeader) ? retryAfterHeader[0] : retryAfterHeader);
+    if (Number.isFinite(retryAfter) && retryAfter >= 0) {
+        return Math.min(Math.max(retryAfter * 1000, 1000), MANNCO_MAX_RATE_LIMIT_DELAY_MS);
+    }
+
+    const content = axiosError.response.data?.content;
+    const match = typeof content === 'string' ? /try again in\s+(\d+)\s+seconds?/i.exec(content) : null;
+    if (match) {
+        return Math.min(Math.max(Number(match[1]) * 1000, 1000), MANNCO_MAX_RATE_LIMIT_DELAY_MS);
+    }
+
+    return MANNCO_DEFAULT_RATE_LIMIT_DELAY_MS;
+}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
     return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -207,6 +236,12 @@ export default class ManncoStoreManager extends EventEmitter {
 
     private jwt: string | null = null;
 
+    private initialized = false;
+
+    private initialization: Promise<void> | null = null;
+
+    private dataLoaded = false;
+
     private readonly listedAssetsBySku = new Map<string, string[]>();
 
     private readonly buyOrderValuesBySku = new Map<string, string>();
@@ -236,17 +271,36 @@ export default class ManncoStoreManager extends EventEmitter {
         });
     }
 
+    get isReady(): boolean {
+        return this.initialized;
+    }
+
     async init(): Promise<void> {
-        const data: unknown = await files.readFile(this.dataPath, true);
-        if (isManncoStoreData(data)) {
-            this.data = {
-                listings: data.listings,
-                buyOrders: data.buyOrders,
-                manncoItems: data.manncoItems || {},
-                operations: data.operations || {}
-            };
+        if (this.initialized) return;
+        if (this.initialization !== null) return this.initialization;
+
+        this.initialization = this.initialize().finally(() => {
+            this.initialization = null;
+        });
+        return this.initialization;
+    }
+
+    private async initialize(): Promise<void> {
+        if (!this.dataLoaded) {
+            const data: unknown = await files.readFile(this.dataPath, true);
+            if (isManncoStoreData(data)) {
+                this.data = {
+                    listings: data.listings,
+                    buyOrders: data.buyOrders,
+                    manncoItems: data.manncoItems || {},
+                    operations: data.operations || {},
+                    history: data.history || { initialized: false, sales: [], purchases: [] }
+                };
+            }
+            this.dataLoaded = true;
         }
         await this.login();
+        this.initialized = true;
         try {
             await this.reconcileOperations();
         } catch (err) {
@@ -1022,6 +1076,10 @@ export default class ManncoStoreManager extends EventEmitter {
 
             this.jwt = response.data.content.jwt;
         } catch (err) {
+            const rateLimitDelay = getManncoRateLimitDelay(err);
+            if (rateLimitDelay !== null) {
+                throw new ManncoRateLimitError(rateLimitDelay);
+            }
             throw filterAxiosError(err as AxiosError);
         }
     }
@@ -1064,9 +1122,9 @@ export default class ManncoStoreManager extends EventEmitter {
                 return this.request<T>(method, path, data, false, emitError);
             }
 
-            if (retry && status === 429) {
-                const retryAfter = Number(axiosError.response?.headers?.['retry-after']);
-                const delay = Number.isFinite(retryAfter) ? Math.min(Math.max(retryAfter, 1), 60) * 1000 : 1000;
+            const rateLimitDelay = getManncoRateLimitDelay(axiosError);
+            if (retry && rateLimitDelay !== null) {
+                const delay = rateLimitDelay;
                 await new Promise(resolve => setTimeout(resolve, delay));
                 return this.request<T>(method, path, data, false, emitError);
             }

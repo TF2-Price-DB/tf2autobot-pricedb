@@ -1,5 +1,5 @@
 import axios from 'axios';
-import ManncoStoreManager from '../ManncoStoreManager';
+import ManncoStoreManager, { getManncoRateLimitDelay, ManncoRateLimitError } from '../ManncoStoreManager';
 
 jest.mock('axios', () => ({
     __esModule: true,
@@ -24,6 +24,35 @@ describe('ManncoStoreManager', () => {
     function createManager(): ManncoStoreManager {
         return new ManncoStoreManager('key', 'mannco-test.json');
     }
+
+    test.each([
+        [{ response: { status: 429, headers: { 'retry-after': '71' }, data: { content: 'wait' } } }, 71000],
+        [
+            {
+                response: {
+                    status: 429,
+                    headers: {},
+                    data: { content: 'Rate limit exceeded. Try again in 42 seconds.' }
+                }
+            },
+            42000
+        ],
+        [{ response: { status: 429, headers: {}, data: { content: 'wait' } } }, 60000]
+    ])('gets the Mannco rate-limit delay from the response', (error, expected) => {
+        expect(getManncoRateLimitDelay(error)).toBe(expected);
+    });
+
+    test('does not mark the manager ready when login is rate limited', async () => {
+        api.post.mockRejectedValue({
+            response: { status: 429, headers: {}, data: { content: 'Try again in 71 seconds.' } }
+        });
+        const manager = createManager();
+
+        await expect(manager.init()).rejects.toEqual(expect.any(ManncoRateLimitError));
+        await expect(manager.init()).rejects.toMatchObject({ retryAfterMs: 71000 });
+        expect(manager.isReady).toBe(false);
+        expect(api.post).toHaveBeenCalledTimes(2);
+    });
 
     test('unwraps Mannco nested deposit status and returns replacement asset IDs', async () => {
         api.request.mockResolvedValue({

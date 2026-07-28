@@ -957,10 +957,23 @@ export default class Commands {
         this.bot.sendMessage(steamID, message);
     }
 
-    private async manncoOnSaleCommand(steamID: SteamID): Promise<void> {
+    private isManncoStoreReady(steamID: SteamID): boolean {
         if (!this.bot.manncoStoreManager) {
-            return this.bot.sendMessage(steamID, '❌ Mannco.store is not configured or enabled.');
+            this.bot.sendMessage(steamID, '❌ Mannco.store is not configured or enabled.');
+            return false;
         }
+        if (!this.bot.manncoStoreManager.isReady) {
+            this.bot.sendMessage(
+                steamID,
+                '⌛ Mannco.store is temporarily unavailable due to rate limiting and will retry automatically.'
+            );
+            return false;
+        }
+        return true;
+    }
+
+    private async manncoOnSaleCommand(steamID: SteamID): Promise<void> {
+        if (!this.isManncoStoreReady(steamID)) return;
 
         try {
             const items = await this.bot.manncoStoreManager.getOnSaleItems();
@@ -976,9 +989,7 @@ export default class Commands {
     }
 
     private async manncoBalanceCommand(steamID: SteamID): Promise<void> {
-        if (!this.bot.manncoStoreManager) {
-            return this.bot.sendMessage(steamID, '❌ Mannco.store is not configured or enabled.');
-        }
+        if (!this.isManncoStoreReady(steamID)) return;
 
         try {
             const balance = await this.bot.manncoStoreManager.getBalance();
@@ -989,9 +1000,7 @@ export default class Commands {
     }
 
     private async manncoSalesCommand(steamID: SteamID): Promise<void> {
-        if (!this.bot.manncoStoreManager) {
-            return this.bot.sendMessage(steamID, '❌ Mannco.store is not configured or enabled.');
-        }
+        if (!this.isManncoStoreReady(steamID)) return;
 
         try {
             const sales = await this.bot.manncoStoreManager.getSalesHistory();
@@ -1005,9 +1014,7 @@ export default class Commands {
     }
 
     private async manncoPriceCommand(steamID: SteamID, message: string): Promise<void> {
-        if (!this.bot.manncoStoreManager) {
-            return this.bot.sendMessage(steamID, '❌ Mannco.store is not configured or enabled.');
-        }
+        if (!this.isManncoStoreReady(steamID)) return;
 
         const rawParams = CommandParser.removeCommand(removeLinkProtocol(message)).trim();
         const params = CommandParser.parseParams(rawParams);
@@ -1032,9 +1039,7 @@ export default class Commands {
     }
 
     private async manncoWithdrawCommand(steamID: SteamID, message: string): Promise<void> {
-        if (!this.bot.manncoStoreManager) {
-            return this.bot.sendMessage(steamID, '❌ Mannco.store is not configured or enabled.');
-        }
+        if (!this.isManncoStoreReady(steamID)) return;
 
         const rawParams = CommandParser.removeCommand(removeLinkProtocol(message)).trim();
         const params = CommandParser.parseParams(rawParams);
@@ -1062,9 +1067,7 @@ export default class Commands {
     }
 
     private async manncoStatusCommand(steamID: SteamID): Promise<void> {
-        if (!this.bot.manncoStoreManager) {
-            return this.bot.sendMessage(steamID, '❌ Mannco.store is not configured or enabled.');
-        }
+        if (!this.isManncoStoreReady(steamID)) return;
 
         try {
             await this.bot.manncoStoreManager.reconcileOperations();
@@ -1087,9 +1090,7 @@ export default class Commands {
     }
 
     private async manncoResendCommand(steamID: SteamID, message: string): Promise<void> {
-        if (!this.bot.manncoStoreManager) {
-            return this.bot.sendMessage(steamID, '❌ Mannco.store is not configured or enabled.');
-        }
+        if (!this.isManncoStoreReady(steamID)) return;
         const params = CommandParser.parseParams(CommandParser.removeCommand(removeLinkProtocol(message)));
         const tradeId =
             typeof params.tradeid === 'number' ? params.tradeid : typeof params.id === 'number' ? params.id : null;
@@ -1105,9 +1106,7 @@ export default class Commands {
     }
 
     private async manncoBuyCommand(steamID: SteamID, message: string): Promise<void> {
-        if (!this.bot.manncoStoreManager) {
-            return this.bot.sendMessage(steamID, '❌ Mannco.store is not configured or enabled.');
-        }
+        if (!this.isManncoStoreReady(steamID)) return;
 
         const params = CommandParser.parseParams(CommandParser.removeCommand(removeLinkProtocol(message)));
         if (typeof params.sku !== 'string') {
@@ -1146,9 +1145,7 @@ export default class Commands {
     }
 
     private async manncoBuyOrdersCommand(steamID: SteamID, message: string): Promise<void> {
-        if (!this.bot.manncoStoreManager) {
-            return this.bot.sendMessage(steamID, '❌ Mannco.store is not configured or enabled.');
-        }
+        if (!this.isManncoStoreReady(steamID)) return;
 
         const params = CommandParser.parseParams(CommandParser.removeCommand(removeLinkProtocol(message)));
         const page = params.page === undefined ? 0 : params.page;
@@ -1176,9 +1173,7 @@ export default class Commands {
     }
 
     private async manncoBuyRemoveCommand(steamID: SteamID, message: string): Promise<void> {
-        if (!this.bot.manncoStoreManager) {
-            return this.bot.sendMessage(steamID, '❌ Mannco.store is not configured or enabled.');
-        }
+        if (!this.isManncoStoreReady(steamID)) return;
 
         const params = CommandParser.parseParams(CommandParser.removeCommand(removeLinkProtocol(message)));
         const itemId = typeof params.itemid === 'number' ? params.itemid : null;
@@ -1195,9 +1190,7 @@ export default class Commands {
     }
 
     private async manncoListCommand(steamID: SteamID, message: string): Promise<void> {
-        if (!this.bot.manncoStoreManager) {
-            return this.bot.sendMessage(steamID, '❌ Mannco.store is not configured or enabled.');
-        }
+        if (!this.isManncoStoreReady(steamID)) return;
 
         const params = CommandParser.parseParams(CommandParser.removeCommand(removeLinkProtocol(message)));
         const requestedAssetIds =

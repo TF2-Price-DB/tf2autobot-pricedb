@@ -129,7 +129,7 @@ export default class StatusCommands {
     async statsWipeCommand(steamID: SteamID, message: string): Promise<void> {
         const params = CommandParser.parseParams(CommandParser.removeCommand(message));
 
-        if (params.confirm !== 'yes' || params.confirm !== true) {
+        if (params.confirm === 'yes' || params.confirm === true) {
             return this.bot.sendMessage(
                 steamID,
                 `⚠️ Are you sure you want to delete all stats?` +

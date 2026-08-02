@@ -31,13 +31,16 @@ describe('JournalTfManager', () => {
         );
     let getMock: jest.Mock;
     let postMock: jest.Mock;
+    let deleteMock: jest.Mock;
 
     beforeEach(() => {
         getMock = jest.fn();
         postMock = jest.fn();
+        deleteMock = jest.fn();
         getCreateMock().mockReturnValue({
             get: getMock,
-            post: postMock
+            post: postMock,
+            delete: deleteMock
         } as unknown as AxiosInstance);
         const enoent = new Error('not found') as NodeJS.ErrnoException;
         enoent.code = 'ENOENT';
@@ -291,5 +294,92 @@ describe('JournalTfManager', () => {
             '/portfolio/entry-1/sells',
             expect.objectContaining({ quantity_sold: 1 })
         );
+    });
+
+    test('uses Journal markers to recover a buy after local sync state is lost', async () => {
+        const manager = new JournalTfManager('test-api-key', stateFilePath());
+        getMock.mockResolvedValue({
+            data: {
+                ok: true,
+                data: {
+                    entries: [
+                        {
+                            id: 'existing-entry',
+                            sku: '200;11',
+                            item_name: 'Strange Scattergun',
+                            buy_price_keys: 1,
+                            buy_price_metal: '2.00',
+                            quantity: 1,
+                            notes: 'Added by bot from trade #trade-1 [autobot:jtf:buy:trade-1:200;11]',
+                            purchased_at: '2026-06-15',
+                            status: 'active',
+                            created_at: '2026-06-15'
+                        }
+                    ]
+                }
+            }
+        });
+
+        await manager.syncTrade(
+            'trade-1',
+            [
+                {
+                    sku: '200;11',
+                    itemName: 'Strange Scattergun',
+                    buyPriceKeys: 1,
+                    buyPriceMetal: 2,
+                    quantity: 1,
+                    purchasedAt: '2026-06-15',
+                    notes: 'Added by bot from trade #trade-1'
+                }
+            ],
+            []
+        );
+
+        expect(postMock).not.toHaveBeenCalled();
+    });
+
+    test('resets only bot-managed entries and deletes sells before entries', async () => {
+        const manager = new JournalTfManager('test-api-key', stateFilePath());
+        getMock
+            .mockResolvedValueOnce({
+                data: {
+                    ok: true,
+                    data: {
+                        entries: [
+                            {
+                                id: 'bot-entry',
+                                sku: '200;11',
+                                item_name: 'Strange Scattergun',
+                                buy_price_keys: 1,
+                                buy_price_metal: '2',
+                                quantity: 1,
+                                notes: 'Added by bot from trade #1',
+                                purchased_at: '2026-06-01',
+                                status: 'active',
+                                created_at: '2026-06-01'
+                            },
+                            {
+                                id: 'manual-entry',
+                                sku: '201;6',
+                                item_name: 'Scattergun',
+                                buy_price_keys: 0,
+                                buy_price_metal: '1',
+                                quantity: 1,
+                                notes: 'Manual entry',
+                                purchased_at: '2026-06-01',
+                                status: 'active',
+                                created_at: '2026-06-01'
+                            }
+                        ]
+                    }
+                }
+            })
+            .mockResolvedValueOnce({
+                data: { ok: true, data: { entry: { id: 'bot-entry' }, sells: [{ id: 'sell-1' }] } }
+            });
+
+        await expect(manager.resetBotEntries()).resolves.toEqual({ entriesDeleted: 1, sellsDeleted: 1 });
+        expect(deleteMock.mock.calls).toEqual([['/sells/sell-1'], ['/portfolio/bot-entry']]);
     });
 });

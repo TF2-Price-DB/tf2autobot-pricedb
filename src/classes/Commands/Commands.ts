@@ -346,6 +346,10 @@ export default class Commands {
                 void this.misc.pricedbLeave(steamID, CommandParser.removeCommand(message));
             } else if (command === 'jtfseed' && isAdmin) {
                 void this.journalTfSeedCommand(steamID);
+            } else if (command === 'jtfaudit' && isAdmin) {
+                void this.journalTfAuditCommand(steamID);
+            } else if (command === 'jtfreset' && isAdmin) {
+                void this.journalTfResetCommand(steamID, message);
             } else {
                 const custom = this.bot.options.customMessage.commandNotFound;
 
@@ -1863,33 +1867,7 @@ export default class Commands {
             return this.bot.sendMessage(steamID, 'journal.tf sync is not enabled or JOURNAL_TF_API_KEY is not set.');
         }
 
-        const inventory = this.bot.inventoryManager.getInventory.getItems;
-        const purchasedAt = new Date().toISOString().slice(0, 10);
-        const seedItems: JournalTfBoughtItem[] = [];
-        let unpriced = 0;
-
-        for (const sku in inventory) {
-            if (!Object.prototype.hasOwnProperty.call(inventory, sku) || !this.shouldSeedJournalTfSku(sku)) {
-                continue;
-            }
-
-            const price = await this.getCurrentJournalTfBuyPrice(sku);
-            if (!price) {
-                unpriced++;
-                log.warn(`Skipping journal.tf seed for ${sku}: no current buy price found`);
-                continue;
-            }
-
-            seedItems.push({
-                sku,
-                itemName: this.bot.schema.getName(SKU.fromString(sku), false),
-                buyPriceKeys: price.keys,
-                buyPriceMetal: price.metal,
-                quantity: inventory[sku].length,
-                purchasedAt,
-                notes: 'Seeded by bot from current inventory via !jtfseed'
-            });
-        }
+        const { seedItems, unpriced } = await this.getJournalTfSeedItems();
 
         if (seedItems.length === 0) {
             return this.bot.sendMessage(
@@ -1914,6 +1892,94 @@ export default class Commands {
             log.warn('journal.tf seed failed:', err);
             this.bot.sendMessage(steamID, `journal.tf seed failed: ${(err as Error).message}`);
         }
+    }
+
+    private async journalTfAuditCommand(steamID: SteamID): Promise<void> {
+        if (!this.bot.journalTfManager) {
+            return this.bot.sendMessage(steamID, 'journal.tf sync is not enabled or JOURNAL_TF_API_KEY is not set.');
+        }
+
+        try {
+            const inventory = this.getJournalTfInventoryQuantity();
+            const audit = await this.bot.journalTfManager.audit(inventory);
+            this.bot.sendMessage(
+                steamID,
+                `journal.tf audit: ${audit.botEntries} bot entries (${audit.activeEntries} active), ` +
+                    `${audit.activeQuantity} active Journal items vs ${audit.inventoryQuantity} inventory items. ` +
+                    `${audit.mismatchedSkus.length} SKU mismatch(es), ${audit.duplicateOperationMarkers.length} duplicate operation marker(s). ` +
+                    `Run !jtfreset&confirm=true to remove bot-managed Journal records and reseed current inventory.`
+            );
+        } catch (err) {
+            log.warn('journal.tf audit failed:', err);
+            this.bot.sendMessage(steamID, `journal.tf audit failed: ${(err as Error).message}`);
+        }
+    }
+
+    private async journalTfResetCommand(steamID: SteamID, message: string): Promise<void> {
+        if (!this.bot.journalTfManager) {
+            return this.bot.sendMessage(steamID, 'journal.tf sync is not enabled or JOURNAL_TF_API_KEY is not set.');
+        }
+
+        const params = CommandParser.parseParams(CommandParser.removeCommand(removeLinkProtocol(message)));
+        const confirm = params.confirm as unknown;
+        if (confirm !== 'yes' && confirm !== true) {
+            return this.bot.sendMessage(
+                steamID,
+                '⚠️ This deletes all bot-created Journal.tf entries and sells, then reseeds current inventory. ' +
+                    'Manual Journal entries are preserved. If you are sure, retry with !jtfreset&confirm=true or !jtfreset&confirm=yes.'
+            );
+        }
+
+        try {
+            const removed = await this.bot.journalTfManager.resetBotEntries();
+            const { seedItems, unpriced } = await this.getJournalTfSeedItems();
+            const seeded = await this.bot.journalTfManager.seedInventory(`reset-${Date.now()}`, seedItems);
+            this.bot.sendMessage(
+                steamID,
+                `journal.tf reset complete. Deleted ${removed.sellsDeleted} sell record(s) and ${removed.entriesDeleted} bot entry(ies); ` +
+                    `seeded ${seeded.created} item(s), skipped ${seeded.skipped} covered item(s)` +
+                    (unpriced > 0 ? `, skipped ${unpriced} unpriced SKU(s).` : '.')
+            );
+        } catch (err) {
+            log.warn('journal.tf reset failed:', err);
+            this.bot.sendMessage(steamID, `journal.tf reset failed: ${(err as Error).message}`);
+        }
+    }
+
+    private getJournalTfInventoryQuantity(): Record<string, number> {
+        const inventory = this.bot.inventoryManager.getInventory.getItems;
+        return Object.fromEntries(
+            Object.entries(inventory)
+                .filter(([sku]) => this.shouldSeedJournalTfSku(sku))
+                .map(([sku, assets]) => [sku, assets.length])
+        );
+    }
+
+    private async getJournalTfSeedItems(): Promise<{ seedItems: JournalTfBoughtItem[]; unpriced: number }> {
+        const inventory = this.bot.inventoryManager.getInventory.getItems;
+        const purchasedAt = new Date().toISOString().slice(0, 10);
+        const seedItems: JournalTfBoughtItem[] = [];
+        let unpriced = 0;
+
+        for (const sku in inventory) {
+            if (!Object.prototype.hasOwnProperty.call(inventory, sku) || !this.shouldSeedJournalTfSku(sku)) continue;
+            const price = await this.getCurrentJournalTfBuyPrice(sku);
+            if (!price) {
+                unpriced++;
+                log.warn(`Skipping journal.tf seed for ${sku}: no current buy price found`);
+                continue;
+            }
+            seedItems.push({
+                sku,
+                itemName: this.bot.schema.getName(SKU.fromString(sku), false),
+                buyPriceKeys: price.keys,
+                buyPriceMetal: price.metal,
+                quantity: inventory[sku].length,
+                purchasedAt,
+                notes: 'Seeded by bot from current inventory via !jtfseed'
+            });
+        }
+        return { seedItems, unpriced };
     }
 
     private shouldSeedJournalTfSku(sku: string): boolean {

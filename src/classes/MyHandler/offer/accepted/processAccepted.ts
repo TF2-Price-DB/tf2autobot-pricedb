@@ -478,11 +478,7 @@ async function calculateProfitData(offer: i.TradeOffer, bot: Bot): Promise<void>
 
                 const pricelistBuyKeys = priceData.buy.keys;
                 const pricelistBuyMetal = priceData.buy.metal;
-                const journalBuyPrice = normalizeJournalTfPrice(
-                    pricelistBuyKeys + diffPerItemKeys,
-                    pricelistBuyMetal + diffPerItemMetal,
-                    keyPrice
-                );
+                const journalBuyPrice = normalizeJournalTfPrice(pricelistBuyKeys, pricelistBuyMetal, keyPrice);
 
                 journalTfBoughtItems.push({
                     sku,
@@ -584,6 +580,8 @@ async function calculateProfitData(offer: i.TradeOffer, bot: Bot): Promise<void>
             }
         }
 
+        applyJournalTradeValuation(journalTfBoughtItems, journalTfSoldItems, dict, bot, journalTfTradeId);
+
         // Store profit data in offer (overpay removed - FIFO diff values capture all buy/sell differences)
         offer.data('tradeProfit', {
             rawProfit: {
@@ -621,12 +619,106 @@ function normalizeJournalTfPrice(keys: number, metal: number, keyPriceInRef: num
 
     const totalMetal = Math.max(0, keys * keyPriceInRef + metal);
     const normalizedKeys = Math.floor(totalMetal / keyPriceInRef);
-    const normalizedMetal = Number((totalMetal - normalizedKeys * keyPriceInRef).toFixed(2));
+    const normalizedMetal = Number((totalMetal - normalizedKeys * keyPriceInRef + 1e-9).toFixed(2));
 
     return {
         keys: normalizedKeys,
         metal: normalizedMetal
     };
+}
+
+/**
+ * Journal.tf needs an item-level price, while a Steam offer only provides a total consideration.
+ * Allocate that consideration proportionally to the snapshot price. Trades containing items on
+ * both sides are necessarily estimates and are marked as such in the external ledger.
+ */
+export function applyJournalTradeValuation(
+    boughtItems: JournalTfBoughtItem[],
+    soldItems: JournalTfSoldItem[],
+    dict: i.ItemsDict,
+    bot: Bot,
+    tradeId: string
+): void {
+    const keyPrice = bot.pricelist.getKeyPrice.metal;
+    const ourCurrency = getJournalCurrencyValue(dict.our, bot);
+    const theirCurrency = getJournalCurrencyValue(dict.their, bot);
+    const boughtBase = getJournalItemsValue(boughtItems, keyPrice, 'buy');
+    const soldBase = getJournalItemsValue(soldItems, keyPrice, 'sell');
+    const isMixedItemTrade = boughtItems.length > 0 && soldItems.length > 0;
+
+    // The outgoing item leg is the consideration paid for incoming items, and vice versa.
+    const boughtConsideration = soldBase + ourCurrency - theirCurrency;
+    const soldConsideration = boughtBase + theirCurrency - ourCurrency;
+
+    const boughtAllocated = allocateJournalValue(boughtItems, boughtConsideration, keyPrice, 'buy');
+    const soldAllocated = allocateJournalValue(soldItems, soldConsideration, keyPrice, 'sell');
+
+    if (!boughtAllocated || !soldAllocated) {
+        log.warn(`journal.tf used snapshot fallback for invalid allocation in trade ${tradeId}`);
+        if (!boughtAllocated) boughtItems.forEach(item => (item.notes += ' [autobot:jtf:estimated-fallback]'));
+        if (!soldAllocated) soldItems.forEach(item => (item.notes += ' [autobot:jtf:estimated-fallback]'));
+    }
+
+    if (isMixedItemTrade) {
+        for (const item of [...boughtItems, ...soldItems]) {
+            item.notes += ' [autobot:jtf:estimated]';
+        }
+    }
+}
+
+function getJournalCurrencyValue(items: i.OurTheirItemsDict, bot: Bot): number {
+    const keyIsTracked = isJournalKeyOnlyTrade(items, bot);
+    // Match TF2 currency pricing: reclaimed and scrap are represented as 0.33 and 0.11 ref.
+    const refined = (items['5002;6'] ?? 0) + (items['5001;6'] ?? 0) * 0.33 + (items['5000;6'] ?? 0) * 0.11;
+    const keys = keyIsTracked ? 0 : (items['5021;6'] ?? 0) * bot.pricelist.getKeyPrice.metal;
+    return refined + keys;
+}
+
+function isJournalKeyOnlyTrade(items: i.OurTheirItemsDict, bot: Bot): boolean {
+    const nonMetalSkus = Object.keys(items).filter(sku => !['5002;6', '5001;6', '5000;6'].includes(sku));
+    return bot.options.autokeys.enable && nonMetalSkus.length === 1 && nonMetalSkus[0] === '5021;6';
+}
+
+function getJournalItemsValue(
+    items: Array<JournalTfBoughtItem | JournalTfSoldItem>,
+    keyPrice: number,
+    type: 'buy' | 'sell'
+): number {
+    return items.reduce((sum, item) => {
+        const keys =
+            type === 'buy' ? (item as JournalTfBoughtItem).buyPriceKeys : (item as JournalTfSoldItem).sellPriceKeys;
+        const metal =
+            type === 'buy' ? (item as JournalTfBoughtItem).buyPriceMetal : (item as JournalTfSoldItem).sellPriceMetal;
+        return sum + (keys * keyPrice + metal) * item.quantity;
+    }, 0);
+}
+
+function allocateJournalValue<T extends JournalTfBoughtItem | JournalTfSoldItem>(
+    items: T[],
+    consideration: number,
+    keyPrice: number,
+    type: 'buy' | 'sell'
+): boolean {
+    if (items.length === 0) return true;
+    const base = getJournalItemsValue(items, keyPrice, type);
+    if (!Number.isFinite(consideration) || consideration < 0 || base <= 0) return false;
+
+    for (const item of items) {
+        const itemBase =
+            type === 'buy'
+                ? (item as JournalTfBoughtItem).buyPriceKeys * keyPrice + (item as JournalTfBoughtItem).buyPriceMetal
+                : (item as JournalTfSoldItem).sellPriceKeys * keyPrice + (item as JournalTfSoldItem).sellPriceMetal;
+        const allocated = (consideration * itemBase) / base;
+        const price = normalizeJournalTfPrice(0, allocated, keyPrice);
+        if (type === 'buy') {
+            (item as JournalTfBoughtItem).buyPriceKeys = price.keys;
+            (item as JournalTfBoughtItem).buyPriceMetal = price.metal;
+        } else {
+            (item as JournalTfSoldItem).sellPriceKeys = price.keys;
+            (item as JournalTfSoldItem).sellPriceMetal = price.metal;
+        }
+    }
+    return true;
 }
 
 async function syncAdminDonationToJournalTf(offer: i.TradeOffer, bot: Bot): Promise<void> {

@@ -36,6 +36,20 @@ export interface JournalTfPortfolioEntryResponse {
     };
 }
 
+export interface JournalTfAuditResult {
+    botEntries: number;
+    activeEntries: number;
+    activeQuantity: number;
+    inventoryQuantity: number;
+    mismatchedSkus: string[];
+    duplicateOperationMarkers: string[];
+}
+
+export interface JournalTfResetResult {
+    entriesDeleted: number;
+    sellsDeleted: number;
+}
+
 export interface JournalTfPortfolioCreateRequest {
     sku: string;
     item_name: string;
@@ -187,6 +201,18 @@ export default class JournalTfManager {
         });
     }
 
+    async deletePortfolioEntry(id: string): Promise<void> {
+        await this.queueRequest(async () => {
+            await this.axiosInstance.delete(`/portfolio/${id}`);
+        });
+    }
+
+    async deleteSell(id: string): Promise<void> {
+        await this.queueRequest(async () => {
+            await this.axiosInstance.delete(`/sells/${id}`);
+        });
+    }
+
     async getPnl(period: JournalTfPnlPeriod): Promise<JournalTfPnlResponse> {
         return this.queueRequest(async () => {
             const response = await this.axiosInstance.get<JournalTfPnlResponse>('/pnl', { params: { period } });
@@ -262,6 +288,60 @@ export default class JournalTfManager {
         return { created, skipped };
     }
 
+    async audit(inventory: Record<string, number>): Promise<JournalTfAuditResult> {
+        const portfolio = await this.getPortfolio();
+        const botEntries = portfolio.data.entries.filter(entry => this.isBotManagedEntry(entry));
+        const activeEntries = botEntries.filter(entry => entry.status === 'active');
+        const journalBySku: Record<string, number> = {};
+        const markerCounts = new Map<string, number>();
+
+        for (const entry of activeEntries) {
+            journalBySku[entry.sku] = (journalBySku[entry.sku] ?? 0) + this.getRemainingQuantity(entry);
+        }
+        for (const entry of botEntries) {
+            const marker = this.getOperationMarker(entry.notes);
+            if (marker) markerCounts.set(marker, (markerCounts.get(marker) ?? 0) + 1);
+            const detail = await this.getPortfolioEntry(entry.id);
+            for (const sell of detail.data.sells ?? []) {
+                const sellMarker = this.getOperationMarker(sell.notes);
+                if (sellMarker) markerCounts.set(sellMarker, (markerCounts.get(sellMarker) ?? 0) + 1);
+            }
+        }
+
+        const relevantSkus = new Set([...Object.keys(journalBySku), ...Object.keys(inventory)]);
+        const mismatchedSkus = [...relevantSkus].filter(sku => (journalBySku[sku] ?? 0) !== (inventory[sku] ?? 0));
+        return {
+            botEntries: botEntries.length,
+            activeEntries: activeEntries.length,
+            activeQuantity: Object.values(journalBySku).reduce((sum, quantity) => sum + quantity, 0),
+            inventoryQuantity: Object.values(inventory).reduce((sum, quantity) => sum + quantity, 0),
+            mismatchedSkus,
+            duplicateOperationMarkers: [...markerCounts.entries()]
+                .filter(([, count]) => count > 1)
+                .map(([marker]) => marker)
+        };
+    }
+
+    async resetBotEntries(): Promise<JournalTfResetResult> {
+        await this.loadState();
+        const portfolio = await this.getPortfolio();
+        const entries = portfolio.data.entries.filter(entry => this.isBotManagedEntry(entry));
+        let sellsDeleted = 0;
+
+        for (const entry of entries) {
+            const detail = await this.getPortfolioEntry(entry.id);
+            for (const sell of detail.data.sells ?? []) {
+                await this.deleteSell(sell.id);
+                sellsDeleted++;
+            }
+            await this.deletePortfolioEntry(entry.id);
+        }
+
+        this.syncState = { operations: [] };
+        await this.saveState();
+        return { entriesDeleted: entries.length, sellsDeleted };
+    }
+
     getMatchedSellEntries(
         entries: JournalTfPortfolioEntry[],
         sku: string,
@@ -288,11 +368,19 @@ export default class JournalTfManager {
     }
 
     private async syncBoughtItems(tradeId: string, boughtItems: JournalTfBoughtItem[]): Promise<void> {
+        const portfolio = await this.getPortfolio();
         for (const item of boughtItems) {
+            const marker = this.buyMarker(tradeId, item.sku);
             const syncedQuantity = this.getSyncedQuantity('buy', tradeId, item.sku);
             const quantity = item.quantity - syncedQuantity;
 
             if (quantity <= 0) {
+                continue;
+            }
+
+            const remotelySynced = portfolio.data.entries.find(entry => entry.notes?.includes(marker));
+            if (remotelySynced) {
+                this.recordRecoveredOperation('buy', tradeId, item.sku, quantity, remotelySynced.id, remotelySynced.id);
                 continue;
             }
 
@@ -303,7 +391,7 @@ export default class JournalTfManager {
                 buy_price_metal: item.buyPriceMetal,
                 quantity,
                 purchased_at: item.purchasedAt,
-                notes: item.notes
+                notes: `${item.notes} ${marker}`
             });
 
             this.syncState.operations.push({
@@ -345,11 +433,25 @@ export default class JournalTfManager {
             }
 
             for (const match of matches) {
+                const marker = this.sellMarker(tradeId, item.sku, match.entry.id);
+                const detail = await this.getPortfolioEntry(match.entry.id);
+                const remotelySynced = (detail.data.sells ?? []).find(sell => sell.notes?.includes(marker));
+                if (remotelySynced) {
+                    this.recordRecoveredOperation(
+                        'sell',
+                        tradeId,
+                        item.sku,
+                        match.quantity,
+                        match.entry.id,
+                        remotelySynced.id
+                    );
+                    continue;
+                }
                 const response = await this.recordSell(match.entry.id, {
                     sell_price_keys: item.sellPriceKeys,
                     sell_price_metal: item.sellPriceMetal,
                     quantity_sold: match.quantity,
-                    notes: item.notes
+                    notes: `${item.notes} ${marker}`
                 });
 
                 this.syncState.operations.push({
@@ -375,6 +477,43 @@ export default class JournalTfManager {
         return this.syncState.operations
             .filter(operation => operation.type === type && operation.tradeId === tradeId && operation.sku === sku)
             .reduce((sum, operation) => sum + operation.quantity, 0);
+    }
+
+    private recordRecoveredOperation(
+        type: 'buy' | 'sell',
+        tradeId: string,
+        sku: string,
+        quantity: number,
+        portfolioEntryId: string,
+        journalRecordId: string
+    ): void {
+        if (this.getSyncedQuantity(type, tradeId, sku) >= quantity) return;
+        this.syncState.operations.push({
+            type,
+            tradeId,
+            sku,
+            quantity,
+            portfolioEntryId,
+            journalRecordId,
+            timestamp: Date.now()
+        });
+        void this.saveState();
+    }
+
+    private buyMarker(tradeId: string, sku: string): string {
+        return `[autobot:jtf:buy:${tradeId}:${sku}]`;
+    }
+
+    private sellMarker(tradeId: string, sku: string, entryId: string): string {
+        return `[autobot:jtf:sell:${tradeId}:${sku}:${entryId}]`;
+    }
+
+    private isBotManagedEntry(entry: JournalTfPortfolioEntry): boolean {
+        return /^(Added|Seeded) by bot from /i.test(entry.notes ?? '');
+    }
+
+    private getOperationMarker(notes: string | null): string | null {
+        return notes?.match(/\[autobot:jtf:(?:buy|sell):[^\]]+\]/)?.[0] ?? null;
     }
 
     private async queueRequest<T>(fn: () => Promise<T>): Promise<T> {

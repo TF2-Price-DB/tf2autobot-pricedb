@@ -71,8 +71,10 @@ export const DEFAULTS: JsonOptions = {
             noiseMaker: true
         },
         game: {
-            playOnlyTF2: false,
-            customName: ''
+            presence: {
+                mode: 'customName',
+                customName: ''
+            }
         },
         alwaysRemoveItemAttributes: {
             customTexture: {
@@ -1239,7 +1241,15 @@ interface CheckUses {
 // ------------ Game ------------
 
 interface Game {
+    presence?: GamePresence;
+    /** @deprecated migrated to presence while loading persisted options */
     playOnlyTF2?: boolean;
+    /** @deprecated migrated to presence while loading persisted options */
+    customName?: string;
+}
+
+interface GamePresence {
+    mode?: 'tf2Only' | 'customName' | 'liveKeyStatus';
     customName?: string;
 }
 
@@ -1257,7 +1267,7 @@ interface PriceDBStore extends OnlyEnable {
     enableInventoryRefresh?: boolean;
 }
 
-interface ManncoStore extends OnlyEnable {}
+type ManncoStore = OnlyEnable;
 
 // --------- Misc Settings ----------
 
@@ -2566,6 +2576,20 @@ function replaceOldProperties(options: DeprecatedJsonOptions): boolean {
     if (options.detailsExtra?.spells?.['Voices From Below'] !== undefined) {
         options.detailsExtra.spells['Voices from Below'] = options.detailsExtra?.spells?.['Voices From Below'];
         delete options.detailsExtra.spells['Voices From Below'];
+        isChanged = true;
+    }
+
+    const game = options.miscSettings?.game as unknown as
+        | { playOnlyTF2?: boolean; customName?: string; presence?: unknown }
+        | undefined;
+    if (game && game.presence === undefined) {
+        const customName = typeof game.customName === 'string' ? game.customName : '';
+        game.presence = {
+            mode: game.playOnlyTF2 === true ? 'tf2Only' : 'customName',
+            ...(game.playOnlyTF2 === true ? {} : { customName })
+        };
+        delete game.playOnlyTF2;
+        delete game.customName;
         isChanged = true;
     }
 

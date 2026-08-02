@@ -158,8 +158,29 @@ test('malformed json in the files dir should crash', () => {
 
 test('removes cli options', () => {
     const testOptions = { steamAccountName: 'abc123' };
+
     Options.removeCliOptions(testOptions);
     expect(testOptions).toEqual({});
+});
+
+test('migrates legacy game presence settings', () => {
+    const optionsPath = Options.getOptionsPath('abc123');
+    cleanPath(path.dirname(optionsPath));
+
+    const legacyOptions = JSON.parse(JSON.stringify(defaultOptions)) as typeof defaultOptions;
+    legacyOptions.miscSettings.game = {
+        playOnlyTF2: true,
+        customName: 'Legacy game name'
+    };
+    mkdirSync(path.dirname(optionsPath), { recursive: true });
+    writeFileSync(optionsPath, JSON.stringify(legacyOptions, null, 4), { encoding: 'utf8' });
+
+    const result = Options.loadOptions({ steamAccountName: 'abc123' });
+    expect(result.miscSettings.game.presence).toEqual({ mode: 'tf2Only', customName: '' });
+
+    const persistedOptions = JSON.parse(readFileSync(optionsPath, { encoding: 'utf8' })) as typeof defaultOptions;
+    expect(persistedOptions.miscSettings.game).toEqual({ presence: { mode: 'tf2Only' } });
+    cleanPath(path.dirname(optionsPath));
 });
 
 test('loads custom pricer options', () => {

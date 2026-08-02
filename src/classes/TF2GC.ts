@@ -699,6 +699,7 @@ export default class TF2GC {
                 () => {
                     // onFail connectToGC.
                     bot.client.gamesPlayed([]);
+                    bot.updateSteamGamePresence();
                     reject(new Error('Could not connect to TF2 GC, restarting TF2..'));
                 }
             );

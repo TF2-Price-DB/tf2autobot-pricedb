@@ -1,5 +1,5 @@
 import axios from 'axios';
-import ManncoStoreManager from '../ManncoStoreManager';
+import ManncoStoreManager, { getManncoRateLimitDelay, ManncoRateLimitError } from '../ManncoStoreManager';
 
 jest.mock('axios', () => ({
     __esModule: true,
@@ -24,6 +24,35 @@ describe('ManncoStoreManager', () => {
     function createManager(): ManncoStoreManager {
         return new ManncoStoreManager('key', 'mannco-test.json');
     }
+
+    test.each([
+        [{ response: { status: 429, headers: { 'retry-after': '71' }, data: { content: 'wait' } } }, 71000],
+        [
+            {
+                response: {
+                    status: 429,
+                    headers: {},
+                    data: { content: 'Rate limit exceeded. Try again in 42 seconds.' }
+                }
+            },
+            42000
+        ],
+        [{ response: { status: 429, headers: {}, data: { content: 'wait' } } }, 60000]
+    ])('gets the Mannco rate-limit delay from the response', (error, expected) => {
+        expect(getManncoRateLimitDelay(error)).toBe(expected);
+    });
+
+    test('does not mark the manager ready when login is rate limited', async () => {
+        api.post.mockRejectedValue({
+            response: { status: 429, headers: {}, data: { content: 'Try again in 71 seconds.' } }
+        });
+        const manager = createManager();
+
+        await expect(manager.init()).rejects.toEqual(expect.any(ManncoRateLimitError));
+        await expect(manager.init()).rejects.toMatchObject({ retryAfterMs: 71000 });
+        expect(manager.isReady).toBe(false);
+        expect(api.post).toHaveBeenCalledTimes(2);
+    });
 
     test('unwraps Mannco nested deposit status and returns replacement asset IDs', async () => {
         api.request.mockResolvedValue({
@@ -234,5 +263,49 @@ describe('ManncoStoreManager', () => {
             offerId: '9240590198',
             status: 'completed'
         });
+    });
+
+    test('silently baselines history and reports each new sale only once', async () => {
+        const manager = createManager();
+        const response = (values: unknown[]) => ({
+            data: { success: true, err: false, content: { values, count: values.length } }
+        });
+        const firstSale = { id: 'sale-1', item_id: 1575, name: 'Test Item', price: 90, count: 1 };
+
+        api.request.mockResolvedValueOnce(response([firstSale])).mockResolvedValueOnce(response([]));
+        await expect(manager.checkCompletedTransactions()).resolves.toEqual([]);
+
+        const secondSale = { id: 'sale-2', item_id: 1575, name: 'Test Item', price: 95, count: 2 };
+        api.request.mockResolvedValueOnce(response([secondSale, firstSale])).mockResolvedValueOnce(response([]));
+        await expect(manager.checkCompletedTransactions()).resolves.toEqual([
+            expect.objectContaining({ type: 'sale', id: 'sale:sale-2', quantity: 2, price: 95 })
+        ]);
+
+        api.request.mockResolvedValueOnce(response([secondSale, firstSale])).mockResolvedValueOnce(response([]));
+        await expect(manager.checkCompletedTransactions()).resolves.toEqual([]);
+    });
+
+    test('reports purchase history only for tracked buy orders', async () => {
+        const manager = createManager();
+        const testManager = manager as unknown as {
+            data: { buyOrders: Record<string, { itemId: number; amount: number; name: string }> };
+        };
+        testManager.data.buyOrders = { '725;6;uncraftable': { itemId: 1575, amount: 1, name: 'Tracked Item' } };
+        const response = (values: unknown[]) => ({
+            data: { success: true, err: false, content: { values, count: values.length } }
+        });
+
+        api.request.mockResolvedValueOnce(response([])).mockResolvedValueOnce(response([]));
+        await manager.checkCompletedTransactions();
+        api.request.mockResolvedValueOnce(response([])).mockResolvedValueOnce(
+            response([
+                { id: 'purchase-1', item_id: 1575, name: 'Tracked Item', price: 40, count: 1 },
+                { id: 'purchase-2', item_id: 999, name: 'Untracked Item', price: 50, count: 1 }
+            ])
+        );
+
+        await expect(manager.checkCompletedTransactions()).resolves.toEqual([
+            expect.objectContaining({ type: 'buy', id: 'buy:purchase-1', sku: '725;6;uncraftable', price: 40 })
+        ]);
     });
 });

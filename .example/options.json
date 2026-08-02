@@ -54,8 +54,10 @@
             "noiseMaker": true
         },
         "game": {
-            "playOnlyTF2": false,
-            "customName": ""
+            "presence": {
+                "mode": "customName",
+                "customName": ""
+            }
         },
         "alwaysRemoveItemAttributes": {
             "customTexture": {

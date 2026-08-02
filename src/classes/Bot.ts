@@ -6,7 +6,8 @@ import SteamCommunity from '@tf2autobot/steamcommunity';
 import SteamTotp from 'steam-totp';
 import ListingManager, { Listing } from '@tf2autobot/bptf-listings';
 import PriceDBStoreManager from './PriceDBStoreManager';
-import ManncoStoreManager, { ManncoPricelistItem } from './ManncoStoreManager';
+import ManncoStoreManager, { ManncoPricelistItem, ManncoRateLimitError } from './ManncoStoreManager';
+import sendManncoTransaction from './DiscordWebhook/sendManncoTransaction';
 import JournalTfManager from './JournalTfManager';
 import SchemaManager, { Effect, StrangeParts } from '@tf2autobot/tf2-schema';
 import BptfLogin from '@tf2autobot/bptf-login';
@@ -20,8 +21,9 @@ import * as timersPromises from 'timers/promises';
 import fs from 'fs';
 import path from 'path';
 import * as files from '../lib/files';
+import { isUsableRefreshToken } from '../lib/refreshToken';
+import { getSteamMaintenanceDelay } from '../lib/steamMaintenance';
 
-import jwt from 'jsonwebtoken';
 import DiscordBot from './DiscordBot';
 import { Message as DiscordMessage } from 'discord.js';
 
@@ -201,6 +203,24 @@ export default class Bot {
 
     private reconnectTimeout: NodeJS.Timeout = null;
 
+    private steamGamePresenceTimeout: NodeJS.Timeout = null;
+
+    private lastSteamGamePresence: string = null;
+
+    private lastSteamGamePresenceUpdate = 0;
+
+    private steamGamePresenceInterval: NodeJS.Timeout = null;
+
+    private manncoStoreRetryTimeout: NodeJS.Timeout = null;
+
+    private manncoStoreListingsInterval: NodeJS.Timeout = null;
+
+    private manncoStoreOperationsInterval: NodeJS.Timeout = null;
+
+    private isLoginAttemptActive = false;
+
+    private recoveryRestartRequested = false;
+
     private tradeOfferUrlRetryTimeout: NodeJS.Timeout = null;
 
     public autoRefreshListingsInterval: NodeJS.Timeout;
@@ -219,7 +239,76 @@ export default class Bot {
         this.reconnectAttempts = 0;
     }
 
+    private onKeyPriceChange(priceKey: string): void {
+        if (priceKey === '5021;6') {
+            this.updateSteamGamePresence();
+        }
+    }
+
+    private setSteamGamePresence(games: number | [string, number], value: string, force = false): void {
+        if (value === this.lastSteamGamePresence && !force) {
+            return;
+        }
+
+        const delay = Math.max(0, 60 * 1000 - (Date.now() - this.lastSteamGamePresenceUpdate));
+        if (!force && delay > 0) {
+            clearTimeout(this.steamGamePresenceTimeout);
+            this.steamGamePresenceTimeout = setTimeout(() => {
+                this.steamGamePresenceTimeout = null;
+                this.updateSteamGamePresence();
+            }, delay);
+            return;
+        }
+
+        this.client.gamesPlayed(games);
+        this.lastSteamGamePresence = value;
+        this.lastSteamGamePresenceUpdate = Date.now();
+    }
+
     private alreadyExecutedRefreshlist = false;
+
+    public updateSteamGamePresence(force = false): void {
+        const presence = this.options.miscSettings.game.presence;
+        if (presence?.mode === 'tf2Only') {
+            this.setSteamGamePresence(440, 'tf2Only', force);
+            return;
+        }
+
+        if (presence?.mode === 'liveKeyStatus') {
+            const keyPrices = this.pricelist?.getKeyPrices;
+            const inventory = this.inventoryManager?.getInventory;
+            if (!keyPrices || !inventory) {
+                log.warn('Unable to update live key status: key price or inventory is unavailable.');
+                return;
+            }
+
+            const stock = inventory.getAmount({ priceKey: '5021;6', includeNonNormalized: false });
+            const title =
+                `🔑 Buy ${keyPrices.buy.toString()} / Sell ${keyPrices.sell.toString()} | Keys: ${stock}`.slice(0, 60);
+            this.setSteamGamePresence([title, 440], title, force);
+            return;
+        }
+
+        const customName = presence?.customName || 'TF2Autobot';
+        this.setSteamGamePresence([customName, 440], customName, force);
+    }
+
+    public startSteamGamePresenceUpdater(): void {
+        if (this.options.miscSettings.game.presence?.mode !== 'liveKeyStatus') {
+            clearInterval(this.steamGamePresenceInterval);
+            this.steamGamePresenceInterval = null;
+        }
+
+        this.updateSteamGamePresence(true);
+
+        if (this.options.miscSettings.game.presence?.mode !== 'liveKeyStatus' || this.steamGamePresenceInterval) {
+            return;
+        }
+
+        this.steamGamePresenceInterval = setInterval(() => {
+            this.updateSteamGamePresence();
+        }, 5 * 60 * 1000);
+    }
 
     set isRecentlyExecuteRefreshlistCommand(setExecuted: boolean) {
         this.alreadyExecutedRefreshlist = setExecuted;
@@ -240,7 +329,7 @@ export default class Bot {
     constructor(public readonly botManager: BotManager, public options: Options, readonly priceSource: IPricer) {
         this.botManager = botManager;
 
-        this.client = new SteamUser();
+        this.client = new SteamUser({ autoRelogin: false });
         this.community = new SteamCommunity();
         this.manager = new TradeOfferManager({
             steam: this.client,
@@ -502,8 +591,18 @@ export default class Bot {
 
     async halt(): Promise<boolean> {
         this.halted = true;
+        clearInterval(this.steamGamePresenceInterval);
+        this.steamGamePresenceInterval = null;
+
         let removeAllListingsFailed = false;
 
+        clearTimeout(this.steamGamePresenceTimeout);
+        clearTimeout(this.manncoStoreRetryTimeout);
+        this.manncoStoreRetryTimeout = null;
+        clearInterval(this.manncoStoreListingsInterval);
+        this.manncoStoreListingsInterval = null;
+        clearInterval(this.manncoStoreOperationsInterval);
+        this.manncoStoreOperationsInterval = null;
         log.debug('Setting status in Steam to "Snooze"');
         this.client.setPersona(EPersonaState.Snooze);
 
@@ -540,6 +639,84 @@ export default class Bot {
         this.startAutoRefreshListings();
 
         return recreateListingsFailed;
+    }
+
+    private async reconcileManncoStoreListings(): Promise<void> {
+        if (!this.manncoStoreManager?.isReady) return;
+
+        const pricelistItems = Object.keys(this.pricelist.getPrices).reduce(
+            (items: ManncoPricelistItem[], sku: string) => {
+                const entry = this.pricelist.getPrice({ priceKey: sku, onlyEnabled: false });
+                if (entry?.sellUsd !== undefined) items.push({ sku: entry.sku, sellUsd: entry.sellUsd });
+                return items;
+            },
+            []
+        );
+        const reconciliation = await this.manncoStoreManager.reconcileListings(
+            await this.manncoStoreManager.getOnSaleItems(),
+            pricelistItems
+        );
+        const transactions = await this.manncoStoreManager.checkCompletedTransactions();
+        for (const transaction of transactions) {
+            sendManncoTransaction(transaction, this);
+            this.messageAdmins(
+                `Mannco.store ${transaction.type === 'sale' ? 'sale' : 'buy order completed'}: ` +
+                    `${transaction.quantity}x ${transaction.name} for $${(transaction.price / 100).toFixed(2)}` +
+                    (transaction.sku ? ` (${transaction.sku})` : ''),
+                []
+            );
+        }
+
+        for (const sku of reconciliation.importedSkus) {
+            const entry = this.pricelist.getPrice({ priceKey: sku, onlyEnabled: false });
+            if (entry?.sellUsd === undefined) continue;
+            try {
+                await this.manncoStoreManager.repriceSku(sku, entry.sellUsd);
+            } catch (err) {
+                log.warn(`Could not apply the pricelist USD sell price to imported Mannco.store listing ${sku}:`, err);
+            }
+        }
+        if (reconciliation.importedSkus.length > 0) {
+            log.info(`Imported ${reconciliation.importedSkus.length} existing Mannco.store listing SKU(s)`);
+        }
+    }
+
+    private async activateManncoStore(): Promise<void> {
+        await this.manncoStoreManager.init();
+        try {
+            await this.reconcileManncoStoreListings();
+        } catch (err) {
+            log.warn('Could not reconcile Mannco.store listings at startup:', err);
+        }
+
+        if (!this.manncoStoreListingsInterval) {
+            this.manncoStoreListingsInterval = setInterval(() => {
+                void this.reconcileManncoStoreListings().catch(err => {
+                    log.warn('Could not reconcile Mannco.store listings:', err);
+                });
+            }, 5 * 60 * 1000);
+        }
+        if (!this.manncoStoreOperationsInterval) {
+            this.manncoStoreOperationsInterval = setInterval(() => {
+                void this.manncoStoreManager.reconcileOperations().catch(err => {
+                    log.warn('Could not reconcile Mannco.store pending operations:', err);
+                });
+            }, 30 * 1000);
+        }
+    }
+
+    private scheduleManncoStoreRetry(): void {
+        if (this.halted || this.manncoStoreRetryTimeout || this.manncoStoreManager.isReady) return;
+
+        this.manncoStoreRetryTimeout = setTimeout(() => {
+            this.manncoStoreRetryTimeout = null;
+            void this.activateManncoStore()
+                .then(() => log.info('Mannco.store manager recovered after rate limiting.'))
+                .catch(err => {
+                    log.warn('Mannco.store background initialization failed; retrying in 15 minutes:', err);
+                    this.scheduleManncoStoreRetry();
+                });
+        }, 15 * 60 * 1000);
     }
 
     private addListener(
@@ -1104,6 +1281,7 @@ export default class Bot {
                             this.handler.onPricelist.bind(this.handler),
                             false
                         );
+                        this.addListener(this.pricelist, 'price', this.onKeyPriceChange.bind(this), true);
                         this.addListener(this.pricelist, 'price', this.handler.onPriceChange.bind(this.handler), true);
 
                         this.pricelist.init();
@@ -1295,7 +1473,7 @@ export default class Bot {
                                         log.error('Mannco.store manager error:', err);
                                     });
 
-                                    this.manncoStoreManager.on('listingUpdated', listing => {
+                                    this.manncoStoreManager.on('listingUpdated', (listing: { sku: string }) => {
                                         log.debug('Mannco.store listing updated:', listing.sku);
                                     });
 
@@ -1307,6 +1485,7 @@ export default class Bot {
                                     });
 
                                     this.pricelist.on('price', (_priceKey: string, entry: Entry) => {
+                                        if (!this.manncoStoreManager.isReady) return;
                                         if (entry.sellUsd !== undefined) {
                                             void this.manncoStoreManager
                                                 .repriceSku(entry.sku, entry.sellUsd)
@@ -1335,74 +1514,38 @@ export default class Bot {
                                         }
                                     });
 
-                                    this.manncoStoreManager
-                                        .init()
-                                        .then(async () => {
-                                            const reconcileManncoListings = async (): Promise<void> => {
-                                                const pricelistItems = Object.keys(this.pricelist.getPrices).reduce(
-                                                    (items: ManncoPricelistItem[], sku: string) => {
-                                                        const entry = this.pricelist.getPrice({
-                                                            priceKey: sku,
-                                                            onlyEnabled: false
-                                                        });
-                                                        if (entry?.sellUsd !== undefined) {
-                                                            items.push({ sku: entry.sku, sellUsd: entry.sellUsd });
-                                                        }
-                                                        return items;
-                                                    },
-                                                    []
-                                                );
-                                                const reconciliation = await this.manncoStoreManager.reconcileListings(
-                                                    await this.manncoStoreManager.getOnSaleItems(),
-                                                    pricelistItems
-                                                );
-                                                if (reconciliation.importedSkus.length > 0) {
-                                                    for (const sku of reconciliation.importedSkus) {
-                                                        const entry = this.pricelist.getPrice({
-                                                            priceKey: sku,
-                                                            onlyEnabled: false
-                                                        });
-                                                        if (entry?.sellUsd === undefined) continue;
-
-                                                        try {
-                                                            await this.manncoStoreManager.repriceSku(
-                                                                sku,
-                                                                entry.sellUsd
-                                                            );
-                                                        } catch (err) {
-                                                            log.warn(
-                                                                `Could not apply the pricelist USD sell price to imported Mannco.store listing ${sku}:`,
-                                                                err
-                                                            );
-                                                        }
-                                                    }
-                                                    log.info(
-                                                        `Imported ${reconciliation.importedSkus.length} existing Mannco.store listing SKU(s)`
-                                                    );
+                                    let rateLimitAttempts = 0;
+                                    const initialiseManncoStore = (): void => {
+                                        void this.activateManncoStore()
+                                            .then(() => cb(null))
+                                            .catch(err => {
+                                                if (!(err instanceof ManncoRateLimitError)) {
+                                                    cb(err as Error);
+                                                    return;
                                                 }
-                                            };
 
-                                            try {
-                                                await reconcileManncoListings();
-                                            } catch (err) {
-                                                log.warn('Could not reconcile Mannco.store listings at startup:', err);
-                                            }
-                                            setInterval(() => {
-                                                void reconcileManncoListings().catch(err => {
-                                                    log.warn('Could not reconcile Mannco.store listings:', err);
-                                                });
-                                            }, 5 * 60 * 1000);
-                                            setInterval(() => {
-                                                void this.manncoStoreManager.reconcileOperations().catch(err => {
+                                                if (rateLimitAttempts++ < 3) {
                                                     log.warn(
-                                                        'Could not reconcile Mannco.store pending operations:',
-                                                        err
+                                                        `Mannco.store login rate limited; retrying in ${Math.ceil(
+                                                            err.retryAfterMs / 1000
+                                                        )} seconds (${rateLimitAttempts}/3).`
                                                     );
-                                                });
-                                            }, 30 * 1000);
-                                            cb(null);
-                                        })
-                                        .catch(err => cb(err as Error));
+                                                    this.manncoStoreRetryTimeout = setTimeout(() => {
+                                                        this.manncoStoreRetryTimeout = null;
+                                                        initialiseManncoStore();
+                                                    }, err.retryAfterMs);
+                                                    return;
+                                                }
+
+                                                log.warn(
+                                                    'Mannco.store remains rate limited after four login attempts; ' +
+                                                        'continuing startup and retrying initialization every 15 minutes.'
+                                                );
+                                                this.scheduleManncoStoreRetry();
+                                                cb(null);
+                                            });
+                                    };
+                                    initialiseManncoStore();
                                 },
                                 (cb: Callback): void => {
                                     if (this.options.skipUpdateProfileSettings) {
@@ -1690,8 +1833,9 @@ export default class Bot {
         });
     }
 
-    private async login(refreshToken?: string): Promise<void> {
+    private login(refreshToken?: string): Promise<void> {
         log.debug('Starting login attempt');
+        this.isLoginAttemptActive = true;
 
         const wait = this.loginWait();
         if (wait !== 0) {
@@ -1700,15 +1844,7 @@ export default class Bot {
 
         return new Promise((resolve, reject) => {
             setTimeout(() => {
-                const listeners = this.client.listeners('error');
-
-                this.client.removeAllListeners('error');
-
-                const gotEvent = (): void => {
-                    // eslint-disable-next-line @typescript-eslint/ban-ts-comment
-                    // @ts-ignore
-                    listeners.forEach(listener => this.client.on('error', listener));
-                };
+                const gotEvent = (): void => undefined;
 
                 const loggedOnEvent = (): void => {
                     gotEvent();
@@ -1716,6 +1852,7 @@ export default class Bot {
                     this.client.removeListener('error', errorEvent);
                     clearTimeout(timeout);
 
+                    this.isLoginAttemptActive = false;
                     resolve();
                 };
 
@@ -1724,6 +1861,7 @@ export default class Bot {
 
                     this.client.removeListener('loggedOn', loggedOnEvent);
                     clearTimeout(timeout);
+                    this.isLoginAttemptActive = false;
 
                     log.error('Failed to sign in to Steam: ', err);
 
@@ -1742,6 +1880,7 @@ export default class Bot {
                     this.client.removeListener('loggedOn', loggedOnEvent);
                     this.client.removeListener('error', errorEvent);
 
+                    this.isLoginAttemptActive = false;
                     log.debug('Did not get login response from Steam');
                     this.client.logOff();
 
@@ -1779,29 +1918,21 @@ export default class Bot {
 
         const refreshToken = (await files.readFile(tokenPath, false).catch(() => null)) as string;
 
-        if (!refreshToken) {
+        if (!refreshToken || !isUsableRefreshToken(refreshToken.trim())) {
+            if (refreshToken) {
+                log.warn('Discarding an invalid or expired Steam refresh token.');
+                await this.deleteRefreshToken();
+            }
             return null;
         }
 
-        const decoded = jwt.decode(refreshToken, { complete: true });
-
-        if (!decoded) {
-            return null;
-        }
-
-        const { exp } = decoded.payload as { exp: number };
-
-        if (exp < Date.now() / 1000) {
-            return null;
-        }
-
-        return refreshToken;
+        return refreshToken.trim();
     }
 
     private async deleteRefreshToken(): Promise<void> {
         const tokenPath = this.handler.getPaths.files.refreshToken;
 
-        await files.writeFile(tokenPath, '', false).catch(() => {
+        await files.deleteFile(tokenPath).catch(() => {
             // Ignore error
         });
     }
@@ -2014,16 +2145,91 @@ export default class Bot {
 
         // Check if we should attempt to reconnect
         const reconnectConfig = this.options.steamConnection?.autoReconnect;
-        if (!reconnectConfig?.enable || this.botManager.isStopping || this.isReconnecting) {
+        if (
+            !reconnectConfig?.enable ||
+            this.botManager.isStopping ||
+            this.isReconnecting ||
+            this.isLoginAttemptActive
+        ) {
+            return;
+        }
+
+        this.beginReconnect();
+    }
+
+    private onLoggedOff(): void {
+        log.info('Logged off from Steam');
+        this.handler.onLoggedOff();
+        this.beginReconnect();
+    }
+
+    private beginReconnect(): void {
+        const reconnectConfig = this.options.steamConnection?.autoReconnect;
+        if (
+            !reconnectConfig?.enable ||
+            this.botManager.isStopping ||
+            this.isReconnecting ||
+            this.isLoginAttemptActive
+        ) {
+            return;
+        }
+
+        if (this.deferReconnectForSteamMaintenance()) {
             return;
         }
 
         this.attemptReconnect();
     }
 
-    private onLoggedOff(): void {
-        log.info('Logged off from Steam');
-        this.handler.onLoggedOff();
+    private deferReconnectForSteamMaintenance(resetAttempts = false): boolean {
+        const maintenanceDelay = getSteamMaintenanceDelay();
+        if (maintenanceDelay === null) {
+            return false;
+        }
+
+        if (resetAttempts) {
+            this.reconnectAttempts = 0;
+        }
+
+        this.isReconnecting = true;
+        if (this.reconnectTimeout) {
+            return true;
+        }
+
+        log.warn(
+            `Deferring Steam recovery for ${Math.ceil(maintenanceDelay / 60000)} minutes during weekly maintenance.`
+        );
+        this.reconnectTimeout = setTimeout(() => {
+            this.reconnectTimeout = null;
+
+            if (this.botManager.isStopping) {
+                this.resetReconnectionState();
+                return;
+            }
+
+            this.attemptReconnect();
+        }, maintenanceDelay);
+
+        return true;
+    }
+
+    private restartAfterSteamRecoveryFailure(err: Error): void {
+        if (this.recoveryRestartRequested) return;
+        if (this.deferReconnectForSteamMaintenance(true)) {
+            return;
+        }
+
+        this.recoveryRestartRequested = true;
+        log.error('Steam recovery failed; restarting the bot.', err);
+        void this.botManager
+            .restartProcess()
+            .then(restarted => {
+                if (!restarted) this.botManager.stop(err, false, true);
+            })
+            .catch(restartErr => {
+                log.error('Failed to restart after Steam recovery failure:', restartErr);
+                this.botManager.stop(err, false, true);
+            });
     }
 
     private attemptReconnect(): void {
@@ -2033,9 +2239,12 @@ export default class Bot {
         }
 
         const maxAttempts = reconnectConfig.maxAttempts ?? 5;
+        if (this.deferReconnectForSteamMaintenance(this.reconnectAttempts >= maxAttempts)) {
+            return;
+        }
+
         if (this.reconnectAttempts >= maxAttempts) {
-            log.error(`Maximum reconnection attempts (${maxAttempts}) reached. Stopping bot...`);
-            this.botManager.stop(new Error('Max reconnection attempts reached'), false, true);
+            this.restartAfterSteamRecoveryFailure(new Error('Max reconnection attempts reached'));
             return;
         }
 
@@ -2055,28 +2264,25 @@ export default class Bot {
 
         this.reconnectTimeout = setTimeout(() => {
             void (async () => {
+                this.reconnectTimeout = null;
                 try {
                     log.info('Reconnecting to Steam...');
                     await this.login(await this.getRefreshToken());
 
                     // Reset reconnection state on successful login
-                    this.isReconnecting = false;
-                    this.reconnectAttempts = 0;
+                    this.resetReconnectionState();
+                    this.recoveryRestartRequested = false;
 
                     log.info('Successfully reconnected to Steam!');
 
                     // Restore online status and game
                     if (this.ready) {
                         this.client.setPersona(EPersonaState.Online);
-                        this.client.gamesPlayed(
-                            this.options.miscSettings.game.playOnlyTF2
-                                ? 440
-                                : [this.options.miscSettings.game.customName || 'Team Fortress 2', 440]
-                        );
+                        this.updateSteamGamePresence(true);
                     }
                 } catch (err) {
                     log.error('Failed to reconnect:', err);
-                    this.isReconnecting = false;
+                    // Keep the reconnect lock while scheduling the next attempt.
                     // Try again
                     this.attemptReconnect();
                 }
@@ -2085,17 +2291,22 @@ export default class Bot {
     }
 
     private async onError(err: CustomError): Promise<void> {
+        if (this.isLoginAttemptActive) {
+            return;
+        }
+
         if (err.eresult === EResult.LoggedInElsewhere) {
-            log.warn('Signed in elsewhere, stopping the bot...');
-            this.botManager.stop(err, false, true);
+            log.warn('Signed in elsewhere; restarting the bot...');
+            this.restartAfterSteamRecoveryFailure(err);
         } else if (err.eresult === EResult.AccessDenied) {
             await this.deleteRefreshToken();
+            this.beginReconnect();
         } else if (err.eresult === EResult.LogonSessionReplaced) {
             this.sessionReplaceCount++;
 
-            if (this.sessionReplaceCount > 0) {
+            if (this.sessionReplaceCount > 1) {
                 log.warn('Detected login session replace loop, stopping bot...');
-                this.botManager.stop(err, false, true);
+                this.restartAfterSteamRecoveryFailure(err);
                 return;
             }
 
@@ -2103,11 +2314,10 @@ export default class Bot {
 
             await this.deleteRefreshToken();
 
-            this.login(await this.getRefreshToken()).catch(error_ => {
-                if (error_) throw error_;
-            });
+            this.beginReconnect();
         } else {
-            throw err;
+            log.error('Unhandled Steam error; attempting recovery:', err);
+            this.beginReconnect();
         }
     }
 

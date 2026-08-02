@@ -137,7 +137,8 @@ export default class ManagerCommands {
                 const targetedAssetId = params.assetid as string;
                 const sku = this.bot.inventoryManager.getInventory.findByAssetid(targetedAssetId);
 
-                if (params.confirm !== 'yes' || params.confirm !== true) {
+                // eslint-disable-next-line @typescript-eslint/no-unsafe-argument
+                if (!['yes', true].includes(params.confirm)) {
                     return this.bot.sendMessage(
                         steamID,
                         `⚠️ Are you sure that you want to ${command} ${
@@ -266,7 +267,8 @@ export default class ManagerCommands {
                 assetid = assetids[0];
             }
 
-            if (params.confirm !== 'yes' || params.confirm !== true) {
+            // eslint-disable-next-line @typescript-eslint/no-unsafe-argument
+            if (!['yes', true].includes(params.confirm)) {
                 return this.bot.sendMessage(
                     steamID,
                     `/pre ⚠️ Are you sure that you want to ${command} ${name}?` +
@@ -326,7 +328,8 @@ export default class ManagerCommands {
         const inputName = params.name as string;
 
         if (inputName !== undefined) {
-            if (params.confirm !== 'yes' || params.confirm !== true) {
+            // eslint-disable-next-line @typescript-eslint/no-unsafe-argument
+            if (!['yes', true].includes(params.confirm)) {
                 return this.bot.sendMessage(
                     steamID,
                     `⚠️ Are you sure that you want to change your bot's name?` +

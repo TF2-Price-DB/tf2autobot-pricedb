@@ -8,7 +8,7 @@ import pluralize from 'pluralize';
 import dayjs from 'dayjs';
 import * as timersPromises from 'timers/promises';
 import { UnknownDictionary, UnknownDictionaryKnownValues } from '../../../types/common';
-import { removeLinkProtocol, getItemFromParams } from '../functions/utils';
+import { removeLinkProtocol, getItemFromParams, normalizeUsdParameterAliases } from '../functions/utils';
 import Bot from '../../Bot';
 import CommandParser from '../../CommandParser';
 import Pricelist, { Entry, EntryData, PricelistChangedSource } from '../../Pricelist';
@@ -34,6 +34,11 @@ export default class PricelistManagerCommands {
 
     async addCommand(steamID: SteamID, message: string): Promise<void> {
         const params = CommandParser.parseParams(CommandParser.removeCommand(removeLinkProtocol(message)));
+        const usdParameterError = normalizeUsdParameterAliases(params);
+        if (usdParameterError !== null) {
+            return this.bot.sendMessage(steamID, `❌ ${usdParameterError}`);
+        }
+
         if (params.enabled === undefined) {
             params.enabled = true;
         }
@@ -720,6 +725,11 @@ export default class PricelistManagerCommands {
     async updateCommand(steamID: SteamID, message: string, prefix: string): Promise<void> {
         const params = CommandParser.parseParams(CommandParser.removeCommand(removeLinkProtocol(message)));
 
+        const usdParameterError = normalizeUsdParameterAliases(params);
+        if (usdParameterError !== null) {
+            return this.bot.sendMessage(steamID, `❌ ${usdParameterError}`);
+        }
+
         if (params.isPartialPriced !== undefined && params.isPartialPriced === true) {
             // Only disable
             return this.bot.sendMessage(steamID, `❌ Cannot update "isPartialPriced" parameter to true!`);
@@ -1226,6 +1236,12 @@ export default class PricelistManagerCommands {
 
             const params = CommandParser.parseParams(itemToUpdate);
             let sku = params.sku as string;
+            const usdParameterError = normalizeUsdParameterAliases(params);
+            if (usdParameterError !== null) {
+                errorMessage.push(`❌ Failed to update "${itemToUpdate}": ${usdParameterError}`);
+                failed++;
+                continue;
+            }
 
             if (params.isPartialPriced !== undefined && params.isPartialPriced === true) {
                 return this.bot.sendMessage(steamID, `❌ Cannot update "isPartialPriced" parameter to true!`);
@@ -1693,7 +1709,8 @@ export default class PricelistManagerCommands {
             }
 
             const removeCount = pricelistLength - Object.keys(newPricelist).length;
-            if (params.confirm !== 'yes' || params.confirm !== true) {
+            // eslint-disable-next-line @typescript-eslint/no-unsafe-argument
+            if (!['yes', true].includes(params.confirm)) {
                 return this.bot.sendMessage(
                     steamID,
                     '/pre ⚠️ Are you sure that you want to remove ' +

@@ -80,6 +80,25 @@ export interface ManncoSalesHistory {
     count: number;
 }
 
+export type ManncoTransactionType = 'sale' | 'buy';
+
+export interface ManncoTransactionEvent {
+    type: ManncoTransactionType;
+    id: string;
+    itemId?: number;
+    name: string;
+    quantity: number;
+    price: number;
+    assetIds: string[];
+    sku?: string;
+}
+
+interface ManncoHistoryState {
+    initialized: boolean;
+    sales: string[];
+    purchases: string[];
+}
+
 export interface ManncoBuyOrder {
     id: number;
     itemid: number;
@@ -119,6 +138,7 @@ interface ManncoStoreData {
     buyOrders: Record<string, { itemId: number; amount: number; name: string }>;
     manncoItems: Record<string, number>;
     operations: Record<string, ManncoOperation>;
+    history?: ManncoHistoryState;
 }
 
 interface PriceDbManncoItem {
@@ -127,9 +147,41 @@ interface PriceDbManncoItem {
 }
 
 const MANNCO_PRICEDB_API_URL = 'https://pricedb.io/api';
+const MANNCO_DEFAULT_RATE_LIMIT_DELAY_MS = 60 * 1000;
+const MANNCO_MAX_RATE_LIMIT_DELAY_MS = 15 * 60 * 1000;
+
+export class ManncoRateLimitError extends Error {
+    constructor(public readonly retryAfterMs: number) {
+        super(`Mannco.store rate limit exceeded; retry after ${Math.ceil(retryAfterMs / 1000)} seconds.`);
+        this.name = 'ManncoRateLimitError';
+    }
+}
+
+/** Returns a bounded retry delay for a Mannco HTTP 429 response. */
+export function getManncoRateLimitDelay(error: unknown): number | null {
+    const axiosError = error as AxiosError<ManncoResponse<unknown>>;
+    if (axiosError.response?.status !== 429) return null;
+
+    const retryAfterHeader = axiosError.response.headers?.['retry-after'] as unknown;
+    const retryAfter = Number(Array.isArray(retryAfterHeader) ? retryAfterHeader[0] : retryAfterHeader);
+    if (Number.isFinite(retryAfter) && retryAfter >= 0) {
+        return Math.min(Math.max(retryAfter * 1000, 1000), MANNCO_MAX_RATE_LIMIT_DELAY_MS);
+    }
+
+    const content = axiosError.response.data?.content;
+    const match = typeof content === 'string' ? /try again in\s+(\d+)\s+seconds?/i.exec(content) : null;
+    if (match) {
+        return Math.min(Math.max(Number(match[1]) * 1000, 1000), MANNCO_MAX_RATE_LIMIT_DELAY_MS);
+    }
+
+    return MANNCO_DEFAULT_RATE_LIMIT_DELAY_MS;
+}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
     return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+function isDefined<T>(value: T | undefined): value is T {
+    return value !== undefined;
 }
 
 function isManncoStoreData(value: unknown): value is ManncoStoreData {
@@ -184,11 +236,23 @@ export default class ManncoStoreManager extends EventEmitter {
 
     private jwt: string | null = null;
 
+    private initialized = false;
+
+    private initialization: Promise<void> | null = null;
+
+    private dataLoaded = false;
+
     private readonly listedAssetsBySku = new Map<string, string[]>();
 
     private readonly buyOrderValuesBySku = new Map<string, string>();
 
-    private data: ManncoStoreData = { listings: {}, buyOrders: {}, manncoItems: {}, operations: {} };
+    private data: ManncoStoreData = {
+        listings: {},
+        buyOrders: {},
+        manncoItems: {},
+        operations: {},
+        history: { initialized: false, sales: [], purchases: [] }
+    };
 
     constructor(private readonly apiKey: string, private readonly dataPath: string) {
         super();
@@ -207,17 +271,36 @@ export default class ManncoStoreManager extends EventEmitter {
         });
     }
 
+    get isReady(): boolean {
+        return this.initialized;
+    }
+
     async init(): Promise<void> {
-        const data: unknown = await files.readFile(this.dataPath, true);
-        if (isManncoStoreData(data)) {
-            this.data = {
-                listings: data.listings,
-                buyOrders: data.buyOrders,
-                manncoItems: data.manncoItems || {},
-                operations: data.operations || {}
-            };
+        if (this.initialized) return;
+        if (this.initialization !== null) return this.initialization;
+
+        this.initialization = this.initialize().finally(() => {
+            this.initialization = null;
+        });
+        return this.initialization;
+    }
+
+    private async initialize(): Promise<void> {
+        if (!this.dataLoaded) {
+            const data: unknown = await files.readFile(this.dataPath, true);
+            if (isManncoStoreData(data)) {
+                this.data = {
+                    listings: data.listings,
+                    buyOrders: data.buyOrders,
+                    manncoItems: data.manncoItems || {},
+                    operations: data.operations || {},
+                    history: data.history || { initialized: false, sales: [], purchases: [] }
+                };
+            }
+            this.dataLoaded = true;
         }
         await this.login();
+        this.initialized = true;
         try {
             await this.reconcileOperations();
         } catch (err) {
@@ -318,6 +401,86 @@ export default class ManncoStoreManager extends EventEmitter {
             `/user/getSalesHistory?page=${page}&perpage=${limit}&range=1W`
         );
         return { values: Array.isArray(content.values) ? content.values : [], count: content.count || 0 };
+    }
+
+    async getPurchaseHistory(page = 0, limit = 50): Promise<ManncoSalesHistory> {
+        const content = await this.request<ManncoSalesHistory>(
+            'get',
+            `/user/getPurchaseHistory?page=${page}&count=${limit}`
+        );
+        return { values: Array.isArray(content.values) ? content.values : [], count: content.count || 0 };
+    }
+
+    async checkCompletedTransactions(): Promise<ManncoTransactionEvent[]> {
+        const [sales, purchases] = await Promise.all([this.getSalesHistory(0, 50), this.getPurchaseHistory()]);
+        const saleEvents = sales.values.map(value => this.parseHistoryEvent('sale', value)).filter(isDefined);
+        const purchaseEvents = purchases.values.map(value => this.parseHistoryEvent('buy', value)).filter(isDefined);
+        const history = this.data.history || { initialized: false, sales: [], purchases: [] };
+        this.data.history = history;
+
+        if (!history.initialized) {
+            history.sales = this.limitSeen(saleEvents.map(event => event.id));
+            history.purchases = this.limitSeen(purchaseEvents.map(event => event.id));
+            history.initialized = true;
+            await this.saveData();
+            return [];
+        }
+
+        const newSales = saleEvents.filter(event => !history.sales.includes(event.id));
+        const newPurchases = purchaseEvents.filter(event => !history.purchases.includes(event.id));
+        history.sales = this.limitSeen([...newSales.map(event => event.id), ...history.sales]);
+        history.purchases = this.limitSeen([...newPurchases.map(event => event.id), ...history.purchases]);
+
+        const trackedBuyOrders = new Map(
+            Object.entries(this.data.buyOrders).map(([sku, order]) => [order.itemId, { sku, name: order.name }])
+        );
+        const completedBuys = newPurchases.flatMap(event => {
+            const tracked = event.itemId === undefined ? undefined : trackedBuyOrders.get(event.itemId);
+            return tracked ? [{ ...event, sku: tracked.sku, name: event.name || tracked.name }] : [];
+        });
+
+        if (newSales.length > 0 || newPurchases.length > 0) await this.saveData();
+        return [...newSales, ...completedBuys];
+    }
+
+    private parseHistoryEvent(type: ManncoTransactionType, value: unknown): ManncoTransactionEvent | undefined {
+        if (!isRecord(value)) return undefined;
+        const numberValue = (...keys: string[]): number | undefined => {
+            for (const key of keys) {
+                const candidate = value[key];
+                if (typeof candidate === 'number' && Number.isSafeInteger(candidate) && candidate > 0) return candidate;
+                if (typeof candidate === 'string' && /^\d+$/.test(candidate)) return Number(candidate);
+            }
+            return undefined;
+        };
+        const stringValue = (...keys: string[]): string | undefined => {
+            for (const key of keys) if (typeof value[key] === 'string' && value[key].length > 0) return value[key];
+            return undefined;
+        };
+        const itemId = numberValue('item_id', 'itemid', 'iditem');
+        const price = numberValue('price', 'value') || 0;
+        const quantity = numberValue('count', 'amount', 'quantity') || 1;
+        const assetIds = this.splitAssetIds(stringValue('ids', 'assetid', 'idbackpack') || '');
+        const id = stringValue('id', 'transactionid', 'transactionId') || JSON.stringify(value);
+        const sku = assetIds.map(assetId => this.findSkuByAssetId(assetId)).find(isDefined);
+        return {
+            type,
+            id: `${type}:${id}`,
+            itemId,
+            name: stringValue('name', 'item_name') || `Mannco item ${itemId || 'unknown'}`,
+            quantity,
+            price,
+            assetIds,
+            sku
+        };
+    }
+
+    private findSkuByAssetId(assetId: string): string | undefined {
+        return Object.entries(this.data.listings).find(([, listing]) => listing.assetIds.includes(assetId))?.[0];
+    }
+
+    private limitSeen(ids: string[]): string[] {
+        return [...new Set(ids)].slice(0, 500);
     }
 
     async getBuyOrders(page = 0): Promise<ManncoBuyOrder[]> {
@@ -913,6 +1076,10 @@ export default class ManncoStoreManager extends EventEmitter {
 
             this.jwt = response.data.content.jwt;
         } catch (err) {
+            const rateLimitDelay = getManncoRateLimitDelay(err);
+            if (rateLimitDelay !== null) {
+                throw new ManncoRateLimitError(rateLimitDelay);
+            }
             throw filterAxiosError(err as AxiosError);
         }
     }
@@ -955,9 +1122,9 @@ export default class ManncoStoreManager extends EventEmitter {
                 return this.request<T>(method, path, data, false, emitError);
             }
 
-            if (retry && status === 429) {
-                const retryAfter = Number(axiosError.response?.headers?.['retry-after']);
-                const delay = Number.isFinite(retryAfter) ? Math.min(Math.max(retryAfter, 1), 60) * 1000 : 1000;
+            const rateLimitDelay = getManncoRateLimitDelay(axiosError);
+            if (retry && rateLimitDelay !== null) {
+                const delay = rateLimitDelay;
                 await new Promise(resolve => setTimeout(resolve, delay));
                 return this.request<T>(method, path, data, false, emitError);
             }

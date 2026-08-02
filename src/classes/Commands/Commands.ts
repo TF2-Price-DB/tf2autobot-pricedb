@@ -1832,7 +1832,8 @@ export default class Commands {
             );
         }
 
-        if (params.confirm === 'yes' || params.confirm === true) {
+        // eslint-disable-next-line @typescript-eslint/no-unsafe-argument
+        if (!['yes', true].includes(params.confirm)) {
             return this.bot.sendMessage(
                 steamID,
                 `⚠️ Are you sure that you want to buy premium for ${pluralize('month', amountMonths, true)}?` +

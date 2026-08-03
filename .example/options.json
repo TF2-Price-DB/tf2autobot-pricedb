@@ -477,6 +477,9 @@
         },
         "expressLoad": {
             "enable": false
+        },
+        "steamBotInfo": {
+            "enable": false
         }
     },
     "discordChat": {

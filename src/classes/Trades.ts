@@ -125,7 +125,6 @@ export default class Trades {
                     `(${this.pollRecoveryAttempts}/${TRADE_POLL_RECOVERY_ATTEMPTS}).`
             );
             this.bot.manager.pollInterval = 10 * 1000;
-            this.bot.lastTimeCallingDoPoll = new Date();
             this.bot.manager.doPoll();
             return;
         }
@@ -658,14 +657,7 @@ export default class Trades {
 
             log.debug('pollInterval re-enabled.');
             this.bot.manager.pollInterval = 10 * 1000;
-            const now = dayjs();
-            const timeDiffInMs = now.diff(this.bot.lastTimeCallingDoPoll);
-            if (timeDiffInMs >= 10000) {
-                // Make sure to call doPoll only if first time or last call is more than or equal to 10 seconds
-                this.bot.lastTimeCallingDoPoll = now.toDate();
-                log.debug('doPoll called.');
-                this.bot.manager.doPoll();
-            }
+            this.bot.manager.doPoll();
             return;
         }
 

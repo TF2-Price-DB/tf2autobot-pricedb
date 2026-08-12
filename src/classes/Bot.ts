@@ -53,6 +53,7 @@ import filterAxiosError from '@tf2autobot/filter-axios-error';
 import { axiosAbortSignal } from '../lib/helpers';
 import { apiRequest } from '../lib/apiRequest';
 import EasyCopyPaste from 'easycopypaste';
+import { materializeVdf } from '../lib/tools/materializeVdf';
 
 type Callback = (err?: Error | null) => void;
 type HttpError = Error & { code?: string | number };
@@ -518,6 +519,7 @@ export default class Bot {
             })
                 .then(content => {
                     this.tf2.setLang(content);
+                    this.compactLocalization();
                     resolve();
                 })
                 .catch(err => {
@@ -1104,6 +1106,32 @@ export default class Bot {
         });
     }
 
+    private compactSchemaItemsGame(): void {
+        const schema = this.schemaManager.schema;
+        if (schema === null) {
+            return;
+        }
+
+        const startedAt = Date.now();
+        const materialized = materializeVdf(schema.raw.items_game);
+        schema.raw.items_game = materialized.value;
+        log.debug(`Materialized ${materialized.stringCount} TF2 schema VDF strings in ${Date.now() - startedAt}ms.`);
+    }
+
+    private compactLocalization(): void {
+        const tf2WithLanguage = this.tf2 as unknown as { lang?: unknown };
+        if (tf2WithLanguage.lang === undefined) {
+            return;
+        }
+
+        const startedAt = Date.now();
+        const materialized = materializeVdf(tf2WithLanguage.lang);
+        tf2WithLanguage.lang = materialized.value;
+        log.debug(
+            `Materialized ${materialized.stringCount} TF2 localization VDF strings in ${Date.now() - startedAt}ms.`
+        );
+    }
+
     start(): Promise<void> {
         let data: StartData = {};
         let cookies: string[];
@@ -1261,6 +1289,7 @@ export default class Bot {
                             updateTime: 1 * 60 * 60 * 1000,
                             lite: true
                         });
+                        this.schemaManager.on('schema', this.compactSchemaItemsGame.bind(this));
 
                         log.info('Getting TF2 schema...');
                         void this.initializeSchema().asCallback((err: unknown) => {

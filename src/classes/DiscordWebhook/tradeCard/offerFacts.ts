@@ -67,14 +67,20 @@ export interface PricedItem {
 
 /**
  * The priced items in a trade, most valuable first. A sku the schema cannot
- * name is skipped.
+ * name is skipped. The rendered trade card can opt to omit pure currency,
+ * while text consumers retain the complete list.
  *
  * Gated on `showItemPrices` here, in offerFacts, so the card's price section
  * and the text fallback read the same answer and cannot drift apart on the
  * toggle. The card disables the whole section by an empty array; `buildStatus`
  * and the verbose item list inherit the same gate through their own reads.
  */
-export function collectPricedItems(offer: TradeOffer, bot: Bot, keyRateMetal: number): PricedItem[] {
+export function collectPricedItems(
+    offer: TradeOffer,
+    bot: Bot,
+    keyRateMetal: number,
+    excludePureCurrency = false
+): PricedItem[] {
     if (bot.options.tradeSummary?.showItemPrices === false) {
         return [];
     }
@@ -87,6 +93,10 @@ export function collectPricedItems(offer: TradeOffer, bot: Bot, keyRateMetal: nu
     const items: PricedItem[] = [];
 
     for (const sku of Object.keys(prices)) {
+        if (excludePureCurrency && PURE_SKUS.includes(sku)) {
+            continue;
+        }
+
         const entry = prices[sku];
         if (!entry?.buy || !entry?.sell) {
             continue;
@@ -196,9 +206,59 @@ export function collectStatReadings(bot: Bot, meta: StatMeta): StatReading[] {
 function keyRateReading(bot: Bot, customText: any): StatReading {
     const keyPrices = bot.pricelist.getKeyPrices;
     const autokeys = bot.handler.autokeys;
-    return { kind: 'keyRate', label: customText?.keyRate?.discordWebhook || STAT_LABELS.keyRate,
-        value: `${keyPrices.buy.metal.toString()} / ${keyPrices.sell.metal.toString()} ref`, sub: keyPrices.src === 'manual' ? 'manual' : bot.pricelist.isUseCustomPricer ? 'custom-pricer' : 'PriceDB.IO', note: autokeys.isEnabled ? autokeys.getActiveStatus ? `Autokeys ${autokeys.getOverallStatus.isBankingKeys ? 'bank' : autokeys.getOverallStatus.isBuyingKeys ? 'buy' : 'sell'}` : 'Autokeys idle' : undefined };
+    return {
+        kind: 'keyRate',
+        label: customText?.keyRate?.discordWebhook || STAT_LABELS.keyRate,
+        value: `${keyPrices.buy.metal.toString()} / ${keyPrices.sell.metal.toString()} ref`,
+        sub: keyPrices.src === 'manual' ? 'manual' : bot.pricelist.isUseCustomPricer ? 'custom-pricer' : 'PriceDB.IO',
+        note: autokeys.isEnabled
+            ? autokeys.getActiveStatus
+                ? `Autokeys ${
+                      autokeys.getOverallStatus.isBankingKeys
+                          ? 'bank'
+                          : autokeys.getOverallStatus.isBuyingKeys
+                          ? 'buy'
+                          : 'sell'
+                  }`
+                : 'Autokeys idle'
+            : undefined
+    };
 }
-function pureStockReading(bot: Bot, customText: any): StatReading { const pure = currPure(bot); return { kind: 'pureStock', label: customText?.pureStock?.discordWebhook || STAT_LABELS.pureStock, value: `${pure.key} ${pluralize('key', pure.key)}`, sub: `${Currencies.toRefined(pure.refTotalInScrap)} ref (${pure.ref}/${pure.rec}/${pure.scrap})` }; }
-function inventoryReading(bot: Bot, customText: any): StatReading { const slots = bot.tf2.backpackSlots; return { kind: 'totalItems', label: customText?.totalItems?.discordWebhook || STAT_LABELS.totalItems, value: `${bot.inventoryManager.getInventory.getTotalItems}`, sub: slots !== undefined ? `of ${slots} slots` : undefined }; }
-function timeReading(meta: StatMeta, customText: any, tSum: any): StatReading { const detailed = tSum?.showDetailedTimeTaken !== false; const rows: [string, string, number][] = []; if (detailed && meta.timeTakenToProcessOrConstruct !== undefined) rows.push([meta.isOfferSent ? 'To construct' : 'To process', formatDuration(meta.timeTakenToProcessOrConstruct), meta.timeTakenToProcessOrConstruct]); if (detailed && meta.timeTakenToCounterOffer !== undefined) rows.push(['To counter', formatDuration(meta.timeTakenToCounterOffer), meta.timeTakenToCounterOffer]); rows.push(['To complete', formatDuration(meta.timeTakenToComplete), meta.timeTakenToComplete]); return { kind: 'timeTaken', label: customText?.timeTaken?.discordWebhook || STAT_LABELS.timeTaken, rows, detailed, showMs: tSum?.showTimeTakenInMS === true }; }
+function pureStockReading(bot: Bot, customText: any): StatReading {
+    const pure = currPure(bot);
+    return {
+        kind: 'pureStock',
+        label: customText?.pureStock?.discordWebhook || STAT_LABELS.pureStock,
+        value: `${pure.key} ${pluralize('key', pure.key)}`,
+        sub: `${Currencies.toRefined(pure.refTotalInScrap)} ref (${pure.ref}/${pure.rec}/${pure.scrap})`
+    };
+}
+function inventoryReading(bot: Bot, customText: any): StatReading {
+    const slots = bot.tf2.backpackSlots;
+    return {
+        kind: 'totalItems',
+        label: customText?.totalItems?.discordWebhook || STAT_LABELS.totalItems,
+        value: `${bot.inventoryManager.getInventory.getTotalItems}`,
+        sub: slots !== undefined ? `of ${slots} slots` : undefined
+    };
+}
+function timeReading(meta: StatMeta, customText: any, tSum: any): StatReading {
+    const detailed = tSum?.showDetailedTimeTaken !== false;
+    const rows: [string, string, number][] = [];
+    if (detailed && meta.timeTakenToProcessOrConstruct !== undefined)
+        rows.push([
+            meta.isOfferSent ? 'To construct' : 'To process',
+            formatDuration(meta.timeTakenToProcessOrConstruct),
+            meta.timeTakenToProcessOrConstruct
+        ]);
+    if (detailed && meta.timeTakenToCounterOffer !== undefined)
+        rows.push(['To counter', formatDuration(meta.timeTakenToCounterOffer), meta.timeTakenToCounterOffer]);
+    rows.push(['To complete', formatDuration(meta.timeTakenToComplete), meta.timeTakenToComplete]);
+    return {
+        kind: 'timeTaken',
+        label: customText?.timeTaken?.discordWebhook || STAT_LABELS.timeTaken,
+        rows,
+        detailed,
+        showMs: tSum?.showTimeTakenInMS === true
+    };
+}

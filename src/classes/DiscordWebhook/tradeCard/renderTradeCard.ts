@@ -900,7 +900,7 @@ export default async function renderTradeCard(
 
         let priced: PricedItem[] = [];
         try {
-            priced = collectPricedItems(offer, bot, keyRate);
+            priced = collectPricedItems(offer, bot, keyRate, true);
         } catch (err) {
             log.debug(`Could not collect trade card prices for offer #${offer.id}: `, err);
         }

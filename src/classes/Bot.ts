@@ -66,6 +66,9 @@ type EasyCopyPasteInstance = {
 
 const EasyCopyPasteCtor = EasyCopyPaste as unknown as new () => EasyCopyPasteInstance;
 
+// Temporary kill switch for the PriceDB Store / crit.tf integration.
+const PRICEDB_STORE_ENABLED = false;
+
 type PriceDBListingEvent = { id: string };
 type PriceDBInventoryRefreshedEvent = { itemCount: number; refreshCount: number };
 
@@ -1402,11 +1405,12 @@ export default class Bot {
                                 },
                                 (cb: Callback): void => {
                                     if (
+                                        !PRICEDB_STORE_ENABLED ||
                                         !this.options.pricedbStoreApiKey ||
                                         !this.options.miscSettings.pricedbStore.enable
                                     ) {
                                         log.debug(
-                                            'Skipping PriceDB Store Manager initialization (not configured or disabled)'
+                                            'Skipping PriceDB Store Manager initialization (temporarily disabled, not configured, or disabled)'
                                         );
                                         cb(null);
                                         return;

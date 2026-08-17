@@ -436,7 +436,9 @@ export default class StatusCommands {
     }
 
     versionCommand(steamID: SteamID): void {
-        if (steamID.redirectAnswerTo instanceof DiscordMessage && this.bot.discordBot) {
+        const commandCards = this.bot.options.discordWebhook.commandCards;
+        const useVersionCard = commandCards?.enable !== false && commandCards?.version !== false;
+        if (steamID.redirectAnswerTo instanceof DiscordMessage && this.bot.discordBot && useVersionCard) {
             void this.bot.checkForUpdates
                 .then(({ hasNewVersion, latestVersion, canUpdateRepo, updateMessage, newVersionIsMajor }) => {
                     const current = process.env.BOT_VERSION_LABEL ?? 'unknown';

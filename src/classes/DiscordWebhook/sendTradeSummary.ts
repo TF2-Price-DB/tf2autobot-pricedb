@@ -973,6 +973,13 @@ function buildTradeCardPrices(
         }
     }
 
+    const nonPureTradedSkus = [...tradedSkus].filter(sku => !PURE_SKUS.includes(sku));
+    const missingFocusSkus = nonPureTradedSkus.filter(sku => cardPrices[sku] === undefined);
+    const recordedSkus = Object.keys(prices);
+    if (missingFocusSkus.length === 1 && recordedSkus.length === 1) {
+        cardPrices[missingFocusSkus[0]] = prices[recordedSkus[0]];
+    }
+
     return cardPrices;
 }
 

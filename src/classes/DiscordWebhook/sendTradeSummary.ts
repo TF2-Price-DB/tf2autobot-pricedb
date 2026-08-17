@@ -888,6 +888,7 @@ export function buildTradeCardPayload(
 ): TradeCardPayload {
     const prices = offer.data('prices') as Record<string, unknown> | undefined;
     const dict = offer.data('dict') as ItemsDict | undefined;
+    const cardPrices = buildTradeCardPrices(prices, dict, bot);
     const names: Record<string, string> = {};
     const skus = new Set([
         ...Object.keys(prices ?? {}),
@@ -915,7 +916,7 @@ export function buildTradeCardPayload(
             dict: offer.data('dict'),
             value: offer.data('value'),
             highValue: offer.data('highValue'),
-            prices
+            prices: cardPrices
         },
         options: { ...options },
         meta: { ...meta },
@@ -945,6 +946,34 @@ export function buildTradeCardPayload(
             names
         }
     };
+}
+
+/**
+ * Preserve the trade-processing price map, but give the card a presentation
+ * copy keyed by the SKU that actually appears in the offer. A generic pricelist
+ * entry can price a variant SKU; without this projection the card has no way to
+ * associate that recorded price with the traded item.
+ */
+function buildTradeCardPrices(
+    prices: Record<string, unknown> | undefined,
+    dict: ItemsDict | undefined,
+    bot: Bot
+): Record<string, unknown> | undefined {
+    if (!prices || !dict) return prices;
+
+    const cardPrices = { ...prices };
+    const tradedSkus = new Set([...Object.keys(dict.our ?? {}), ...Object.keys(dict.their ?? {})]);
+
+    for (const sku of tradedSkus) {
+        if (cardPrices[sku] !== undefined) continue;
+
+        const matchedPrice = bot.pricelist.getPrice({ priceKey: sku, onlyEnabled: false, getGenericPrice: true });
+        if (matchedPrice?.sku && prices[matchedPrice.sku] !== undefined) {
+            cardPrices[sku] = prices[matchedPrice.sku];
+        }
+    }
+
+    return cardPrices;
 }
 
 /** One realised sale, before it is formatted for the detail block. */

@@ -1,4 +1,4 @@
-import { TradeOffer, Prices } from '@tf2autobot/tradeoffer-manager';
+import { ItemsDict, TradeOffer, Prices } from '@tf2autobot/tradeoffer-manager';
 import Currencies from '@tf2autobot/tf2-currencies';
 import SKU from '@tf2autobot/tf2-sku';
 import pluralize from 'pluralize';
@@ -67,8 +67,11 @@ export interface PricedItem {
 
 /**
  * The priced items in a trade, most valuable first. A sku the schema cannot
- * name is skipped. The rendered trade card can opt to omit pure currency,
- * while text consumers retain the complete list.
+ * name is skipped. The rendered trade card omits pure currency when an item is
+ * the trade's focus, but retains it for pure autokeys exchanges. It also rejects
+ * price records whose SKU is not actually part of the trade, preventing a
+ * mismatched pricelist key from labelling a price as the wrong item. Text
+ * consumers retain the complete list.
  *
  * Gated on `showItemPrices` here, in offerFacts, so the card's price section
  * and the text fallback read the same answer and cannot drift apart on the
@@ -89,11 +92,17 @@ export function collectPricedItems(
     if (!prices) {
         return [];
     }
+    const dict = offer.data('dict') as ItemsDict | undefined;
+    const tradedSkus = dict ? new Set([...Object.keys(dict.our ?? {}), ...Object.keys(dict.their ?? {})]) : null;
+    const hasNonPureTradedItem = tradedSkus ? [...tradedSkus].some(sku => !PURE_SKUS.includes(sku)) : true;
 
     const items: PricedItem[] = [];
 
     for (const sku of Object.keys(prices)) {
-        if (excludePureCurrency && PURE_SKUS.includes(sku)) {
+        if (excludePureCurrency && hasNonPureTradedItem && PURE_SKUS.includes(sku)) {
+            continue;
+        }
+        if (excludePureCurrency && tradedSkus && !tradedSkus.has(sku)) {
             continue;
         }
 

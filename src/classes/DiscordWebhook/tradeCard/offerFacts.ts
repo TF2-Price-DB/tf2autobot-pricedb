@@ -96,6 +96,15 @@ export function collectPricedItems(
     const tradedSkus = dict ? new Set([...Object.keys(dict.our ?? {}), ...Object.keys(dict.their ?? {})]) : null;
     const hasNonPureTradedItem = tradedSkus ? [...tradedSkus].some(sku => !PURE_SKUS.includes(sku)) : true;
 
+    if (excludePureCurrency && tradedSkus && hasNonPureTradedItem) {
+        const focusSkus = [...tradedSkus].filter(sku => !PURE_SKUS.includes(sku));
+        const fallback = focusSkus.length === 1 ? highestPricedEntry(prices, keyRateMetal) : undefined;
+        return focusSkus
+            .map(sku => toPricedItem(sku, prices[sku] ?? fallback, bot, keyRateMetal))
+            .filter((item): item is PricedItem => item !== null)
+            .sort((a, b) => b.value - a.value);
+    }
+
     const items: PricedItem[] = [];
 
     for (const sku of Object.keys(prices)) {
@@ -106,25 +115,34 @@ export function collectPricedItems(
             continue;
         }
 
-        const entry = prices[sku];
-        if (!entry?.buy || !entry?.sell) {
-            continue;
-        }
-
-        try {
-            const sell = new Currencies(entry.sell);
-            items.push({
-                name: bot.schema.getName(SKU.fromString(sku), false),
-                buy: new Currencies(entry.buy).toString(),
-                sell: sell.toString(),
-                value: sell.toValue(keyRateMetal)
-            });
-        } catch (err) {
-            log.debug(`Could not name ${sku} for the trade summary prices: `, err);
-        }
+        const item = toPricedItem(sku, prices[sku], bot, keyRateMetal);
+        if (item) items.push(item);
     }
 
     return items.sort((a, b) => b.value - a.value);
+}
+
+function highestPricedEntry(prices: Prices, keyRateMetal: number): Prices[string] | undefined {
+    return Object.values(prices)
+        .filter(entry => entry?.buy && entry?.sell)
+        .sort((a, b) => new Currencies(b.sell).toValue(keyRateMetal) - new Currencies(a.sell).toValue(keyRateMetal))[0];
+}
+
+function toPricedItem(sku: string, entry: Prices[string] | undefined, bot: Bot, keyRateMetal: number): PricedItem | null {
+    if (!entry?.buy || !entry?.sell) return null;
+
+    try {
+        const sell = new Currencies(entry.sell);
+        return {
+            name: bot.schema.getName(SKU.fromString(sku), false),
+            buy: new Currencies(entry.buy).toString(),
+            sell: sell.toString(),
+            value: sell.toValue(keyRateMetal)
+        };
+    } catch (err) {
+        log.debug(`Could not name ${sku} for the trade summary prices: `, err);
+        return null;
+    }
 }
 
 /** Overflow rows past this — a fifth slot spends itself on `+N more` instead. */

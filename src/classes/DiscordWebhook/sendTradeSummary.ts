@@ -976,11 +976,22 @@ function buildTradeCardPrices(
     const nonPureTradedSkus = [...tradedSkus].filter(sku => !PURE_SKUS.includes(sku));
     const missingFocusSkus = nonPureTradedSkus.filter(sku => cardPrices[sku] === undefined);
     const recordedSkus = Object.keys(prices);
-    if (missingFocusSkus.length === 1 && recordedSkus.length === 1) {
-        cardPrices[missingFocusSkus[0]] = prices[recordedSkus[0]];
+    const paymentPriceSkus = recordedSkus.filter(sku => !nonPureTradedSkus.includes(sku));
+    if (missingFocusSkus.length === 1 && paymentPriceSkus.length > 0) {
+        const keyRateMetal = bot.pricelist.getKeyPrice.metal;
+        const focusPriceSku = paymentPriceSkus.sort((a, b) => priceValue(prices[b], keyRateMetal) - priceValue(prices[a], keyRateMetal))[0];
+        cardPrices[missingFocusSkus[0]] = prices[focusPriceSku];
     }
 
     return cardPrices;
+}
+
+function priceValue(price: unknown, keyRateMetal: number): number {
+    try {
+        return new Currencies((price as { sell: unknown }).sell).toValue(keyRateMetal);
+    } catch {
+        return Number.NEGATIVE_INFINITY;
+    }
 }
 
 /** One realised sale, before it is formatted for the detail block. */

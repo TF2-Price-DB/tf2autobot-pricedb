@@ -1,6 +1,7 @@
 /* eslint-disable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-misused-promises */
 
 import { CardRenderRequest, CardRenderResult, TradeCardPayload } from './cardRenderProtocol';
+import SKU from '@tf2autobot/tf2-sku';
 
 function reply(result: CardRenderResult): void {
     if (process.send) process.send(result, () => process.exit(0));
@@ -18,7 +19,7 @@ function restoreTrade(payload: TradeCardPayload): { offer: any; bot: any } {
     const names = botData.names as Record<string, string>;
     const bot = {
         ...botData,
-        schema: { getName: (sku: { toString: () => string }) => names[sku.toString()] ?? 'Unknown item' },
+        schema: { getName: (sku: Parameters<typeof SKU.fromObject>[0]) => names[SKU.fromObject(sku)] ?? 'Unknown item' },
         pricelist: { ...botData.pricelist, getPrice: () => null },
         inventoryManager: {
             getInventory: {

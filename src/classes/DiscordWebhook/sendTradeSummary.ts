@@ -889,9 +889,6 @@ export function buildTradeCardPayload(
     const prices = offer.data('prices') as Record<string, unknown> | undefined;
     const dict = offer.data('dict') as ItemsDict | undefined;
     const cardPrices = buildTradeCardPrices(prices, dict, bot);
-    // Temporary diagnostic for mismatched trade-card price labels. Remove once
-    // a live offer captures the exact price-map shape that reaches the worker.
-    log.info('Trade card price diagnostic', { offerId: offer.id, dict, prices, cardPrices });
     const names: Record<string, string> = {};
     const skus = new Set([
         ...Object.keys(prices ?? {}),
@@ -902,10 +899,10 @@ export function buildTradeCardPayload(
         try {
             const parsed = SKU.fromString(sku);
             const name = bot.schema.getName(parsed, false);
-            // SKU normalisation in the renderer can differ from the key kept in
-            // offer data, so retain both forms for the worker-side schema stub.
+            // The renderer recreates this object from the SKU, so retain its
+            // canonical TF2-SKU form as well as the key kept in offer data.
             names[sku] = name;
-            names[parsed.toString()] = name;
+            names[SKU.fromObject(parsed)] = name;
         } catch {
             names[sku] = sku;
         }

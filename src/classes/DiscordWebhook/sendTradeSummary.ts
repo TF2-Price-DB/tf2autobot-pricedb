@@ -889,6 +889,9 @@ export function buildTradeCardPayload(
     const prices = offer.data('prices') as Record<string, unknown> | undefined;
     const dict = offer.data('dict') as ItemsDict | undefined;
     const cardPrices = buildTradeCardPrices(prices, dict, bot);
+    // Temporary diagnostic for mismatched trade-card price labels. Remove once
+    // a live offer captures the exact price-map shape that reaches the worker.
+    log.info('Trade card price diagnostic', { offerId: offer.id, dict, prices, cardPrices });
     const names: Record<string, string> = {};
     const skus = new Set([
         ...Object.keys(prices ?? {}),

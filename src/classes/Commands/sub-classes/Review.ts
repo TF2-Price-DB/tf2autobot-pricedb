@@ -8,6 +8,7 @@ import SKU from '@tf2autobot/tf2-sku';
 import Bot from '../../Bot';
 import CommandParser from '../../CommandParser';
 import { generateLinks, testPriceKey } from '../../../lib/tools/export';
+import log from '../../../lib/logger';
 
 // Manual review commands
 
@@ -205,7 +206,10 @@ export default class ReviewCommands {
                 .then(offer =>
                     this.bot.discordBot?.sendTradeAnswer(steamID.redirectAnswerTo, offer, reason, isReview, reply)
                 )
-                .catch(() => this.bot.sendMessage(steamID, reply));
+                .catch(err => {
+                    log.warn(`Failed to retrieve offer #${offerId} for Discord trade card; sending text fallback:`, err);
+                    this.bot.sendMessage(steamID, reply);
+                });
             return;
         }
         this.bot.sendMessage(steamID, reply);

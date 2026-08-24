@@ -17,7 +17,7 @@ import {
     TILE_FILL
 } from './cardCanvas';
 import { registerTradeCardFonts } from './renderTradeCard';
-import { outcomePanelCells, type StatsReadings } from './statsFacts';
+import { type StatsReadings } from './statsFacts';
 
 const WIDTH = 960;
 const HEIGHT = 520;
@@ -28,6 +28,7 @@ const LOSS_FILL = 'rgba(70, 22, 24, 0.55)';
 const ZERO_LINE = 'rgba(255, 255, 255, 0.22)';
 const HAIRLINE = 'rgba(255, 255, 255, 0.10)';
 
+// eslint-disable-next-line @typescript-eslint/require-await -- matches the async card-renderer contract used by the worker and client
 export default async function renderStatsCard(readings: StatsReadings): Promise<Buffer | null> {
     try {
         registerTradeCardFonts();
@@ -51,11 +52,7 @@ export default async function renderStatsCard(readings: StatsReadings): Promise<
 
         ctx.fillStyle = MUTED;
         ctx.font = `18px ${FONT_REGULAR}`;
-        ctx.fillText(
-            `Tracked for ${readings.totalDays} days · ${readings.totalAccepted} accepted trades`,
-            28,
-            68
-        );
+        ctx.fillText(`Tracked for ${readings.totalDays} days · ${readings.totalAccepted} accepted trades`, 28, 68);
 
         drawProfitRow(ctx, readings);
 
@@ -211,12 +208,8 @@ function drawDailyLine(ctx: SKRSContext2D, readings: StatsReadings, y: number, p
     ctx.fillStyle = MUTED;
     ctx.font = `13px ${FONT_REGULAR}`;
     ctx.textAlign = 'right';
-    const posLabel = Number.isInteger(Currencies.toRefined(topScale))
-        ? String(Currencies.toRefined(topScale))
-        : Currencies.toRefined(topScale).toFixed(2);
-    const negLabel = Number.isInteger(Currencies.toRefined(bottomScale))
-        ? String(Currencies.toRefined(bottomScale))
-        : Currencies.toRefined(bottomScale).toFixed(2);
+    const posLabel = refLabel(topScale);
+    const negLabel = refLabel(bottomScale);
     if (maxPositive > 0) ctx.fillText(`+${posLabel} ref`, plotX - 6, y + 16);
     if (maxNegative < 0) ctx.fillText(`−${negLabel} ref`, plotX - 6, y + plotHeight - 4);
 
@@ -233,14 +226,7 @@ function drawDailyLine(ctx: SKRSContext2D, readings: StatsReadings, y: number, p
     ctx.textAlign = 'left';
 }
 
-function strokeSeg(
-    ctx: SKRSContext2D,
-    x1: number,
-    y1: number,
-    x2: number,
-    y2: number,
-    positive: boolean
-): void {
+function strokeSeg(ctx: SKRSContext2D, x1: number, y1: number, x2: number, y2: number, positive: boolean): void {
     ctx.strokeStyle = positive ? PROFIT_COLOR : LOSS_COLOR;
     ctx.beginPath();
     ctx.moveTo(x1, y1);
@@ -252,7 +238,12 @@ function drawOutcomePanel(ctx: SKRSContext2D, readings: StatsReadings, y: number
     const x = 28;
     const width = WIDTH - 56;
     const height = 104;
-    const cells = outcomePanelCells(readings);
+    const cells = [
+        { label: 'ACCEPTED', value: `${readings.hours24.accepted} / ${readings.today.accepted}`, hint: '24h / today' },
+        { label: 'DECLINED', value: `${readings.hours24.declined} / ${readings.today.declined}`, hint: '24h / today' },
+        { label: 'OTHER', value: `${readings.hours24.other} / ${readings.today.other}`, hint: '24h / today' },
+        { label: 'ACCEPT %', value: `${readings.acceptPct24h}%`, hint: 'last 24h' }
+    ];
 
     ctx.fillStyle = TILE_FILL;
     roundedRect(ctx, x, y, width, height, 16);
@@ -285,13 +276,7 @@ function drawOutcomePanel(ctx: SKRSContext2D, readings: StatsReadings, y: number
     ctx.textAlign = 'left';
 }
 
-function drawDeltaChip(
-    ctx: SKRSContext2D,
-    left: number,
-    baseline: number,
-    text: string,
-    positive: boolean
-): number {
+function drawDeltaChip(ctx: SKRSContext2D, left: number, baseline: number, text: string, positive: boolean): number {
     ctx.font = `20px ${FONT_SEMIBOLD}`;
     const textWidth = ctx.measureText(text).width;
     const chipWidth = textWidth + 20;
@@ -328,3 +313,7 @@ function signed(value: number, digits?: number): string {
     return value > 0 ? `+${body}` : body;
 }
 
+function refLabel(scrap: number): string {
+    const ref = Currencies.toRefined(scrap);
+    return Number.isInteger(ref) ? String(ref) : ref.toFixed(2);
+}

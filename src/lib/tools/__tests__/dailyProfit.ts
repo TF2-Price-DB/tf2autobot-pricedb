@@ -64,14 +64,6 @@ describe('isCountableProfitTrade', () => {
         expect(isCountableProfitTrade(makeTrade({ handledByUs: false }), () => false)).toBe(false);
         expect(isCountableProfitTrade(makeTrade({ isAccepted: false }), () => false)).toBe(false);
     });
-
-    it('falls back to tradeProfit.timestamp when handleTimestamp is missing', () => {
-        const isAdmin = () => false;
-        const ts = day(0, 6);
-        expect(isCountableProfitTrade(makeTrade({ timestamp: ts, handleTimestamp: undefined }), isAdmin)).toBe(true);
-        // isCountable does not read timestamps; the fallback is exercised in
-        // dailyProfitSeries below.
-    });
 });
 
 describe('dailyProfitSeries', () => {

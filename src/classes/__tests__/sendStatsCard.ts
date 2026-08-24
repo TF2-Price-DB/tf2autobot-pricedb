@@ -16,7 +16,7 @@ import { sendWebhook } from '../DiscordWebhook/utils';
 import { renderCard } from '../DiscordWebhook/tradeCard/cardRenderClient';
 import sendStats from '../DiscordWebhook/sendStats';
 import Bot from '../Bot';
-import type { Component, Container, MediaGallery, TextDisplay, Webhook } from '../DiscordWebhook/interfaces';
+import type { Component, Webhook } from '../DiscordWebhook/interfaces';
 
 const loadPollDataMock = loadPollData as jest.MockedFunction<typeof loadPollData>;
 const sendWebhookMock = sendWebhook as jest.MockedFunction<typeof sendWebhook>;
@@ -68,14 +68,14 @@ function emptyPoll(): { offerData: Record<string, never>; timestamps: Record<str
 }
 
 function webhookOf(call = 0): Webhook {
-    return sendWebhookMock.mock.calls[call][1] as Webhook;
+    return sendWebhookMock.mock.calls[call][1];
 }
 
 function walk(components: Component[] | undefined, visit: (c: Component) => void): void {
     for (const c of components ?? []) {
         visit(c);
         if (c.type === 17) {
-            walk((c as Container).components, visit);
+            walk(c.components, visit);
         }
     }
 }
@@ -83,7 +83,7 @@ function walk(components: Component[] | undefined, visit: (c: Component) => void
 function textContents(webhook: Webhook): string[] {
     const out: string[] = [];
     walk(webhook.components, c => {
-        if (c.type === 10) out.push((c as TextDisplay).content);
+        if (c.type === 10) out.push(c.content);
     });
     return out;
 }
@@ -92,7 +92,7 @@ function mediaUrls(webhook: Webhook): string[] {
     const out: string[] = [];
     walk(webhook.components, c => {
         if (c.type === 12) {
-            out.push(...(c as MediaGallery).items.map(item => item.media.url));
+            out.push(...c.items.map(item => item.media.url));
         }
     });
     return out;

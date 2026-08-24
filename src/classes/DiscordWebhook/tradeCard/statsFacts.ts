@@ -1,7 +1,6 @@
 import type { DailyProfit } from '../../../lib/tools/profitRows';
 import { convertedProfitString } from '../../../lib/tools/profit';
 
-
 /**
  * Shared stats object for the ledger card and the !statsdw text.
  * Renderers must not re-sum windows or re-round accept %.
@@ -74,21 +73,6 @@ export function outcomeTotals(w: StatsWindow): OutcomeTotals {
         other: w.skipped + w.canceled.total + w.invalid,
         processed: w.processed
     };
-}
-
-export interface OutcomePanelCell {
-    label: string;
-    value: string;
-    hint: string;
-}
-
-export function outcomePanelCells(readings: StatsReadings): OutcomePanelCell[] {
-    return [
-        { label: 'ACCEPTED', value: `${readings.hours24.accepted} / ${readings.today.accepted}`, hint: '24h / today' },
-        { label: 'DECLINED', value: `${readings.hours24.declined} / ${readings.today.declined}`, hint: '24h / today' },
-        { label: 'OTHER', value: `${readings.hours24.other} / ${readings.today.other}`, hint: '24h / today' },
-        { label: 'ACCEPT %', value: `${readings.acceptPct24h}%`, hint: 'last 24h' }
-    ];
 }
 
 export function collectStatsReadings(params: CollectStatsReadingsParams): StatsReadings {

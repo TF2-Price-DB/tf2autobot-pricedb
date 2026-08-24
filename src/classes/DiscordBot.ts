@@ -364,9 +364,7 @@ export default class DiscordBot {
         const detail = `${reason}${reason ? '\n' : ''}[Steam](${links.steam}) · [backpack.tf](${
             links.bptf
         }) · [rep.tf](${links.reptf})`;
-        const itemBlocks = review
-            ? buildItemLinkBlocks(offer, this.bot, Math.max(0, TRADE_CARD_TEXT_BUDGET - detail.length))
-            : [];
+        const itemBlocks = buildItemLinkBlocks(offer, this.bot, Math.max(0, TRADE_CARD_TEXT_BUDGET - detail.length));
         const components = this.tradeComponents(
             token,
             offer.id,

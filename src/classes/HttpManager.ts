@@ -165,9 +165,10 @@ export default class HttpManager {
 
         this.app.get('/api/trade/:offerId', this.validateApiKey.bind(this), handleTradeStatus);
         this.app.get('/api/trade/:offerId/status', this.validateApiKey.bind(this), handleTradeStatus);
+        this.app.get('/api/trade/status/:offerId', this.validateApiKey.bind(this), handleTradeStatus);
 
         // API trading endpoint
-        this.app.post('/api/trade', this.validateApiKey.bind(this), async (req, res) => {
+        const handleTradeSend = async (req: express.Request, res: express.Response) => {
             try {
                 // Validate that bot is available
                 if (!this.bot) {
@@ -264,7 +265,10 @@ export default class HttpManager {
                     error: errorMsg
                 });
             }
-        });
+        };
+
+        this.app.post('/api/trade', this.validateApiKey.bind(this), handleTradeSend);
+        this.app.post('/api/trade/send', this.validateApiKey.bind(this), handleTradeSend);
 
         // Accept trade offer endpoint
         this.app.patch('/api/trade/:offerId/accept', this.validateApiKey.bind(this), async (req, res) => {

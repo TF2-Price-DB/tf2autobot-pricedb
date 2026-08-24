@@ -645,7 +645,7 @@ export default class Trades {
                         });
                 }
 
-                if (offer.state !== TradeOfferManager.ETradeOfferState['Active']) {
+                if (!offer || offer.state !== TradeOfferManager.ETradeOfferState['Active']) {
                     // Offer is not active
                     return resolve(null);
                 }

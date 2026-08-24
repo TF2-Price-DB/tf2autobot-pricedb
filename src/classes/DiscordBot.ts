@@ -25,13 +25,14 @@ import { stockCardPageCount, StockCardEntry } from './DiscordWebhook/tradeCard/c
 import { Entry } from './Pricelist';
 import { TradeOffer } from '@tf2autobot/tradeoffer-manager';
 import { getPartnerDetails } from './DiscordWebhook/utils';
-import { renderTradeCardImage } from './DiscordWebhook/sendTradeSummary';
+import { buildItemLinkBlocks, renderTradeCardImage } from './DiscordWebhook/sendTradeSummary';
 import { TradeCardMeta } from './DiscordWebhook/tradeCard';
 import { generateLinks } from '../lib/tools/export';
 import TradeOfferManager from '@tf2autobot/tradeoffer-manager';
 
 const STOCK_PAGER_TIMEOUT_MS = 15 * 60 * 1000;
 const TRADE_ACTION_TIMEOUT_MS = 15 * 60 * 1000;
+const TRADE_CARD_TEXT_BUDGET = 4000 - 150;
 
 interface StockPagerSession {
     requesterId: Snowflake;
@@ -49,6 +50,7 @@ interface TradeActionSession {
     requesterId: Snowflake;
     offerId: string;
     force: boolean;
+    itemBlocks: string[];
     action?: 'accept' | 'decline';
     message: Message;
     expiryTimer: NodeJS.Timeout;
@@ -362,12 +364,16 @@ export default class DiscordBot {
         const detail = `${reason}${reason ? '\n' : ''}[Steam](${links.steam}) · [backpack.tf](${
             links.bptf
         }) · [rep.tf](${links.reptf})`;
+        const itemBlocks = buildItemLinkBlocks(offer, this.bot, Math.max(0, TRADE_CARD_TEXT_BUDGET - detail.length));
         const components = this.tradeComponents(
             token,
             offer.id,
             review ? 'Pending review' : 'Active offer',
             detail,
-            force
+            force,
+            undefined,
+            undefined,
+            itemBlocks
         );
         try {
             const message = await (origMessage.channel as TextChannel).send({
@@ -380,6 +386,7 @@ export default class DiscordBot {
                 requesterId: origMessage.author.id,
                 offerId: offer.id,
                 force,
+                itemBlocks,
                 message,
                 expiryTimer
             });
@@ -396,7 +403,8 @@ export default class DiscordBot {
         reason: string,
         force: boolean,
         confirm?: 'accept' | 'decline',
-        terminal?: string
+        terminal?: string,
+        itemBlocks: string[] = []
     ): unknown {
         const buttons = terminal
             ? [{ type: 2, style: 2, label: terminal, custom_id: `trade-action:${token}:expired`, disabled: true }]
@@ -430,7 +438,13 @@ export default class DiscordBot {
                 accent_color: Number(this.bot.options.discordWebhook.embedColor),
                 components: [
                     { type: 10, content: `## ${terminal ?? `⚠️ ${title}`}${reason ? `\n**Reason:** ${reason}` : ''}` },
-                    { type: 12, items: [{ media: { url: `attachment://trade-${offerId}.png` } }] }
+                    { type: 12, items: [{ media: { url: `attachment://trade-${offerId}.png` } }] },
+                    ...(itemBlocks.length > 0
+                        ? [
+                              { type: 14, divider: true, spacing: 1 },
+                              ...itemBlocks.map(content => ({ type: 10, content }))
+                          ]
+                        : [])
                 ]
             },
             { type: 1, components: buttons }
@@ -456,7 +470,9 @@ export default class DiscordBot {
                     'Confirm action',
                     '',
                     session.force,
-                    action
+                    action,
+                    undefined,
+                    session.itemBlocks
                 ) as MessageCreateOptions['components']
             });
             return;
@@ -508,7 +524,8 @@ export default class DiscordBot {
                 '',
                 session.force,
                 undefined,
-                label
+                label,
+                session.itemBlocks
             ) as MessageCreateOptions['components']
         });
     }
@@ -527,7 +544,8 @@ export default class DiscordBot {
                     '',
                     session.force,
                     undefined,
-                    'Trade actions expired'
+                    'Trade actions expired',
+                    session.itemBlocks
                 ) as MessageCreateOptions['components']
             })
             .catch(err => log.debug('Failed to expire trade card:', err));

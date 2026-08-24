@@ -228,8 +228,6 @@ export default class Bot {
 
     public autoRefreshListingsInterval: NodeJS.Timeout;
 
-    public lastTimeCallingDoPoll: Date;
-
     /**
      * Resets the reconnection state and clears any pending reconnection timeout
      */
@@ -340,10 +338,10 @@ export default class Bot {
             useAccessToken: !this.options.steamApiKey, // https://github.com/DoctorMcKay/node-steam-tradeoffer-manager/wiki/Access-Tokens
             language: 'en',
             pollInterval: -1,
+            minimumPollInterval: 5 * 1000, // set minimum between doPoll() calls
             cancelTime: 15 * 60 * 1000,
             pendingCancelTime: 1.5 * 60 * 1000,
-            globalAssetCache: true,
-            assetCacheMaxItems: 50
+            globalAssetCache: false
         });
 
         // ECP --START--
@@ -1127,6 +1125,8 @@ export default class Bot {
         this.addListener(this.community, 'confKeyNeeded', this.onConfKeyNeeded.bind(this), false);
 
         this.addListener(this.manager, 'pollData', this.handler.onPollData.bind(this.handler), false);
+        this.addListener(this.manager, 'pollSuccess', this.trades.onPollSuccess.bind(this.trades), false);
+        this.addListener(this.manager, 'pollFailure', this.trades.onPollFailure.bind(this.trades), false);
         this.addListener(this.manager, 'newOffer', this.trades.onNewOffer.bind(this.trades), true);
         this.addListener(this.manager, 'sentOfferChanged', this.trades.onOfferChanged.bind(this.trades), true);
         this.addListener(this.manager, 'receivedOfferChanged', this.trades.onOfferChanged.bind(this.trades), true);
@@ -1653,7 +1653,7 @@ export default class Bot {
                     this.manager.pollInterval = 10 * 1000;
                     this.setReady = true;
                     this.handler.onReady();
-                    this.lastTimeCallingDoPoll = dayjs().toDate();
+                    this.trades.startPollWatchdog();
                     this.manager.doPoll();
                     this.startVersionChecker();
                     this.initResetCacheInterval();

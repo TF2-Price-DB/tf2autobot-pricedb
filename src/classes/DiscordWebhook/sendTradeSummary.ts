@@ -393,7 +393,7 @@ function collectLinkedEntries(
     const showStock = bot.options.tradeSummary.showStockChanges;
     // `showPureInEmoji` renders pure as its emoji token on the card and the
     // item list alike — the same map the Steam-chat summary already uses.
-    const showPureEmoji = bot.options.tradeSummary?.showPureInEmoji === true;
+    const showPureEmoji = bot.options.tradeSummary.showPureInEmoji;
     const entries: LinkedEntry[] = [];
     const pure: LinkedEntry[] = [];
 

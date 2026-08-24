@@ -34,7 +34,7 @@ function makeTrade(opts: {
               };
 
     return {
-        handleTimestamp: opts.handleTimestamp === undefined ? Date.now() : opts.handleTimestamp,
+        handleTimestamp: opts.handleTimestamp,
         tradeProfit,
         handledByUs: opts.handledByUs ?? true,
         isAccepted: opts.isAccepted ?? true,
@@ -47,8 +47,7 @@ function makeTrade(opts: {
 
 const TZ = 'UTC';
 const KEY = 64.11;
-const day = (offset: number, hour = 12): number =>
-    Date.UTC(2026, 7, 19 + offset, hour); // Aug 19 2026 ± offset, UTC
+const day = (offset: number, hour = 12): number => Date.UTC(2026, 7, 19 + offset, hour); // Aug 19 2026 ± offset, UTC
 
 describe('isCountableProfitTrade', () => {
     it('skips ADMIN, donation, buyBptfPremium, and isAdmin partner', () => {
@@ -170,7 +169,7 @@ describe('dailyProfitSeries', () => {
 
 describe('convertedProfitString', () => {
     it('converts keys+metal into a currencies string at the sell rate', () => {
-        expect(convertedProfitString(1, 11, KEY)).toContain('key');
-        expect(convertedProfitString(0, 22, KEY)).toBe('2.44 ref');
+        expect(convertedProfitString(1, 11, KEY)).toBe('1 key, 11 ref');
+        expect(convertedProfitString(0, 22, KEY)).toBe('22 ref');
     });
 });

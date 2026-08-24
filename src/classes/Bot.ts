@@ -1127,6 +1127,8 @@ export default class Bot {
         this.addListener(this.community, 'confKeyNeeded', this.onConfKeyNeeded.bind(this), false);
 
         this.addListener(this.manager, 'pollData', this.handler.onPollData.bind(this.handler), false);
+        this.addListener(this.manager, 'pollSuccess', this.trades.onPollSuccess.bind(this.trades), false);
+        this.addListener(this.manager, 'pollFailure', this.trades.onPollFailure.bind(this.trades), false);
         this.addListener(this.manager, 'newOffer', this.trades.onNewOffer.bind(this.trades), true);
         this.addListener(this.manager, 'sentOfferChanged', this.trades.onOfferChanged.bind(this.trades), true);
         this.addListener(this.manager, 'receivedOfferChanged', this.trades.onOfferChanged.bind(this.trades), true);
@@ -1654,6 +1656,7 @@ export default class Bot {
                     this.setReady = true;
                     this.handler.onReady();
                     this.lastTimeCallingDoPoll = dayjs().toDate();
+                    this.trades.startPollWatchdog();
                     this.manager.doPoll();
                     this.startVersionChecker();
                     this.initResetCacheInterval();

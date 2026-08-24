@@ -270,36 +270,53 @@ export default class HttpManager {
         this.app.post('/api/trade', this.validateApiKey.bind(this), handleTradeSend);
         this.app.post('/api/trade/send', this.validateApiKey.bind(this), handleTradeSend);
 
+        const getTradeOfferForAction = async (req: express.Request, res: express.Response) => {
+            const bot = this.bot;
+            if (!bot) {
+                res.status(503).json({
+                    success: false,
+                    error: 'Bot is not initialized'
+                });
+                return null;
+            }
+
+            const offerId = req.params.offerId;
+            if (!offerId) {
+                res.status(400).json({
+                    success: false,
+                    error: 'Missing offerId parameter'
+                });
+                return null;
+            }
+
+            const offer = await bot.trades.getOffer(offerId).catch(() => null);
+            if (!offer) {
+                res.status(404).json({
+                    success: false,
+                    error: 'Offer not found'
+                });
+                return null;
+            }
+
+            return { bot, offer };
+        };
+
+        const handleTradeActionError = (action: string, res: express.Response, error: unknown): void => {
+            log.error(`Error in PATCH /api/trade/:offerId/${action} endpoint:`, error);
+            const errorMsg = error instanceof Error ? error.message : 'Internal server error';
+            res.status(500).json({
+                success: false,
+                error: errorMsg
+            });
+        };
+
         // Accept trade offer endpoint
         this.app.patch('/api/trade/:offerId/accept', this.validateApiKey.bind(this), async (req, res) => {
             try {
-                if (!this.bot) {
-                    res.status(503).json({
-                        success: false,
-                        error: 'Bot is not initialized'
-                    });
-                    return;
-                }
+                const trade = await getTradeOfferForAction(req, res);
+                if (!trade) return;
 
-                const offerId = req.params.offerId;
-
-                if (!offerId) {
-                    res.status(400).json({
-                        success: false,
-                        error: 'Missing offerId parameter'
-                    });
-                    return;
-                }
-
-                const offer = await this.bot.trades.getOffer(offerId).catch(() => null);
-
-                if (!offer) {
-                    res.status(404).json({
-                        success: false,
-                        error: 'Offer not found'
-                    });
-                    return;
-                }
+                const { bot, offer } = trade;
 
                 if (offer.state !== 2) {
                     res.status(400).json({
@@ -318,7 +335,7 @@ export default class HttpManager {
 
                 if (status === 'pending') {
                     log.debug(`Offer #${offer.id} needs confirmation, accepting...`);
-                    await this.bot.trades.acceptConfirmation(offer).catch(err => {
+                    await bot.trades.acceptConfirmation(offer).catch(err => {
                         log.warn(`Failed to accept mobile confirmation for offer #${offer.id}:`, err);
                     });
                 }
@@ -330,45 +347,17 @@ export default class HttpManager {
                     message: 'Trade offer accepted successfully'
                 });
             } catch (error) {
-                log.error('Error in PATCH /api/trade/:offerId/accept endpoint:', error);
-                const errorMsg = error instanceof Error ? error.message : 'Internal server error';
-                res.status(500).json({
-                    success: false,
-                    error: errorMsg
-                });
+                handleTradeActionError('accept', res, error);
             }
         });
 
         // Decline incoming trade offer endpoint
         this.app.patch('/api/trade/:offerId/decline', this.validateApiKey.bind(this), async (req, res) => {
             try {
-                if (!this.bot) {
-                    res.status(503).json({
-                        success: false,
-                        error: 'Bot is not initialized'
-                    });
-                    return;
-                }
+                const trade = await getTradeOfferForAction(req, res);
+                if (!trade) return;
 
-                const offerId = req.params.offerId;
-
-                if (!offerId) {
-                    res.status(400).json({
-                        success: false,
-                        error: 'Missing offerId parameter'
-                    });
-                    return;
-                }
-
-                const offer = await this.bot.trades.getOffer(offerId).catch(() => null);
-
-                if (!offer) {
-                    res.status(404).json({
-                        success: false,
-                        error: 'Offer not found'
-                    });
-                    return;
-                }
+                const { offer } = trade;
 
                 if (offer.isOurOffer) {
                     res.status(400).json({
@@ -396,46 +385,17 @@ export default class HttpManager {
                     message: 'Trade offer declined'
                 });
             } catch (error) {
-                log.error('Error in PATCH /api/trade/:offerId/decline endpoint:', error);
-                const errorMsg = error instanceof Error ? error.message : 'Internal server error';
-                res.status(500).json({
-                    success: false,
-                    error: errorMsg
-                });
+                handleTradeActionError('decline', res, error);
             }
         });
 
         // Cancel outgoing trade offer endpoint
         this.app.patch('/api/trade/:offerId/cancel', this.validateApiKey.bind(this), async (req, res) => {
             try {
-                if (!this.bot) {
-                    res.status(503).json({
-                        success: false,
-                        error: 'Bot is not initialized'
-                    });
-                    return;
-                }
+                const trade = await getTradeOfferForAction(req, res);
+                if (!trade) return;
 
-                const offerId = req.params.offerId;
-
-                if (!offerId) {
-                    res.status(400).json({
-                        success: false,
-                        error: 'Missing offerId parameter'
-                    });
-                    return;
-                }
-
-                const offer = await this.bot.trades.getOffer(offerId).catch(() => null);
-
-                if (!offer) {
-                    res.status(404).json({
-                        success: false,
-                        error: 'Offer not found'
-                    });
-                    return;
-                }
-
+                const { offer } = trade;
 
                 if (!offer.isOurOffer) {
                     res.status(400).json({
@@ -463,12 +423,7 @@ export default class HttpManager {
                     message: 'Trade offer canceled'
                 });
             } catch (error) {
-                log.error('Error in PATCH /api/trade/:offerId/cancel endpoint:', error);
-                const errorMsg = error instanceof Error ? error.message : 'Internal server error';
-                res.status(500).json({
-                    success: false,
-                    error: errorMsg
-                });
+                handleTradeActionError('cancel', res, error);
             }
         });
     }

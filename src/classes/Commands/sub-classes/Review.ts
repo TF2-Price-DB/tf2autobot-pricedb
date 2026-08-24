@@ -203,9 +203,15 @@ export default class ReviewCommands {
             const reason = isReview ? offerData.meta.uniqueReasons.join(', ') : '';
             void this.bot.trades
                 .getOffer(offerId)
-                .then(offer =>
-                    this.bot.discordBot?.sendTradeAnswer(steamID.redirectAnswerTo, offer, reason, isReview, reply)
-                )
+                .then(offer => {
+                    if (!offer) {
+                        log.warn(`Offer #${offerId} is active in poll data but could not be retrieved for its Discord card.`);
+                        this.bot.sendMessage(steamID, reply);
+                        return;
+                    }
+
+                    return this.bot.discordBot?.sendTradeAnswer(steamID.redirectAnswerTo, offer, reason, isReview, reply);
+                })
                 .catch(err => {
                     log.warn(`Failed to retrieve offer #${offerId} for Discord trade card; sending text fallback:`, err);
                     this.bot.sendMessage(steamID, reply);

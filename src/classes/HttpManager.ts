@@ -8,7 +8,6 @@ import log from '../lib/logger';
 import Options from './Options';
 import Bot from './Bot';
 import ApiCart from './Carts/ApiCart';
-import { parseTradeUrl } from '../lib/tools/parseTradeUrl';
 
 export default class HttpManager {
     /**
@@ -76,7 +75,7 @@ export default class HttpManager {
         this.app.get('/uptime', (req, res) => res.json({ uptime: process.uptime() }));
 
         // Trade status endpoint - get status of a specific trade offer
-        this.app.get('/api/trade/status/:offerId', this.validateApiKey.bind(this), async (req, res) => {
+        const handleTradeStatus = async (req: express.Request, res: express.Response) => {
             try {
                 const offerId = req.params.offerId;
 
@@ -100,7 +99,6 @@ export default class HttpManager {
                 }
 
                 // Get the state as a readable string
-                const TradeOfferManager = require('@tf2autobot/tradeoffer-manager');
                 const stateNames = {
                     1: 'Invalid',
                     2: 'Active',
@@ -156,17 +154,21 @@ export default class HttpManager {
                     updated: offer.updated
                 });
             } catch (error) {
-                log.error('Error in /api/trade/status endpoint:', error);
+                log.error('Error in GET /api/trade/:offerId endpoint:', error);
                 const errorMsg = error instanceof Error ? error.message : 'Internal server error';
                 res.status(500).json({
                     success: false,
                     error: errorMsg
                 });
             }
-        });
+        };
+
+        this.app.get('/api/trade/:offerId', this.validateApiKey.bind(this), handleTradeStatus);
+        this.app.get('/api/trade/:offerId/status', this.validateApiKey.bind(this), handleTradeStatus);
+        this.app.get('/api/trade/status/:offerId', this.validateApiKey.bind(this), handleTradeStatus);
 
         // API trading endpoint
-        this.app.post('/api/trade/send', this.validateApiKey.bind(this), async (req, res) => {
+        const handleTradeSend = async (req: express.Request, res: express.Response) => {
             try {
                 // Validate that bot is available
                 if (!this.bot) {
@@ -256,7 +258,212 @@ export default class HttpManager {
                     message: 'Trade offer sent successfully'
                 });
             } catch (error) {
-                log.error('Error in /api/trade/send endpoint:', error);
+                log.error('Error in POST /api/trade endpoint:', error);
+                const errorMsg = error instanceof Error ? error.message : 'Internal server error';
+                res.status(500).json({
+                    success: false,
+                    error: errorMsg
+                });
+            }
+        };
+
+        this.app.post('/api/trade', this.validateApiKey.bind(this), handleTradeSend);
+        this.app.post('/api/trade/send', this.validateApiKey.bind(this), handleTradeSend);
+
+        // Accept trade offer endpoint
+        this.app.patch('/api/trade/:offerId/accept', this.validateApiKey.bind(this), async (req, res) => {
+            try {
+                if (!this.bot) {
+                    res.status(503).json({
+                        success: false,
+                        error: 'Bot is not initialized'
+                    });
+                    return;
+                }
+
+                const offerId = req.params.offerId;
+
+                if (!offerId) {
+                    res.status(400).json({
+                        success: false,
+                        error: 'Missing offerId parameter'
+                    });
+                    return;
+                }
+
+                const offer = await this.bot.trades.getOffer(offerId).catch(() => null);
+
+                if (!offer) {
+                    res.status(404).json({
+                        success: false,
+                        error: 'Offer not found'
+                    });
+                    return;
+                }
+
+                if (offer.state !== 2) {
+                    res.status(400).json({
+                        success: false,
+                        error: `Offer is not active (current state: ${offer.state})`
+                    });
+                    return;
+                }
+
+                const status = await new Promise<string>((resolve, reject) => {
+                    offer.accept((err: Error | null, status: string) => {
+                        if (err) return reject(err);
+                        resolve(status);
+                    });
+                });
+
+                if (status === 'pending') {
+                    log.debug(`Offer #${offer.id} needs confirmation, accepting...`);
+                    await this.bot.trades.acceptConfirmation(offer).catch(err => {
+                        log.warn(`Failed to accept mobile confirmation for offer #${offer.id}:`, err);
+                    });
+                }
+
+                res.json({
+                    success: true,
+                    offerId: offer.id,
+                    status: status,
+                    message: 'Trade offer accepted successfully'
+                });
+            } catch (error) {
+                log.error('Error in PATCH /api/trade/:offerId/accept endpoint:', error);
+                const errorMsg = error instanceof Error ? error.message : 'Internal server error';
+                res.status(500).json({
+                    success: false,
+                    error: errorMsg
+                });
+            }
+        });
+
+        // Decline incoming trade offer endpoint
+        this.app.patch('/api/trade/:offerId/decline', this.validateApiKey.bind(this), async (req, res) => {
+            try {
+                if (!this.bot) {
+                    res.status(503).json({
+                        success: false,
+                        error: 'Bot is not initialized'
+                    });
+                    return;
+                }
+
+                const offerId = req.params.offerId;
+
+                if (!offerId) {
+                    res.status(400).json({
+                        success: false,
+                        error: 'Missing offerId parameter'
+                    });
+                    return;
+                }
+
+                const offer = await this.bot.trades.getOffer(offerId).catch(() => null);
+
+                if (!offer) {
+                    res.status(404).json({
+                        success: false,
+                        error: 'Offer not found'
+                    });
+                    return;
+                }
+
+                if (offer.isOurOffer) {
+                    res.status(400).json({
+                        success: false,
+                        error: 'Cannot decline an outgoing offer. Use PATCH /api/trade/:offerId/cancel instead.'
+                    });
+                    return;
+                }
+
+                if (offer.state !== 2) {
+                    res.status(400).json({
+                        success: false,
+                        error: `Offer cannot be declined (current state: ${offer.state})`
+                    });
+                    return;
+                }
+
+                await new Promise<void>((resolve, reject) => {
+                    offer.decline((err: Error | null) => (err ? reject(err) : resolve()));
+                });
+
+                res.json({
+                    success: true,
+                    offerId: offer.id,
+                    message: 'Trade offer declined'
+                });
+            } catch (error) {
+                log.error('Error in PATCH /api/trade/:offerId/decline endpoint:', error);
+                const errorMsg = error instanceof Error ? error.message : 'Internal server error';
+                res.status(500).json({
+                    success: false,
+                    error: errorMsg
+                });
+            }
+        });
+
+        // Cancel outgoing trade offer endpoint
+        this.app.patch('/api/trade/:offerId/cancel', this.validateApiKey.bind(this), async (req, res) => {
+            try {
+                if (!this.bot) {
+                    res.status(503).json({
+                        success: false,
+                        error: 'Bot is not initialized'
+                    });
+                    return;
+                }
+
+                const offerId = req.params.offerId;
+
+                if (!offerId) {
+                    res.status(400).json({
+                        success: false,
+                        error: 'Missing offerId parameter'
+                    });
+                    return;
+                }
+
+                const offer = await this.bot.trades.getOffer(offerId).catch(() => null);
+
+                if (!offer) {
+                    res.status(404).json({
+                        success: false,
+                        error: 'Offer not found'
+                    });
+                    return;
+                }
+
+
+                if (!offer.isOurOffer) {
+                    res.status(400).json({
+                        success: false,
+                        error: 'Cannot cancel an incoming offer. Use PATCH /api/trade/:offerId/decline instead.'
+                    });
+                    return;
+                }
+
+                if (offer.state !== 2 && offer.state !== 9) {
+                    res.status(400).json({
+                        success: false,
+                        error: `Offer cannot be canceled (current state: ${offer.state})`
+                    });
+                    return;
+                }
+
+                await new Promise<void>((resolve, reject) => {
+                    offer.cancel((err: Error | null) => (err ? reject(err) : resolve()));
+                });
+
+                res.json({
+                    success: true,
+                    offerId: offer.id,
+                    message: 'Trade offer canceled'
+                });
+            } catch (error) {
+                log.error('Error in PATCH /api/trade/:offerId/cancel endpoint:', error);
                 const errorMsg = error instanceof Error ? error.message : 'Internal server error';
                 res.status(500).json({
                     success: false,
@@ -273,9 +480,8 @@ export default class HttpManager {
         return new Promise(resolve => {
             this.app.listen(this.options.httpApiPort, () => {
                 log.debug(`HTTP Server started: http://127.0.0.1:${this.options.httpApiPort}`);
-                log.info(`This is NOT a HTTP API used to handle data within the bot.
-                It is solely for managing the bot programatically by providing healthchecks & uptime details.`);
-                log.info(`Please use the TF2Bot GUI v3+ as the main API source.`);
+                log.info(`HTTP API provides health checks, uptime details, and authenticated trade offer management.`);
+                log.info(`For the full bot-management interface, use TF2Bot GUI v3+.`);
                 log.info(`https://github.com/TF2Autobot/tf2autobot-gui`);
                 resolve();
             });

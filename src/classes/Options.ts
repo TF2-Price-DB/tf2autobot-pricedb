@@ -570,7 +570,8 @@ export const DEFAULTS: JsonOptions = {
             sku: true,
             stock: true,
             pricelist: true,
-            trade: true
+            trade: true,
+            stats: true
         },
         tradeSummary: {
             enable: true,
@@ -1784,6 +1785,7 @@ interface CommandCards extends OnlyEnable {
     stock?: boolean;
     pricelist?: boolean;
     trade?: boolean;
+    stats?: boolean;
 }
 
 interface TradeSummaryDW extends OnlyEnable {

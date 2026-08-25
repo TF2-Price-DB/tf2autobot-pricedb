@@ -1695,7 +1695,8 @@ export const optionsSchema: jsonschema.Schema = {
                         sku: { type: 'boolean' },
                         stock: { type: 'boolean' },
                         pricelist: { type: 'boolean' },
-                        trade: { type: 'boolean' }
+                        trade: { type: 'boolean' },
+                        stats: { type: 'boolean' }
                     },
                     required: [
                         'enable',
@@ -1710,7 +1711,8 @@ export const optionsSchema: jsonschema.Schema = {
                         'sku',
                         'stock',
                         'pricelist',
-                        'trade'
+                        'trade',
+                        'stats'
                     ],
                     additionalProperties: false
                 },

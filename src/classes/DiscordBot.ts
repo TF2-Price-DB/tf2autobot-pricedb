@@ -589,7 +589,7 @@ export default class DiscordBot {
     }
 
     public async sendStatsAnswer(origMessage: Message, readings: StatsReadings): Promise<boolean> {
-        if (this.bot.options.discordWebhook.commandCards?.enable === false) return false;
+        if (!this.isCommandCardEnabled('stats')) return false;
 
         const card = await renderCard({ type: 'stats', readings });
         if (card === null) return false;
@@ -745,7 +745,7 @@ export default class DiscordBot {
     }
 
     private isCommandCardEnabled(
-        category: 'text' | 'pure' | 'rate' | 'price' | 'sku' | 'stock' | 'pricelist' | 'trade'
+        category: 'text' | 'pure' | 'rate' | 'price' | 'sku' | 'stock' | 'pricelist' | 'trade' | 'stats'
     ): boolean {
         const commandCards = this.bot.options.discordWebhook.commandCards;
         return commandCards?.enable !== false && commandCards?.[category] !== false;

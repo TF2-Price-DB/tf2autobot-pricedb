@@ -90,6 +90,11 @@ process.once('message', async (request: CardRenderRequest) => {
                 );
                 break;
             }
+            case 'stats': {
+                const renderer = await import('./renderStatsCard');
+                image = await renderer.default(request.readings);
+                break;
+            }
         }
         reply(
             image ? { ok: true, image: image.toString('base64') } : { ok: false, error: 'renderer returned no image' }

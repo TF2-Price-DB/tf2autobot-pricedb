@@ -211,6 +211,7 @@ export default class BotManager {
 
             // Stop scheduling future polls (does not cancel an in-flight poll)
             this.bot.manager.pollInterval = -1;
+            this.bot.trades.stop();
 
             // Stop reading Discord
             this.bot.discordBot?.stop();

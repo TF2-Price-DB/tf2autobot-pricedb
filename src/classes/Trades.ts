@@ -35,6 +35,10 @@ type HttpError = Error & { code?: string | number };
 const STEAM_RETRY_ATTEMPTS = 5;
 const STEAM_RETRY_BASE_DELAY_SECONDS = 5;
 const EXPIRED_OFFER_RETRY_DELAY_MS = 30 * 1000;
+const TRADE_POLL_WATCHDOG_INTERVAL_MS = 30 * 1000;
+const TRADE_POLL_STALE_MS = 2 * 60 * 1000;
+const TRADE_POLL_PROCESSING_STALE_MS = 5 * 60 * 1000;
+const TRADE_POLL_RECOVERY_ATTEMPTS = 2;
 
 export default class Trades {
     private readonly itemsInTrade = new Map<string, Set<string>>();
@@ -53,6 +57,16 @@ export default class Trades {
 
     private pollCount = 0;
 
+    private lastPollSuccessAt = Date.now();
+
+    private pollFailureCount = 0;
+
+    private pollRecoveryAttempts = 0;
+
+    private pollRestartRequested = false;
+
+    private pollWatchdog: NodeJS.Timeout;
+
     private escrowCheckFailedCount = 0;
 
     private restartOnEscrowCheckFailed: NodeJS.Timeout;
@@ -65,6 +79,77 @@ export default class Trades {
 
     constructor(private readonly bot: Bot) {
         this.bot = bot;
+    }
+
+    startPollWatchdog(): void {
+        if (this.pollWatchdog !== undefined) {
+            return;
+        }
+
+        this.lastPollSuccessAt = Date.now();
+        this.pollWatchdog = setInterval(() => this.recoverStalledPoll(), TRADE_POLL_WATCHDOG_INTERVAL_MS);
+    }
+
+    stop(): void {
+        clearInterval(this.pollWatchdog);
+        this.pollWatchdog = undefined;
+    }
+
+    onPollSuccess(): void {
+        this.lastPollSuccessAt = Date.now();
+        this.pollFailureCount = 0;
+        this.pollRecoveryAttempts = 0;
+        this.pollRestartRequested = false;
+    }
+
+    onPollFailure(err: Error): void {
+        this.pollFailureCount++;
+        log.warn(`Trade offer poll failed (${this.pollFailureCount} consecutive):`, err);
+    }
+
+    private recoverStalledPoll(): void {
+        if (this.bot.isHalted) {
+            return;
+        }
+
+        const staleFor = Date.now() - this.lastPollSuccessAt;
+        const staleThreshold = this.processingOffer ? TRADE_POLL_PROCESSING_STALE_MS : TRADE_POLL_STALE_MS;
+        if (staleFor < staleThreshold) {
+            return;
+        }
+
+        if (this.pollRecoveryAttempts < TRADE_POLL_RECOVERY_ATTEMPTS) {
+            this.pollRecoveryAttempts++;
+            log.warn(
+                `Trade polling has had no successful poll for ${Math.round(staleFor / 1000)}s; forcing recovery poll ` +
+                    `(${this.pollRecoveryAttempts}/${TRADE_POLL_RECOVERY_ATTEMPTS}).`
+            );
+            this.bot.manager.pollInterval = 10 * 1000;
+            this.bot.manager.doPoll();
+            return;
+        }
+
+        if (this.pollRestartRequested) {
+            return;
+        }
+
+        const maintenanceDelay = getSteamMaintenanceDelay();
+        if (maintenanceDelay !== null) {
+            log.warn('Trade polling is stale, but Steam maintenance is active; deferring restart.');
+            return;
+        }
+
+        this.pollRestartRequested = true;
+        log.error(`Trade polling did not recover after ${this.pollRecoveryAttempts} forced polls; restarting bot.`);
+        void this.bot.botManager.restartProcess().then(restarted => {
+            if (!restarted) {
+                this.pollRestartRequested = false;
+                log.error('Trade polling recovery restart failed because PM2/Docker restart is unavailable.');
+            }
+        }).catch(err => {
+            this.pollRestartRequested = false;
+            log.error('Trade polling recovery restart failed:', err);
+        });
     }
 
     onPollData(pollData: TradeOfferManager.PollData): void {
@@ -391,9 +476,9 @@ export default class Trades {
             })
             .catch((err: Error) => {
                 log.error('Error occurred while handler was processing offer: ', err);
-                // No throw here, because handlerProcessOffer will not handle catch.
-                this.processingOffer = false;
-                this.processNextOffer();
+                // Release this queue head. A later successful poll will re-enqueue
+                // the offer if it is still active.
+                this.finishProcessingOffer(offer.id);
             });
     }
 
@@ -572,14 +657,7 @@ export default class Trades {
 
             log.debug('pollInterval re-enabled.');
             this.bot.manager.pollInterval = 10 * 1000;
-            const now = dayjs();
-            const timeDiffInMs = now.diff(this.bot.lastTimeCallingDoPoll);
-            if (timeDiffInMs >= 10000) {
-                // Make sure to call doPoll only if first time or last call is more than or equal to 10 seconds
-                this.bot.lastTimeCallingDoPoll = now.toDate();
-                log.debug('doPoll called.');
-                this.bot.manager.doPoll();
-            }
+            this.bot.manager.doPoll();
             return;
         }
 
@@ -603,12 +681,9 @@ export default class Trades {
             })
             .catch((err: Error) => {
                 log.warn(`Failed to get offer #${offerId}: `, err);
-                // After many retries we could not get the offer data
-
-                if (this.receivedOffers.length !== 1) {
-                    // Remove the offer from the queue and add it to the back of the queue
-                    this.receivedOffers.push(offerId);
-                }
+                // Do not leave one failed Steam request blocking every later offer.
+                // A later successful poll will re-enqueue this offer if it is active.
+                this.finishProcessingOffer(offerId);
             });
     }
 
@@ -645,7 +720,7 @@ export default class Trades {
                         });
                 }
 
-                if (offer.state !== TradeOfferManager.ETradeOfferState['Active']) {
+                if (!offer || offer.state !== TradeOfferManager.ETradeOfferState['Active']) {
                     // Offer is not active
                     return resolve(null);
                 }

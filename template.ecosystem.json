@@ -61,6 +61,7 @@
 
                 "ENABLE_HTTP_API": false,
                 "HTTP_API_PORT": 3001,
+                "API_KEY": "",
 
                 "IPC": false,
                 "TLS": false,

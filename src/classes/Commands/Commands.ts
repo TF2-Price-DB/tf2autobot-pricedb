@@ -93,6 +93,27 @@ export default class Commands {
         this.opt.updateOptionsCommand(steamID, message);
     }
 
+    /** Button-safe entry point; execution remains in ReviewCommands. */
+    async useTradeReviewAction(steamID: SteamID, offerId: string, force: boolean, accept: boolean): Promise<void> {
+        if (force) {
+            const forceCommand = accept ? 'faccept' : 'fdecline';
+            await this.review.forceAction(
+                steamID,
+                `${this.bot.getPrefix(steamID)}${forceCommand} ${offerId}`,
+                forceCommand,
+                this.bot.getPrefix(steamID)
+            );
+        } else {
+            const reviewCommand = accept ? 'accept' : 'decline';
+            await this.review.actionOnTradeCommand(
+                steamID,
+                `${this.bot.getPrefix(steamID)}${reviewCommand} ${offerId}`,
+                reviewCommand,
+                this.bot.getPrefix(steamID)
+            );
+        }
+    }
+
     async processMessage(steamID: SteamID, message: string): Promise<void> {
         const prefix = this.bot.getPrefix(steamID);
         const command = CommandParser.getCommand(message.toLowerCase(), prefix);
@@ -533,6 +554,15 @@ export default class Commands {
             reply += ` (price last updated ${dayjs.unix(match.time).fromNow()})`;
         }
 
+        if (steamID.redirectAnswerTo instanceof DiscordMessage && this.bot.discordBot) {
+            const stock = this.bot.inventoryManager.getInventory.getAmount({
+                priceKey: match.id ?? match.sku,
+                includeNonNormalized: false,
+                tradableOnly: true
+            });
+            void this.bot.discordBot.sendPriceAnswer(steamID.redirectAnswerTo, match, stock, reply);
+            return;
+        }
         this.bot.sendMessage(steamID, reply);
     }
 

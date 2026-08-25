@@ -1,3 +1,4 @@
+import Currencies from '@tf2autobot/tf2-currencies';
 import Bot from '../../classes/Bot';
 import dayjs from 'dayjs';
 import SteamTradeOfferManager, { OfferData } from '@tf2autobot/tradeoffer-manager';
@@ -19,6 +20,11 @@ interface Profit {
 
 interface OfferDataWithTime extends OfferData {
     time: number;
+}
+
+export function convertedProfitString(keys: number, metal: number, keySellMetal: number): string {
+    const scrap = keys * keySellMetal * 9 + metal * 9;
+    return Currencies.toCurrencies(Math.round(scrap), keySellMetal).toString();
 }
 
 /**

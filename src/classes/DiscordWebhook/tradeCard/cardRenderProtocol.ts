@@ -1,4 +1,5 @@
 import type { CurrentPure } from '../../../lib/tools/pure';
+import type { StatsReadings } from './statsFacts';
 
 export interface StockCardEntry {
     sku: string;
@@ -12,6 +13,20 @@ export function stockCardPageCount(entries: StockCardEntry[], pageSize = 20): nu
 }
 
 export type CardRenderRequest =
+    | {
+          type: 'price';
+          sku: string;
+          name: string;
+          buy: string;
+          sell: string;
+          stock: number;
+          limits: string;
+          intent: string;
+          autoprice: boolean;
+          updated?: string;
+          accountName: string;
+          showQualityBorders: boolean;
+      }
     | { type: 'pure'; stock: CurrentPure; accountName: string }
     | { type: 'rate'; buy: string; sell: string; source: string; accountName: string }
     | { type: 'sku-chart'; sku: string; keyRate: number }
@@ -24,7 +39,8 @@ export type CardRenderRequest =
           pageSize: number;
           showQualityBorders: boolean;
       }
-    | { type: 'trade'; payload: TradeCardPayload };
+    | { type: 'trade'; payload: TradeCardPayload }
+    | { type: 'stats'; readings: StatsReadings };
 
 export interface CardRenderResult {
     ok: boolean;

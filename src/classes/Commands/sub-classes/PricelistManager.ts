@@ -34,6 +34,24 @@ export default class PricelistManagerCommands {
         this.bot = bot;
     }
 
+    /** Shared card row for pricelist and filtered-pricelist Discord galleries. */
+    private toPricelistCardEntry(entry: Entry, priceKey = entry.id ?? entry.sku): StockCardEntry {
+        const stock = this.bot.inventoryManager.getInventory.getAmount({
+            priceKey,
+            includeNonNormalized: false,
+            tradableOnly: true
+        });
+        const intent = entry.intent === 2 ? 'BANK' : entry.intent === 1 ? 'SELL' : 'BUY';
+        return {
+            sku: entry.sku,
+            name: entry.name,
+            amount: stock,
+            details: `${stock}/${entry.min}-${entry.max} · ${intent} · ${entry.enabled ? 'ON' : 'OFF'} · ${
+                entry.autoprice ? 'AUTO' : 'MANUAL'
+            } · ${entry.isPartialPriced ? 'PPU' : 'STD'}`
+        };
+    }
+
     async addCommand(steamID: SteamID, message: string): Promise<void> {
         const params = CommandParser.parseParams(CommandParser.removeCommand(removeLinkProtocol(message)));
         const usdParameterError = normalizeUsdParameterAliases(params);
@@ -2076,7 +2094,9 @@ export default class PricelistManagerCommands {
         if (match === null) {
             this.bot.sendMessage(steamID, `❌ Could not find item "${priceKey}" in the pricelist`);
         } else {
-            if (steamID.redirectAnswerTo instanceof DiscordMessage && this.bot.discordBot) {
+            const commandCards = this.bot.options.discordWebhook.commandCards;
+            const useGetCard = commandCards?.enable !== false && commandCards?.get !== false;
+            if (steamID.redirectAnswerTo instanceof DiscordMessage && this.bot.discordBot && useGetCard) {
                 const stock = this.bot.inventoryManager.getInventory.getAmount({
                     priceKey: match.id ?? match.sku,
                     includeNonNormalized: false,
@@ -2094,7 +2114,7 @@ export default class PricelistManagerCommands {
                         }\n` +
                         `**PPU:** ${match.isPartialPriced ? 'Enabled' : 'Disabled'}${
                             match.group ? `\n**Group:** ${match.group}` : ''
-                        }`
+                        }\n\n### Complete entry\n\`\`\`json\n${this.generateOutput(match)}\n\`\`\``
                 );
                 return;
             }
@@ -2170,24 +2190,7 @@ export default class PricelistManagerCommands {
         if (steamID.redirectAnswerTo instanceof DiscordMessage && this.bot.discordBot) {
             const entries: StockCardEntry[] = Object.keys(pricelist)
                 .slice(0, applyLimit)
-                .map(priceKey => {
-                    const entry = pricelist[priceKey];
-                    const stock = this.bot.inventoryManager.getInventory.getAmount({
-                        priceKey,
-                        includeNonNormalized: false,
-                        tradableOnly: true
-                    });
-                    return {
-                        sku: entry.sku,
-                        name: entry.name,
-                        amount: stock,
-                        details: `${stock}/${entry.min}-${entry.max} · ${
-                            entry.intent === 2 ? 'BANK' : entry.intent === 1 ? 'SELL' : 'BUY'
-                        } · ${entry.enabled ? 'ON' : 'OFF'} · ${entry.autoprice ? 'AUTO' : 'MANUAL'} · ${
-                            entry.isPartialPriced ? 'PPU' : 'STD'
-                        }`
-                    };
-                });
+                .map(priceKey => this.toPricelistCardEntry(pricelist[priceKey], priceKey));
             await this.bot.discordBot.sendStockGalleryAnswer(
                 steamID.redirectAnswerTo,
                 entries,
@@ -2633,23 +2636,9 @@ export default class PricelistManagerCommands {
 
             const applyLimit = limit === -1 ? listCount : limit;
             if (steamID.redirectAnswerTo instanceof DiscordMessage && this.bot.discordBot) {
-                const entries: StockCardEntry[] = filter.slice(0, applyLimit).map(entry => {
-                    const stock = this.bot.inventoryManager.getInventory.getAmount({
-                        priceKey: entry.id ?? entry.sku,
-                        includeNonNormalized: false,
-                        tradableOnly: true
-                    });
-                    return {
-                        sku: entry.sku,
-                        name: entry.name,
-                        amount: stock,
-                        details: `${stock}/${entry.min}-${entry.max} · ${
-                            entry.intent === 2 ? 'BANK' : entry.intent === 1 ? 'SELL' : 'BUY'
-                        } · ${entry.enabled ? 'ON' : 'OFF'} · ${entry.autoprice ? 'AUTO' : 'MANUAL'} · ${
-                            entry.isPartialPriced ? 'PPU' : 'STD'
-                        }`
-                    };
-                });
+                const entries: StockCardEntry[] = filter
+                    .slice(0, applyLimit)
+                    .map(entry => this.toPricelistCardEntry(entry));
                 await this.bot.discordBot.sendStockGalleryAnswer(
                     steamID.redirectAnswerTo,
                     entries,

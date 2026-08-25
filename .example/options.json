@@ -504,9 +504,11 @@
             "showQualityBorders": true,
             "pure": true,
             "rate": true,
+            "price": true,
             "sku": true,
             "stock": true,
-            "pricelist": true
+            "pricelist": true,
+            "trade": true
         },
         "tradeSummary": {
             "enable": true,

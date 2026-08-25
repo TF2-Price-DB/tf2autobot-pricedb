@@ -2232,7 +2232,8 @@ export default class MyHandler extends Handler {
                     const notifyOpt = this.opt.steamChat.notifyTradePartner;
 
                     if (offer.state === TradeOfferManager.ETradeOfferState['Accepted']) {
-                        if (notifyOpt.onSuccessAccepted && !this.opt.globalDisable.offerMessages) accepted(offer, this.bot);
+                        if (notifyOpt.onSuccessAccepted && !this.opt.globalDisable.offerMessages)
+                            accepted(offer, this.bot);
 
                         if (offer.data('donation')) {
                             this.bot.messageAdmins('✅ Success! Your donation has been sent and received!', []);

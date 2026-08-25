@@ -54,6 +54,18 @@ import { axiosAbortSignal } from '../lib/helpers';
 import { apiRequest } from '../lib/apiRequest';
 import EasyCopyPaste from 'easycopypaste';
 import { materializeVdf } from '../lib/tools/materializeVdf';
+import { clearVdfParserGlobals } from '../lib/tools/clearVdfParserGlobals';
+import { projectTf2ItemSchema, tf2ItemSchemaProjectionEnabled } from '../lib/tools/tf2ItemSchemaProjection';
+import {
+    getItemsGameProjectionEntryCount,
+    itemsGameProjectionEnabled,
+    projectAndReleaseItemsGame
+} from '../lib/tools/itemsGameProjection';
+import {
+    captureMemorySnapshot,
+    memoryDiagnosticsEnabled,
+    type SchemaMemoryShape
+} from '../lib/tools/memoryDiagnostics';
 
 type Callback = (err?: Error | null) => void;
 type HttpError = Error & { code?: string | number };
@@ -1102,6 +1114,7 @@ export default class Bot {
                 }
 
                 this.schema = this.schemaManager.schema;
+                this.recordMemoryCheckpoint('pricedb-schema-ready');
                 resolve();
             });
         });
@@ -1114,9 +1127,21 @@ export default class Bot {
         }
 
         const startedAt = Date.now();
+        if (itemsGameProjectionEnabled()) {
+            const entryCount = projectAndReleaseItemsGame(schema);
+            log.debug(
+                `Projected ${entryCount} TF2 schema items_game values and released the full VDF in ${
+                    Date.now() - startedAt
+                }ms.`
+            );
+            this.recordMemoryCheckpoint('pricedb-items-game-projected');
+            return;
+        }
+
         const materialized = materializeVdf(schema.raw.items_game);
         schema.raw.items_game = materialized.value;
         log.debug(`Materialized ${materialized.stringCount} TF2 schema VDF strings in ${Date.now() - startedAt}ms.`);
+        this.recordMemoryCheckpoint('pricedb-items-game-materialized');
     }
 
     private compactLocalization(): void {
@@ -1130,6 +1155,57 @@ export default class Bot {
         tf2WithLanguage.lang = materialized.value;
         log.debug(
             `Materialized ${materialized.stringCount} TF2 localization VDF strings in ${Date.now() - startedAt}ms.`
+        );
+        this.recordMemoryCheckpoint('tf2-localization-materialized');
+    }
+
+    private compactTf2ItemSchema(): void {
+        if (!tf2ItemSchemaProjectionEnabled()) {
+            this.recordMemoryCheckpoint('tf2-item-schema-loaded');
+            return;
+        }
+
+        const tf2WithSchema = this.tf2 as unknown as { itemSchema?: unknown };
+        if (tf2WithSchema.itemSchema === undefined) {
+            return;
+        }
+
+        const startedAt = Date.now();
+        const projection = projectTf2ItemSchema(tf2WithSchema.itemSchema);
+        tf2WithSchema.itemSchema = projection;
+        clearVdfParserGlobals();
+        log.debug(
+            `Projected ${Object.keys(projection.items).length} TF2 GC item schema item names in ${
+                Date.now() - startedAt
+            }ms.`
+        );
+        this.recordMemoryCheckpoint('tf2-item-schema-projected');
+    }
+
+    public captureMemoryCheckpoint(label: string): void {
+        this.recordMemoryCheckpoint(label);
+    }
+
+    private recordMemoryCheckpoint(label: string): void {
+        if (!memoryDiagnosticsEnabled()) return;
+        const schema = this.schema ?? this.schemaManager?.schema;
+        const raw = schema?.raw;
+        const tf2WithSchema = this.tf2 as unknown as {
+            itemSchema?: { items?: Record<string, unknown> };
+            lang?: Record<string, unknown>;
+        };
+        const shape: SchemaMemoryShape = {
+            pricedbItems: raw?.schema?.items?.length ?? 0,
+            pricedbItemsGameEntries: Object.keys(raw?.items_game?.items ?? {}).length,
+            pricedbItemsGameProjectionEntries: getItemsGameProjectionEntryCount(schema),
+            tf2ItemSchemaEntries: Object.keys(tf2WithSchema.itemSchema?.items ?? {}).length,
+            localizationEntries: Object.keys(tf2WithSchema.lang ?? {}).length
+        };
+        const snapshot = captureMemorySnapshot(label, shape);
+        log.info(
+            `Memory checkpoint ${snapshot.label}: heap=${Math.round(
+                snapshot.memory.heapUsed / 1024 / 1024
+            )}MiB rss=${Math.round(snapshot.memory.rss / 1024 / 1024)}MiB`
         );
     }
 
@@ -1163,6 +1239,7 @@ export default class Bot {
         this.addListener(this.tf2, 'systemMessage', this.handler.onSystemMessage.bind(this.handler), true);
         this.addListener(this.tf2, 'displayNotification', this.handler.onDisplayNotification.bind(this.handler), true);
         this.addListener(this.tf2, 'itemBroadcast', this.handler.onItemBroadcast.bind(this.handler), true);
+        this.addListener(this.tf2, 'itemSchemaLoaded', this.compactTf2ItemSchema.bind(this), true);
 
         return new Promise((resolve, reject) => {
             async.eachSeries(
@@ -1292,6 +1369,7 @@ export default class Bot {
                             updateTime: 1 * 60 * 60 * 1000,
                             lite: true
                         });
+                        this.recordMemoryCheckpoint('before-pricedb-schema');
                         this.schemaManager.on('schema', this.compactSchemaItemsGame.bind(this));
 
                         log.info('Getting TF2 schema...');

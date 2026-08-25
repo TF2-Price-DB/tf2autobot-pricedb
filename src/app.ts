@@ -68,7 +68,9 @@ import { apiRequest } from './lib/apiRequest';
 SchemaManager.prototype.getSchema = function (callback): void {
     apiRequest({ method: 'GET', url: 'https://sku.pricedb.io/api/schema' })
         .then(schema => {
-            this.setSchema(schema, true);
+            const fetchedSchema = schema as { time?: number };
+            fetchedSchema.time = Date.now();
+            this.setSchema(fetchedSchema, true);
             callback(null, this.schema);
         })
         .catch(err => callback(err));
@@ -110,9 +112,9 @@ ON_DEATH({ uncaughtException: true })((signalOrErr, origin: string | Error) => {
                 (!botReady
                     ? ' failed to start properly, this is most likely a temporary error. See the log:'
                     : ' crashed! Please create an issue with the following log:'),
-            `package.version: ${process.env.BOT_VERSION_LABEL || undefined}; node: ${process.version} ${process.platform} ${
-                process.arch
-            }}`,
+            `package.version: ${process.env.BOT_VERSION_LABEL || undefined}; node: ${process.version} ${
+                process.platform
+            } ${process.arch}}`,
             'Stack trace:',
             stackTrace,
             `${uptime()}`

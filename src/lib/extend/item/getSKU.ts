@@ -3,6 +3,7 @@ import { EconItem } from '@tf2autobot/tradeoffer-manager';
 import SchemaManager, { Item, Paints, Schema } from '@tf2autobot/tf2-schema';
 import SKU from '@tf2autobot/tf2-sku';
 import { fixItem } from '../../items';
+import { getStrangifierTarget } from '../../tools/itemsGameProjection';
 
 interface ParsedDescriptions {
     craftable: boolean;
@@ -398,12 +399,9 @@ function getTarget(item: EconItem, schema: SchemaManager.Schema): number | null 
 
     if (item.market_hash_name.includes('Strangifier')) {
         // Strangifiers
-        const gameItem = schema.raw.items_game.items[defindex];
-
-        if (gameItem.attributes !== undefined && gameItem.attributes['tool target item'] !== undefined) {
-            return parseInt(gameItem.attributes['tool target item'].value as string, 10);
-        } else if (gameItem.static_attrs !== undefined && gameItem.static_attrs['tool target item'] !== undefined) {
-            return parseInt(gameItem.static_attrs['tool target item'] as string, 10);
+        const strangifierTarget = getStrangifierTarget(schema, defindex);
+        if (strangifierTarget !== undefined) {
+            return parseInt(strangifierTarget, 10);
         }
 
         // Get schema item using market_hash_name

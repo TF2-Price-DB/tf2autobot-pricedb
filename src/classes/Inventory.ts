@@ -6,6 +6,7 @@ import { HighValue } from './Options';
 import Bot from './Bot';
 import { noiseMakers, spellsData, killstreakersData, sheensData } from '../lib/data';
 import Pricelist from './Pricelist';
+import { canBeFestivized } from '../lib/tools/itemsGameProjection';
 
 export default class Inventory {
     private readonly steamID: SteamID;
@@ -243,14 +244,12 @@ export default class Inventory {
 
             const schemaItem = this.bot.schema.getItemBySKU(sku);
             if (schemaItem) {
-                const canBeFestivized =
-                    // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
-                    this.bot.schema.raw.items_game.items[`${schemaItem.defindex}`].tags?.can_be_festivized == 1;
+                const isFestivizable = canBeFestivized(this.bot.schema, schemaItem.defindex);
 
                 // Festivized
                 if (
                     !sku.includes(';festive') &&
-                    canBeFestivized &&
+                    isFestivizable &&
                     normFestivized.amountIncludeNonFestivized &&
                     !normFestivized.our
                 ) {

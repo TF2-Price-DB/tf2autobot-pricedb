@@ -8,6 +8,13 @@ import log from '../lib/logger';
 import Options from './Options';
 import Bot from './Bot';
 import ApiCart from './Carts/ApiCart';
+import {
+    collectGarbage,
+    getMemorySnapshots,
+    memoryDiagnosticsEnabled,
+    writeHeapSnapshot
+} from '../lib/tools/memoryDiagnostics';
+import path from 'node:path';
 
 export default class HttpManager {
     /**
@@ -73,6 +80,10 @@ export default class HttpManager {
     protected registerRoutes(): void {
         this.app.get('/health', (req, res) => res.send('OK'));
         this.app.get('/uptime', (req, res) => res.json({ uptime: process.uptime() }));
+
+        if (memoryDiagnosticsEnabled()) {
+            this.registerMemoryDiagnosticRoutes();
+        }
 
         // Trade status endpoint - get status of a specific trade offer
         const handleTradeStatus = async (req: express.Request, res: express.Response) => {
@@ -425,6 +436,36 @@ export default class HttpManager {
             } catch (error) {
                 handleTradeActionError('cancel', res, error);
             }
+        });
+    }
+
+    private registerMemoryDiagnosticRoutes(): void {
+        const requireBot = (res: express.Response): Bot | null => {
+            if (this.bot) return this.bot;
+            res.status(503).json({ success: false, error: 'Bot is not initialized' });
+            return null;
+        };
+
+        this.app.get('/api/diagnostics/memory', this.validateApiKey.bind(this), (_req, res) => {
+            res.json({ success: true, snapshots: getMemorySnapshots() });
+        });
+
+        this.app.post('/api/diagnostics/memory/capture', this.validateApiKey.bind(this), (req, res) => {
+            const bot = requireBot(res);
+            if (!bot) return;
+            const label = typeof req.body?.label === 'string' ? `manual-${req.body.label}` : 'manual';
+            const garbageCollected = req.body?.gc === true && collectGarbage();
+            bot.captureMemoryCheckpoint(label);
+            res.json({ success: true, garbageCollected, snapshots: getMemorySnapshots() });
+        });
+
+        this.app.post('/api/diagnostics/memory/heap-snapshot', this.validateApiKey.bind(this), (req, res) => {
+            const bot = requireBot(res);
+            if (!bot) return;
+            const label = typeof req.body?.label === 'string' ? req.body.label : 'manual';
+            const directory = path.join(bot.handler.getPaths.files.dir, 'memory-diagnostics');
+            const file = writeHeapSnapshot(directory, label);
+            res.status(201).json({ success: true, file: path.basename(file) });
         });
     }
 

@@ -18,10 +18,11 @@ import log from '../lib/logger';
 import Options from './Options';
 import Bot from './Bot';
 import SteamID from 'steamid';
-import { uptime } from '../lib/tools/time';
+import { timeNow, uptime } from '../lib/tools/time';
 import { CurrentPure, stock as pureStock } from '../lib/tools/pure';
 import { renderCard } from './DiscordWebhook/tradeCard/cardRenderClient';
 import { stockCardPageCount, StockCardEntry } from './DiscordWebhook/tradeCard/cardRenderProtocol';
+import type { StatsReadings } from './DiscordWebhook/tradeCard/statsFacts';
 import { Entry } from './Pricelist';
 import { TradeOffer } from '@tf2autobot/tradeoffer-manager';
 import { getPartnerDetails } from './DiscordWebhook/utils';
@@ -585,6 +586,41 @@ export default class DiscordBot {
         }
 
         await this.sendCardGallery(origMessage, [card], 'pure-stock', fallback);
+    }
+
+    public async sendStatsAnswer(origMessage: Message, readings: StatsReadings): Promise<boolean> {
+        if (this.bot.options.discordWebhook.commandCards?.enable === false) return false;
+
+        const card = await renderCard({ type: 'stats', readings });
+        if (card === null) return false;
+
+        try {
+            await (origMessage.channel as TextChannel).send({
+                flags: MessageFlagsBitField.Flags.IsComponentsV2,
+                components: [
+                    {
+                        type: 17,
+                        accent_color: Number(this.bot.options.discordWebhook.embedColor),
+                        components: [
+                            { type: 12, items: [{ media: { url: 'attachment://stats.png' } }] },
+                            ...(readings.hasEstimates ? [{ type: 10, content: '⚠️ Contains estimates' }] : []),
+                            {
+                                type: 10,
+                                content:
+                                    `-# Key rate ${readings.keyBuy} / ${readings.keySell} ref\n` +
+                                    `-# ${process.env.BOT_VERSION_LABEL}\n` +
+                                    `-# ${timeNow(this.bot.options).time}`
+                            }
+                        ]
+                    }
+                ] as unknown as MessageCreateOptions['components'],
+                files: [{ attachment: card, name: 'stats.png' }]
+            });
+            return true;
+        } catch (err) {
+            log.warn('Failed to send Discord stats card:', err);
+            return false;
+        }
     }
 
     public async sendStockGalleryAnswer(

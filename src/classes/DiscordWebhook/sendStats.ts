@@ -1,4 +1,5 @@
 import SteamID from 'steamid';
+import SteamTradeOfferManager from '@tf2autobot/tradeoffer-manager';
 import { sendWebhook } from './utils';
 import { Container, Webhook } from './interfaces';
 import log from '../../lib/logger';
@@ -6,7 +7,7 @@ import { stats, profit, timeNow } from '../../lib/tools/export';
 import { dailyProfitSeries } from '../../lib/tools/profitRows';
 import Bot from '../Bot';
 import loadPollData from '../../lib/tools/polldata';
-import { collectStatsReadings } from './tradeCard/statsFacts';
+import { collectStatsReadings, type StatsReadings } from './tradeCard/statsFacts';
 import { renderCard } from './tradeCard/cardRenderClient';
 
 /** `IS_COMPONENTS_V2` — required on any message that sets `components`. */
@@ -21,40 +22,7 @@ export default async function sendStats(bot: Bot, forceSend = false, steamID?: S
         return;
     }
 
-    const trades = stats(bot, pollData);
-    const profits = await profit(bot, pollData, Math.floor((Date.now() - 86400000) / 1000));
-
-    const tradesFromEnv = bot.options.statistics.lastTotalTrades;
-    const keyPrices = bot.pricelist.getKeyPrices;
-
-    const tradesList = Object.keys(pollData.offerData ?? {}).map(id => {
-        const entry = pollData.offerData[id] as { handleTimestamp?: number };
-        entry.handleTimestamp = pollData.timestamps[id];
-        return entry;
-    });
-
-    const series = dailyProfitSeries(
-        tradesList,
-        id => bot.isAdmin(id),
-        keyPrices.sell.metal,
-        bot.options.timezone || 'UTC',
-        Date.now(),
-        14
-    );
-
-    const readings = collectStatsReadings({
-        hours24: trades.hours24,
-        today: trades.today,
-        totalDays: trades.totalDays,
-        totalAccepted: tradesFromEnv ? tradesFromEnv + trades.totalAcceptedTrades : trades.totalAcceptedTrades,
-        keyBuy: keyPrices.buy.metal,
-        keySell: keyPrices.sell.metal,
-        raw24h: profits.rawProfitTimed,
-        rawAll: profits.rawProfit,
-        hasEstimates: profits.hasEstimates,
-        sinceDays: profits.since,
-        series
-    });
+    const readings = await collectStatsReadingsForBot(bot, pollData);
 
     const card = await renderCard({ type: 'stats', readings });
 
@@ -64,7 +32,7 @@ export default async function sendStats(bot: Bot, forceSend = false, steamID?: S
         children.push({ type: 12, items: [{ media: { url: 'attachment://stats.png' } }] });
     }
 
-    if (profits.hasEstimates) {
+    if (readings.hasEstimates) {
         children.push({ type: 10, content: '⚠️ Contains estimates' });
     }
 
@@ -72,7 +40,7 @@ export default async function sendStats(bot: Bot, forceSend = false, steamID?: S
     children.push({
         type: 10,
         content:
-            `-# Key rate ${keyPrices.buy.metal} / ${keyPrices.sell.metal} ref\n` +
+            `-# Key rate ${readings.keyBuy} / ${readings.keySell} ref\n` +
             `-# ${process.env.BOT_VERSION_LABEL}\n` +
             `-# ${sentAt.time}`
     });
@@ -110,4 +78,40 @@ export default async function sendStats(bot: Bot, forceSend = false, steamID?: S
                 bot.sendMessage(steamID, '❌ Error sending statistics to Discord Webhook: ' + errMessage);
             }
         });
+}
+
+export async function collectStatsReadingsForBot(
+    bot: Bot,
+    pollData: SteamTradeOfferManager.PollData
+): Promise<StatsReadings> {
+    const trades = stats(bot, pollData);
+    const profits = await profit(bot, pollData, Math.floor((Date.now() - 86400000) / 1000));
+
+    const tradesFromEnv = bot.options.statistics.lastTotalTrades;
+    const keyPrices = bot.pricelist.getKeyPrices;
+
+    const tradesList = Object.keys(pollData.offerData ?? {}).map(id => pollData.offerData[id]);
+
+    const series = dailyProfitSeries(
+        tradesList,
+        id => bot.isAdmin(id),
+        keyPrices.sell.metal,
+        bot.options.timezone || 'UTC',
+        Date.now(),
+        14
+    );
+
+    return collectStatsReadings({
+        hours24: trades.hours24,
+        today: trades.today,
+        totalDays: trades.totalDays,
+        totalAccepted: tradesFromEnv ? tradesFromEnv + trades.totalAcceptedTrades : trades.totalAcceptedTrades,
+        keyBuy: keyPrices.buy.metal,
+        keySell: keyPrices.sell.metal,
+        raw24h: profits.rawProfitTimed,
+        rawAll: profits.rawProfit,
+        hasEstimates: profits.hasEstimates,
+        sinceDays: profits.since,
+        series
+    });
 }

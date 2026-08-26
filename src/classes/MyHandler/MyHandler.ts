@@ -2794,7 +2794,7 @@ export default class MyHandler extends Handler {
 
     onTF2QueueCompleted(): void {
         log.debug('Queue finished');
-        this.bot.updateSteamGamePresence();
+        this.bot.updateSteamGamePresence(true);
     }
 
     onCreateListingsSuccessful(response: { created: number; archived: number; errors: any[] }): void {

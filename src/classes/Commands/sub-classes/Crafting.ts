@@ -155,7 +155,7 @@ export default class CraftingCommands {
                     this.isCrafting = false;
 
                     this.bot.client.gamesPlayed([]);
-                    this.bot.updateSteamGamePresence();
+                    this.bot.updateSteamGamePresence(true);
 
                     if (crafted < amountToCraft) {
                         return this.bot.sendMessage(

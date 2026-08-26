@@ -88,7 +88,8 @@ export default class OptionsCommands {
                                 showDetailedTimeTaken: webhook.showDetailedTimeTaken,
                                 showItemPrices: webhook.showItemPrices,
                                 showPureInEmoji: webhook.showPureInEmoji,
-                                showProperName: webhook.showProperName
+                                showProperName: webhook.showProperName,
+                                showOfferMessage: webhook.showOfferMessage
                             }
                         },
                         null,
@@ -106,7 +107,24 @@ export default class OptionsCommands {
                                 customText: {
                                     summary: ct.summary,
                                     asked: ct.asked,
-                                    offered: ct.offered
+                                    offered: ct.offered,
+                                    offerMessage: ct.offerMessage
+                                }
+                            }
+                        },
+                        null,
+                        2
+                    )}`
+                );
+
+                await timersPromises.setTimeout(3000);
+                this.bot.sendMessage(
+                    steamID,
+                    `/code ${JSON.stringify(
+                        {
+                            discordWebhook: {
+                                tradeSummary: {
+                                    tradeCard: liveOptions.discordWebhook.tradeSummary.tradeCard
                                 }
                             }
                         },
@@ -323,7 +341,8 @@ export default class OptionsCommands {
                                 ownerID: webhook.ownerID,
                                 displayName: webhook.displayName,
                                 avatarURL: webhook.avatarURL,
-                                embedColor: webhook.embedColor
+                                embedColor: webhook.embedColor,
+                                commandCards: webhook.commandCards
                             }
                         },
                         null,

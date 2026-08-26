@@ -5,7 +5,7 @@ import path from 'path';
 import { AddressInfo } from 'net';
 import { TradeOffer } from '@tf2autobot/tradeoffer-manager';
 import Bot from '../Bot';
-import sendTradeSummary, { buildItemLinkBlocks } from '../DiscordWebhook/sendTradeSummary';
+import sendTradeSummary, { buildItemLinkBlocks, buildTradeCardPayload } from '../DiscordWebhook/sendTradeSummary';
 import { Webhook, Container, MediaGallery, Separator, TextDisplay } from '../DiscordWebhook/interfaces';
 import { getFilesPath } from '../Options';
 
@@ -58,6 +58,77 @@ const KEY = '5021;6';
 const REF = '5002;6';
 const UNUSUAL = '378;5;u13';
 const STRANGE = '199;11;kt-3';
+
+describe('buildTradeCardPayload', () => {
+    it('serializes names for every traded SKU, not only the priced ones', () => {
+        const payload = buildTradeCardPayload(
+            makeOffer(),
+            makeBot(),
+            { showQualityBorders: true, maxItemsPerSide: 8 },
+            {
+                timeTakenToComplete: 0,
+                isOfferSent: false,
+                net: null
+            }
+        );
+        const names = payload.bot.names as Record<string, string>;
+
+        expect(names[STRANGE]).toBe('Item 199');
+        expect(names[REF]).toBe('Item 5002');
+    });
+
+    it('maps a generic price record to the actual traded SKU for the card only', () => {
+        const pipBoy = '30666;6';
+        const offer = {
+            id: '1',
+            data: (key: string) =>
+                ({
+                    dict: { our: { [pipBoy]: 1 }, their: { [REF]: 4 } },
+                    prices: { [REF]: { buy: { keys: 0, metal: 4.44 }, sell: { keys: 0, metal: 4.66 } } }
+                })[key]
+        } as unknown as TradeOffer;
+        const bot = makeBot();
+        bot.pricelist.getPrice = ({ priceKey }: { priceKey: string }) =>
+            priceKey === pipBoy ? ({ sku: REF } as any) : null;
+
+        const payload = buildTradeCardPayload(offer, bot, { showQualityBorders: true, maxItemsPerSide: 8 }, {
+            timeTakenToComplete: 0,
+            isOfferSent: false,
+            net: null
+        });
+
+        expect((payload.offer.prices as Record<string, unknown>)[pipBoy]).toEqual({
+            buy: { keys: 0, metal: 4.44 },
+            sell: { keys: 0, metal: 4.66 }
+        });
+    });
+
+    it('maps a lone misplaced payment price to the trade focus without guessing multi-item trades', () => {
+        const mistakenMovember = '31039;11';
+        const offer = {
+            id: '1',
+            data: (key: string) =>
+                ({
+                    dict: { our: { [KEY]: 1, [REF]: 3 }, their: { [mistakenMovember]: 1 } },
+                      prices: {
+                          [KEY]: { buy: { keys: 1, metal: 3 }, sell: { keys: 1, metal: 6.33 } },
+                          [REF]: { buy: { keys: 0, metal: 0.1 }, sell: { keys: 0, metal: 0.11 } }
+                      }
+                })[key]
+        } as unknown as TradeOffer;
+
+        const payload = buildTradeCardPayload(offer, makeBot(), { showQualityBorders: true, maxItemsPerSide: 8 }, {
+            timeTakenToComplete: 0,
+            isOfferSent: false,
+            net: null
+        });
+
+        expect((payload.offer.prices as Record<string, unknown>)[mistakenMovember]).toEqual({
+            buy: { keys: 1, metal: 3 },
+            sell: { keys: 1, metal: 6.33 }
+        });
+    });
+});
 
 function makeOffer(): TradeOffer {
     const data: Record<string, unknown> = {
@@ -419,6 +490,26 @@ e2e('omits the media gallery and falls back to plain JSON when tradeCard.enable 
     expect(detail?.content).toContain('🎒 Total items:');
     expect(detail?.content).toContain('⏱ **Time taken:**');
     expect(detail?.content).toContain('📜 **Item prices**');
+});
+
+it('restores the legacy embed when tradeCard.enable is false', async () => {
+    requests.length = 0;
+
+    const bot = makeBot();
+    bot.options.discordWebhook.tradeSummary.tradeCard.enable = false;
+
+    await sendTradeSummary(makeOffer(), emptyAccepted(), bot, 4200, 3200, undefined, false, false);
+    await new Promise(resolve => setTimeout(resolve, 300));
+
+    expect(requests).toHaveLength(1);
+    expect(requests[0].contentType).toContain('application/json');
+
+    const webhook = JSON.parse(requests[0].body.toString('utf8')) as Webhook;
+    expect(webhook.components).toBeUndefined();
+    expect(webhook.flags).toBeUndefined();
+    expect(webhook.embeds).toHaveLength(1);
+    expect(webhook.embeds![0].author?.name).toBe('Scrapbank_Tim');
+    expect(webhook.embeds![0].fields?.map(field => field.name)).toEqual(['__Item list__', '__Status__']);
 });
 
 e2e('renders pure as its emoji token when showPureInEmoji is on', async () => {

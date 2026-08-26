@@ -2,7 +2,7 @@ import { TradeOffer, ItemsDict, ItemsValue, OurTheirItemsDict } from '@tf2autobo
 import pluralize from 'pluralize';
 import Currencies from '@tf2autobot/tf2-currencies';
 import SKU from '@tf2autobot/tf2-sku';
-import { getPartnerDetails, sendWebhook, WebhookAttachment } from './utils';
+import { getPartnerDetails, quickLinks, sendWebhook, WebhookAttachment } from './utils';
 import { Container, Webhook } from './interfaces';
 import log from '../../lib/logger';
 import * as t from '../../lib/tools/export';
@@ -127,6 +127,20 @@ export default async function sendTradeSummary(
         net
     };
     const cardOptions = optDW.tradeSummary.tradeCard;
+    if (!cardOptions.enable) {
+        return sendLegacyTradeSummary(
+            offer,
+            bot,
+            itemsName,
+            mentionOwner,
+            details,
+            timeTakenToComplete,
+            timeTakenToProcessOrConstruct,
+            timeTakenToCounterOffer,
+            isOfferSent,
+            isAcceptedWithEscrow
+        );
+    }
     const card = cardOptions.enable
         ? await renderTradeCardImage(
               offer,
@@ -379,7 +393,7 @@ function collectLinkedEntries(
     const showStock = bot.options.tradeSummary.showStockChanges;
     // `showPureInEmoji` renders pure as its emoji token on the card and the
     // item list alike — the same map the Steam-chat summary already uses.
-    const showPureEmoji = bot.options.tradeSummary?.showPureInEmoji === true;
+    const showPureEmoji = bot.options.tradeSummary.showPureInEmoji;
     const entries: LinkedEntry[] = [];
     const pure: LinkedEntry[] = [];
 
@@ -536,6 +550,142 @@ type ItemsName = {
     dupedFailed: string[];
     highValue: string[];
 };
+
+// eslint-disable-next-line @typescript-eslint/require-await
+async function sendLegacyTradeSummary(
+    offer: TradeOffer,
+    bot: Bot,
+    itemsName: ItemsName,
+    mentionOwner: string,
+    details: { personaName: string; avatarFull: string },
+    timeTakenToComplete: number,
+    timeTakenToProcessOrConstruct: number,
+    timeTakenToCounterOffer: number,
+    isOfferSent: boolean,
+    isAcceptedWithEscrow: boolean
+): Promise<void> {
+    const opt = bot.options;
+    const optDW = opt.discordWebhook;
+    const misc = optDW.tradeSummary.misc;
+    const tSum = opt.tradeSummary;
+    const customText = tSum.customText;
+    const keyPrices = bot.pricelist.getKeyPrices;
+    const botInfo = bot.handler.getBotInfo;
+    const links = t.generateLinks(offer.partner.toString());
+    const itemList = t.listItems(offer, bot, itemsName, false);
+    const message = t.replace.specialChar(offer.message);
+    const slots = bot.tf2.backpackSlots;
+    const autokeys = bot.handler.autokeys;
+    const status = autokeys.getOverallStatus;
+
+    const timeLabel = customText.timeTaken.discordWebhook || '⏱ **Time taken:**';
+    const keyRateLabel = customText.keyRate.discordWebhook || '🔑 Key rate:';
+    const pureStockLabel = customText.pureStock.discordWebhook || '💰 Pure stock:';
+    const totalItemsLabel = customText.totalItems.discordWebhook || '🎒 Total items:';
+    const offerMessageLabel = customText.offerMessage.discordWebhook || '💬 **Offer message:**';
+    const summary = t.summarizeToChat(
+        offer,
+        bot,
+        'summary-accepted',
+        true,
+        t.valueDiff(offer),
+        false,
+        isOfferSent,
+        isAcceptedWithEscrow
+    );
+
+    const statusLines = [
+        misc.showKeyRate
+            ? `${keyRateLabel} ${keyPrices.buy.metal.toString()}/${keyPrices.sell.metal.toString()} ref (${
+                  keyPrices.src === 'manual'
+                      ? 'manual'
+                      : bot.pricelist.isUseCustomPricer
+                      ? 'custom-pricer'
+                      : 'PriceDB.IO'
+              })${
+                  autokeys.isEnabled
+                      ? ` | Autokeys: ${
+                            autokeys.getActiveStatus
+                                ? `✅${
+                                      status.isBankingKeys
+                                          ? ' (banking)'
+                                          : status.isBuyingKeys
+                                          ? ' (buying)'
+                                          : ' (selling)'
+                                  }`
+                                : '🛑'
+                        }`
+                      : ''
+              }`
+            : '',
+        misc.showPureStock ? `${pureStockLabel} ${t.pure.stock(bot).join(', ')}` : '',
+        misc.showInventory
+            ? `${totalItemsLabel} ${bot.inventoryManager.getInventory.getTotalItems}${
+                  slots !== undefined ? `/${slots}` : ''
+              }`
+            : '',
+        misc.note || `[View my backpack](https://backpack.tf/profiles/${botInfo.steamID.getSteamID64()})`
+    ].filter(Boolean);
+
+    const webhook: Webhook = {
+        username: optDW.displayName || botInfo.name,
+        avatar_url: optDW.avatarURL || botInfo.avatarURL,
+        content: mentionOwner,
+        allowed_mentions: buildAllowedMentions(optDW.ownerID),
+        embeds: [
+            {
+                color: optDW.embedColor,
+                author: { name: details.personaName, url: links.steam, icon_url: details.avatarFull },
+                description:
+                    `${summary}\n${timeLabel} ${t.convertTime(
+                        isAcceptedWithEscrow ? null : timeTakenToComplete,
+                        timeTakenToProcessOrConstruct,
+                        timeTakenToCounterOffer,
+                        isOfferSent,
+                        tSum.showDetailedTimeTaken,
+                        tSum.showTimeTakenInMS
+                    )}\n\n` +
+                    (tSum.showOfferMessage && message.length > 0 ? `${offerMessageLabel} "${message}"\n\n` : '') +
+                    (misc.showQuickLinks ? `${quickLinks(t.replace.specialChar(details.personaName), links)}\n` : ''),
+                fields: [
+                    { name: '__Item list__', value: itemList.replace(/@/g, '') },
+                    { name: '__Status__', value: statusLines.join('\n') }
+                ],
+                footer: {
+                    text: `#${offer.id} • ${offer.partner.toString()} • ${t.timeNow(opt).time} • v${
+                        process.env.BOT_VERSION
+                    }`
+                }
+            }
+        ]
+    };
+
+    if (itemList === '-' || itemList === '') {
+        webhook.embeds[0].fields.shift();
+    } else if (itemList.length >= 1024) {
+        const statusField = webhook.embeds[0].fields.pop()!;
+        webhook.embeds[0].fields = [];
+        let part = '';
+        let number = 1;
+        const entries = itemList.split('@');
+        entries.forEach((entry, index) => {
+            if ((part.length >= 800 || index === entries.length - 1) && number <= 4) {
+                webhook.embeds[0].fields.push({ name: `__Item list ${number}__`, value: part.replace(/@/g, '') });
+                if (index === entries.length - 1 || number === 4) webhook.embeds[0].fields.push(statusField);
+                part = '';
+                number++;
+            } else {
+                part += entry;
+            }
+        });
+    }
+
+    optDW.tradeSummary.url.forEach((url, index) => {
+        sendWebhook(url, webhook, 'trade-summary', index).catch(err =>
+            log.warn(`❌ Failed to send legacy trade-summary webhook (#${offer.id}) to Discord: `, err)
+        );
+    });
+}
 
 /**
  * When the budget allows, the detail block names the flagged items in full via
@@ -737,10 +887,22 @@ export function buildTradeCardPayload(
     meta: TradeCardMeta
 ): TradeCardPayload {
     const prices = offer.data('prices') as Record<string, unknown> | undefined;
+    const dict = offer.data('dict') as ItemsDict | undefined;
+    const cardPrices = buildTradeCardPrices(prices, dict, bot);
     const names: Record<string, string> = {};
-    for (const sku of Object.keys(prices ?? {})) {
+    const skus = new Set([
+        ...Object.keys(prices ?? {}),
+        ...Object.keys(dict?.our ?? {}),
+        ...Object.keys(dict?.their ?? {})
+    ]);
+    for (const sku of skus) {
         try {
-            names[sku] = bot.schema.getName(SKU.fromString(sku), false);
+            const parsed = SKU.fromString(sku);
+            const name = bot.schema.getName(parsed, false);
+            // The renderer recreates this object from the SKU, so retain its
+            // canonical TF2-SKU form as well as the key kept in offer data.
+            names[sku] = name;
+            names[SKU.fromObject(parsed)] = name;
         } catch {
             names[sku] = sku;
         }
@@ -754,7 +916,7 @@ export function buildTradeCardPayload(
             dict: offer.data('dict'),
             value: offer.data('value'),
             highValue: offer.data('highValue'),
-            prices
+            prices: cardPrices
         },
         options: { ...options },
         meta: { ...meta },
@@ -784,6 +946,52 @@ export function buildTradeCardPayload(
             names
         }
     };
+}
+
+/**
+ * Preserve the trade-processing price map, but give the card a presentation
+ * copy keyed by the SKU that actually appears in the offer. A generic pricelist
+ * entry can price a variant SKU; without this projection the card has no way to
+ * associate that recorded price with the traded item.
+ */
+function buildTradeCardPrices(
+    prices: Record<string, unknown> | undefined,
+    dict: ItemsDict | undefined,
+    bot: Bot
+): Record<string, unknown> | undefined {
+    if (!prices || !dict) return prices;
+
+    const cardPrices = { ...prices };
+    const tradedSkus = new Set([...Object.keys(dict.our ?? {}), ...Object.keys(dict.their ?? {})]);
+
+    for (const sku of tradedSkus) {
+        if (cardPrices[sku] !== undefined) continue;
+
+        const matchedPrice = bot.pricelist.getPrice({ priceKey: sku, onlyEnabled: false, getGenericPrice: true });
+        if (matchedPrice?.sku && prices[matchedPrice.sku] !== undefined) {
+            cardPrices[sku] = prices[matchedPrice.sku];
+        }
+    }
+
+    const nonPureTradedSkus = [...tradedSkus].filter(sku => !PURE_SKUS.includes(sku));
+    const missingFocusSkus = nonPureTradedSkus.filter(sku => cardPrices[sku] === undefined);
+    const recordedSkus = Object.keys(prices);
+    const paymentPriceSkus = recordedSkus.filter(sku => !nonPureTradedSkus.includes(sku));
+    if (missingFocusSkus.length === 1 && paymentPriceSkus.length > 0) {
+        const keyRateMetal = bot.pricelist.getKeyPrice.metal;
+        const focusPriceSku = paymentPriceSkus.sort((a, b) => priceValue(prices[b], keyRateMetal) - priceValue(prices[a], keyRateMetal))[0];
+        cardPrices[missingFocusSkus[0]] = prices[focusPriceSku];
+    }
+
+    return cardPrices;
+}
+
+function priceValue(price: unknown, keyRateMetal: number): number {
+    try {
+        return new Currencies((price as { sell: unknown }).sell).toValue(keyRateMetal);
+    } catch {
+        return Number.NEGATIVE_INFINITY;
+    }
 }
 
 /** One realised sale, before it is formatted for the detail block. */
@@ -879,8 +1087,15 @@ function collectItemProfits(offer: TradeOffer, bot: Bot): ProfitData {
                 buy: buyPrice.toString(),
                 sell: sellPrice.toString(),
                 profitScrap,
-                // fifoEntry.timestamp is Unix seconds (see InventoryCostBasis.addItem).
-                heldForMs: Date.now() - fifoEntry.timestamp * 1000
+                // InventoryCostBasis stores timestamps in milliseconds. Older
+                // persisted entries may be in Unix seconds, so accept both.
+                // Treating milliseconds as seconds made ordinary sales appear
+                // to be held for a huge negative duration.
+                heldForMs: Math.max(
+                    0,
+                    Date.now() -
+                        (fifoEntry.timestamp < 100_000_000_000 ? fifoEntry.timestamp * 1000 : fifoEntry.timestamp)
+                )
             });
         });
     });

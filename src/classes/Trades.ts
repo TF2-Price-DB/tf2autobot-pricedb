@@ -1,3 +1,4 @@
+import { counterOfferValue } from '../lib/tools/counterOfferValue';
 import TradeOfferManager, {
     TradeOffer,
     EconItem,
@@ -992,8 +993,7 @@ export default class Trades {
                                 keys: tradeValues.their.keys,
                                 metal: Currencies.toRefined(tradeValues.their.scrap)
                             },
-                            rate: values.rate,
-                            rates: values.rates
+                            rate: keyRate
                         });
 
                         counter.data('dict', dataDict);
@@ -1040,19 +1040,9 @@ export default class Trades {
                     const dataDict = offer.data('dict') as ItemsDict;
                     const prices = offer.data('prices') as Prices;
 
-                    // Use the current sell price for all keys, matching original Autobot behaviour.
-                    const liveKeyPrices = this.bot.pricelist.getKeyPrices;
-                    const keyPriceScrap = Currencies.toScrap(liveKeyPrices.sell.metal);
-                    const tradeValues = {
-                        our: {
-                            scrap: values.our.total - values.our.keys * keyPriceScrap,
-                            keys: values.our.keys
-                        },
-                        their: {
-                            scrap: values.their.total - values.their.keys * keyPriceScrap,
-                            keys: values.their.keys
-                        }
-                    };
+                    // Capture one sell rate and rebuild all totals from quantities and saved item prices.
+                    const keyRate = this.bot.pricelist.getKeyPrices.sell.metal;
+                    const keyPriceScrap = Currencies.toScrap(keyRate);
 
                     const isWACEnabled = opt.miscSettings.weaponsAsCurrency.enable;
                     const isUncraftEnabled = opt.miscSettings.weaponsAsCurrency.withUncraft;
@@ -1108,6 +1098,14 @@ export default class Trades {
                             )
                         );
                     }
+                    const tradeValues = counterOfferValue(
+                        dataDict,
+                        prices,
+                        keyRate,
+                        isWACEnabled ? weapons : [],
+                        showOnlyMetal
+                    );
+
                     if (possibleKeyTrade) {
                         NonPureWorth +=
                             keyDifference *

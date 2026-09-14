@@ -1,3 +1,4 @@
+import { tradeKeyPrice } from '../../lib/tools/tradeKeyPrice';
 import SKU from '@tf2autobot/tf2-sku';
 import { EClanRelationship, EFriendRelationship, EPersonaState } from 'steam-user';
 import TradeOfferManager, {
@@ -1175,8 +1176,8 @@ export default class MyHandler extends Handler {
         const itemPrices: Prices = {};
 
         const keyPrices = this.bot.pricelist.getKeyPrices;
-        // Original autobot behavior: one key price for the entire offer.
-        const keyPrice = keyPrices[keyOurSide ? 'sell' : 'buy'];
+        // Item trades use one sell conversion rate; pure key trades retain directional pricing.
+        const keyPrice = tradeKeyPrice(keyPrices, exchange.contains.items, keyOurSide);
         let hasOverstockAndIsPartialPriced = false;
         let assetidsToCheck: string[] = [];
         let skuToCheck: string[] = [];

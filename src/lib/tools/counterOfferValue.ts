@@ -21,7 +21,8 @@ export function counterOfferValue(
                 result[side].scrap += metal[sku] * amount;
             } else if (sku === '5021;6' && !pureTrade) {
                 result[side].keys += amount;
-            } else if (weapons.includes(sku)) {
+            } else if (weapons.includes(sku) && prices[sku] === undefined) {
+                // Incoming valuation leaves weapons used as currency out of the saved prices.
                 result[side].scrap += 0.5 * amount;
             } else {
                 const price = prices[sku]?.[side === 'our' ? 'sell' : 'buy'];

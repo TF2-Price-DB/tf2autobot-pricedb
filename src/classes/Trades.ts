@@ -1063,7 +1063,13 @@ export default class Trades {
                             return (
                                 Object.keys(dataDict[side])
                                     .map(assetKey => {
-                                        if (prices[assetKey] === undefined && !puresWithKeys.includes(assetKey)) {
+                                        const isCurrencyWeapon =
+                                            isWACEnabled && weapons.includes(assetKey) && prices[assetKey] === undefined;
+                                        if (
+                                            prices[assetKey] === undefined &&
+                                            !puresWithKeys.includes(assetKey) &&
+                                            !isCurrencyWeapon
+                                        ) {
                                             hasMissingPrices = true;
                                             return 0;
                                         }
@@ -1075,8 +1081,7 @@ export default class Trades {
 
                                         possibleKeyTrade = false; //Offer contains something other than pures
 
-                                        if (isWACEnabled && weapons.includes(assetKey))
-                                            return 0.5 * dataDict[side][assetKey];
+                                        if (isCurrencyWeapon) return 0.5 * dataDict[side][assetKey];
 
                                         return (
                                             dataDict[side][assetKey] *
@@ -1120,15 +1125,12 @@ export default class Trades {
                             ? this.bot.craftWeapons.concat(this.bot.uncraftWeapons)
                             : this.bot.craftWeapons;
 
-                        const skusFromPricelist = Object.keys(this.bot.pricelist.getPrices);
-
-                        // return filtered weapons
-                        let filteredWeaponSkus = weaponSkus.filter(weaponSku => !skusFromPricelist.includes(weaponSku));
-
-                        if (filteredWeaponSkus.length === 0) {
-                            // but if nothing left, then just use all
-                            filteredWeaponSkus = weaponSkus;
-                        }
+                        // Only unpriced weapons may supply half-scrap change.
+                        const filteredWeaponSkus = weaponSkus.filter(
+                            weaponSku =>
+                                prices[weaponSku] === undefined &&
+                                this.bot.pricelist.getPrice({ priceKey: weaponSku, onlyEnabled: true }) === null
+                        );
 
                         const chosenWeaponSku = filteredWeaponSkus
                             .filter(weaponSku => theirItems[weaponSku] === undefined) // filter weapons that are not in their offer
@@ -1149,18 +1151,6 @@ export default class Trades {
                                 tradeValues['their'].scrap += 0.5;
                                 dataDict['their'][chosenWeaponSku] ??= 0;
                                 dataDict['their'][chosenWeaponSku] += 1;
-
-                                const isInPricelist = this.bot.pricelist.getPrice({
-                                    priceKey: chosenWeaponSku,
-                                    onlyEnabled: false
-                                });
-
-                                if (isInPricelist !== null) {
-                                    prices[chosenWeaponSku] = {
-                                        buy: isInPricelist.buy,
-                                        sell: isInPricelist.sell
-                                    };
-                                }
                             }
                         }
                     }

@@ -188,6 +188,63 @@ describe('buildStatusBlock', () => {
         expect(collectPricedItems(pricedOffer(), makeBot({}), 60).length).toBeGreaterThan(0);
     });
 
+    it('can exclude pure currency for the rendered trade card', () => {
+        const prices = collectPricedItems(
+            pricedOffer({
+                '5002;6': { buy: { keys: 0, metal: 8 }, sell: { keys: 0, metal: 9 } }
+            }),
+            makeBot({}),
+            60,
+            true
+        );
+
+        expect(prices).toHaveLength(1);
+        expect(prices[0].name).toBe(`Item ${UNUSUAL}`);
+    });
+
+    it('only displays prices for the items actually in the trade card', () => {
+        const offer = {
+            id: '1',
+            data: (key: string) => {
+                if (key === 'prices') {
+                    return {
+                        [UNUSUAL]: { buy: { keys: 8, metal: 0 }, sell: { keys: 12, metal: 0 } },
+                        '199;6': { buy: { keys: 0, metal: 1 }, sell: { keys: 0, metal: 2 } }
+                    };
+                }
+                if (key === 'dict') {
+                    return { our: { [UNUSUAL]: 1 }, their: { '5002;6': 4 } };
+                }
+                return undefined;
+            }
+        } as unknown as TradeOffer;
+
+        const prices = collectPricedItems(offer, makeBot({}), 60, true);
+
+        expect(prices).toHaveLength(1);
+        expect(prices[0].name).toBe(`Item ${UNUSUAL}`);
+    });
+
+    it('retains the key price for a pure autokeys trade', () => {
+        const offer = {
+            id: '1',
+            data: (key: string) => {
+                if (key === 'prices') {
+                    return { [KEY]: { buy: { keys: 0, metal: 59 }, sell: { keys: 0, metal: 60 } } };
+                }
+                if (key === 'dict') {
+                    return { our: { [KEY]: 1 }, their: { '5002;6': 60 } };
+                }
+                return undefined;
+            }
+        } as unknown as TradeOffer;
+
+        const prices = collectPricedItems(offer, makeBot({}), 60, true);
+
+        expect(prices).toHaveLength(1);
+        expect(prices[0]).toMatchObject({ buy: '59 ref', sell: '60 ref' });
+    });
+
     it('honors customText.*.discordWebhook verbatim for the labels', () => {
         const bot = makeBot({
             keyRateLabel: '🔑 **Custom key rate:**',

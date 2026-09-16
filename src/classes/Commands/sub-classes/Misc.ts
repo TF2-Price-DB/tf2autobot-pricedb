@@ -21,13 +21,16 @@ export default class MiscCommands {
 
     links(steamID: SteamID): void {
         const botSteamID = this.bot.client.steamID.getSteamID64();
+        const manncoStoreLink = this.bot.manncoStoreManager
+            ? `\nMannco.store: <https://mannco.store/store/${botSteamID}>`
+            : '';
 
         this.bot.sendMessage(
             steamID,
             `Steam: <https://steamcommunity.com/profiles/${botSteamID}>` +
                 `\nBackpack.tf: <https://backpack.tf/u/${botSteamID}>` +
                 `\nRep.tf: <https://rep.tf/${botSteamID}>` +
-                `\nMannco.store: <https://mannco.store/store/${botSteamID}>` +
+                manncoStoreLink +
                 `\nTrade Offer URL: <${this.bot.tradeOfferUrl}>`
         );
     }

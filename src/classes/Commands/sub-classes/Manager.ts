@@ -629,7 +629,9 @@ export default class ManagerCommands {
             }
         }
 
-        if (steamID.redirectAnswerTo instanceof DiscordMessage && this.bot.discordBot) {
+        const commandCards = this.bot.options.discordWebhook.commandCards;
+        const useAutokeysCard = commandCards?.enable !== false && commandCards?.autokeys !== false;
+        if (steamID.redirectAnswerTo instanceof DiscordMessage && this.bot.discordBot && useAutokeysCard) {
             const pureNow = pure.currPure(this.bot);
             const userPure = this.bot.handler.autokeys.userPure;
             const keyPrices = this.bot.pricelist.getKeyPrices;

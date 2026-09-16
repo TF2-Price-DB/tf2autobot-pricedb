@@ -160,6 +160,11 @@ export default class ipcHandler extends IPC {
     }
 
     private sendInfo(): void {
+        if (!this.bot.client.steamID) {
+            this.ourServer.emit('info', false);
+            return;
+        }
+
         this.ourServer.emit('info', {
             id: this.bot.client.steamID.getSteamID64(),
             admins: this.bot.getAdmins.map(id => id.getSteamID64()),

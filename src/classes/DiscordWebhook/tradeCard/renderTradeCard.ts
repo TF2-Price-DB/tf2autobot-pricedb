@@ -900,9 +900,23 @@ export default async function renderTradeCard(
 
         let priced: PricedItem[] = [];
         try {
-            priced = collectPricedItems(offer, bot, keyRate);
+            priced = collectPricedItems(offer, bot, keyRate, true);
         } catch (err) {
             log.debug(`Could not collect trade card prices for offer #${offer.id}: `, err);
+        }
+
+        const focusSkus = [...Object.keys(dict.their), ...Object.keys(dict.our)].filter(
+            sku => !PURE_SKUS.includes(sku)
+        );
+        if (focusSkus.length === 1 && priced.length > 0) {
+            try {
+                priced[0] = {
+                    ...priced[0],
+                    name: bot.schema.getName(SKU.fromString(focusSkus[0]), false)
+                };
+            } catch (err) {
+                log.debug(`Could not resolve trade-card focus item for offer #${offer.id}: `, err);
+            }
         }
 
         const column = COLUMN_WIDTH;

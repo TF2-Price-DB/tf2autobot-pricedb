@@ -18,20 +18,22 @@ import log from '../lib/logger';
 import Options from './Options';
 import Bot from './Bot';
 import SteamID from 'steamid';
-import { uptime } from '../lib/tools/time';
+import { timeNow, uptime } from '../lib/tools/time';
 import { CurrentPure, stock as pureStock } from '../lib/tools/pure';
 import { renderCard } from './DiscordWebhook/tradeCard/cardRenderClient';
 import { stockCardPageCount, StockCardEntry } from './DiscordWebhook/tradeCard/cardRenderProtocol';
+import type { StatsReadings } from './DiscordWebhook/tradeCard/statsFacts';
 import { Entry } from './Pricelist';
 import { TradeOffer } from '@tf2autobot/tradeoffer-manager';
 import { getPartnerDetails } from './DiscordWebhook/utils';
-import { renderTradeCardImage } from './DiscordWebhook/sendTradeSummary';
+import { buildItemLinkBlocks, renderTradeCardImage } from './DiscordWebhook/sendTradeSummary';
 import { TradeCardMeta } from './DiscordWebhook/tradeCard';
 import { generateLinks } from '../lib/tools/export';
 import TradeOfferManager from '@tf2autobot/tradeoffer-manager';
 
 const STOCK_PAGER_TIMEOUT_MS = 15 * 60 * 1000;
 const TRADE_ACTION_TIMEOUT_MS = 15 * 60 * 1000;
+const TRADE_CARD_TEXT_BUDGET = 4000 - 150;
 
 interface StockPagerSession {
     requesterId: Snowflake;
@@ -49,6 +51,7 @@ interface TradeActionSession {
     requesterId: Snowflake;
     offerId: string;
     force: boolean;
+    itemBlocks: string[];
     action?: 'accept' | 'decline';
     message: Message;
     expiryTimer: NodeJS.Timeout;
@@ -362,12 +365,16 @@ export default class DiscordBot {
         const detail = `${reason}${reason ? '\n' : ''}[Steam](${links.steam}) · [backpack.tf](${
             links.bptf
         }) · [rep.tf](${links.reptf})`;
+        const itemBlocks = buildItemLinkBlocks(offer, this.bot, Math.max(0, TRADE_CARD_TEXT_BUDGET - detail.length));
         const components = this.tradeComponents(
             token,
             offer.id,
             review ? 'Pending review' : 'Active offer',
             detail,
-            force
+            force,
+            undefined,
+            undefined,
+            itemBlocks
         );
         try {
             const message = await (origMessage.channel as TextChannel).send({
@@ -380,6 +387,7 @@ export default class DiscordBot {
                 requesterId: origMessage.author.id,
                 offerId: offer.id,
                 force,
+                itemBlocks,
                 message,
                 expiryTimer
             });
@@ -396,7 +404,8 @@ export default class DiscordBot {
         reason: string,
         force: boolean,
         confirm?: 'accept' | 'decline',
-        terminal?: string
+        terminal?: string,
+        itemBlocks: string[] = []
     ): unknown {
         const buttons = terminal
             ? [{ type: 2, style: 2, label: terminal, custom_id: `trade-action:${token}:expired`, disabled: true }]
@@ -430,7 +439,13 @@ export default class DiscordBot {
                 accent_color: Number(this.bot.options.discordWebhook.embedColor),
                 components: [
                     { type: 10, content: `## ${terminal ?? `⚠️ ${title}`}${reason ? `\n**Reason:** ${reason}` : ''}` },
-                    { type: 12, items: [{ media: { url: `attachment://trade-${offerId}.png` } }] }
+                    { type: 12, items: [{ media: { url: `attachment://trade-${offerId}.png` } }] },
+                    ...(itemBlocks.length > 0
+                        ? [
+                              { type: 14, divider: true, spacing: 1 },
+                              ...itemBlocks.map(content => ({ type: 10, content }))
+                          ]
+                        : [])
                 ]
             },
             { type: 1, components: buttons }
@@ -456,7 +471,9 @@ export default class DiscordBot {
                     'Confirm action',
                     '',
                     session.force,
-                    action
+                    action,
+                    undefined,
+                    session.itemBlocks
                 ) as MessageCreateOptions['components']
             });
             return;
@@ -508,7 +525,8 @@ export default class DiscordBot {
                 '',
                 session.force,
                 undefined,
-                label
+                label,
+                session.itemBlocks
             ) as MessageCreateOptions['components']
         });
     }
@@ -527,7 +545,8 @@ export default class DiscordBot {
                     '',
                     session.force,
                     undefined,
-                    'Trade actions expired'
+                    'Trade actions expired',
+                    session.itemBlocks
                 ) as MessageCreateOptions['components']
             })
             .catch(err => log.debug('Failed to expire trade card:', err));
@@ -567,6 +586,41 @@ export default class DiscordBot {
         }
 
         await this.sendCardGallery(origMessage, [card], 'pure-stock', fallback);
+    }
+
+    public async sendStatsAnswer(origMessage: Message, readings: StatsReadings): Promise<boolean> {
+        if (!this.isCommandCardEnabled('stats')) return false;
+
+        const card = await renderCard({ type: 'stats', readings });
+        if (card === null) return false;
+
+        try {
+            await (origMessage.channel as TextChannel).send({
+                flags: MessageFlagsBitField.Flags.IsComponentsV2,
+                components: [
+                    {
+                        type: 17,
+                        accent_color: Number(this.bot.options.discordWebhook.embedColor),
+                        components: [
+                            { type: 12, items: [{ media: { url: 'attachment://stats.png' } }] },
+                            ...(readings.hasEstimates ? [{ type: 10, content: '⚠️ Contains estimates' }] : []),
+                            {
+                                type: 10,
+                                content:
+                                    `-# Key rate ${readings.keyBuy} / ${readings.keySell} ref\n` +
+                                    `-# ${process.env.BOT_VERSION_LABEL}\n` +
+                                    `-# ${timeNow(this.bot.options).time}`
+                            }
+                        ]
+                    }
+                ] as unknown as MessageCreateOptions['components'],
+                files: [{ attachment: card, name: 'stats.png' }]
+            });
+            return true;
+        } catch (err) {
+            log.warn('Failed to send Discord stats card:', err);
+            return false;
+        }
     }
 
     public async sendStockGalleryAnswer(
@@ -691,7 +745,7 @@ export default class DiscordBot {
     }
 
     private isCommandCardEnabled(
-        category: 'text' | 'pure' | 'rate' | 'price' | 'sku' | 'stock' | 'pricelist' | 'trade'
+        category: 'text' | 'pure' | 'rate' | 'price' | 'sku' | 'stock' | 'pricelist' | 'trade' | 'stats'
     ): boolean {
         const commandCards = this.bot.options.discordWebhook.commandCards;
         return commandCards?.enable !== false && commandCards?.[category] !== false;

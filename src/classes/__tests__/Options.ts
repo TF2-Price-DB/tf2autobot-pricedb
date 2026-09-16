@@ -29,6 +29,9 @@ test('Parsing Options', () => {
     let result = Options.loadOptions({ steamAccountName: 'abc123' });
     expect(result.steamAccountName).toBe('abc123');
     expect(result.autokeys.minKeys).toBe(3);
+    expect(result.discordWebhook.commandCards.get).toBe(true);
+    expect(result.discordWebhook.commandCards.autokeys).toBe(true);
+    expect(result.discordWebhook.commandCards.version).toBe(true);
     expect(result.normalize.festivized.our).toBeFalsy();
     expect(result.normalize.festivized.their).toBeFalsy();
 

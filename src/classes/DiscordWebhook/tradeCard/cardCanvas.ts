@@ -7,6 +7,8 @@ export const PILL_FILL = 'rgba(0, 0, 0, 0.72)';
 export const PILL_TEXT = '#FFFFFF';
 export const FONT_REGULAR = 'TradeCardSans';
 export const FONT_SEMIBOLD = 'TradeCardSansSemi';
+export const PROFIT_COLOR = '#57F287';
+export const LOSS_COLOR = '#FF6B6E';
 
 export function roundedRect(
     ctx: SKRSContext2D,

@@ -2094,7 +2094,9 @@ export default class PricelistManagerCommands {
         if (match === null) {
             this.bot.sendMessage(steamID, `❌ Could not find item "${priceKey}" in the pricelist`);
         } else {
-            if (steamID.redirectAnswerTo instanceof DiscordMessage && this.bot.discordBot) {
+            const commandCards = this.bot.options.discordWebhook.commandCards;
+            const useGetCard = commandCards?.enable !== false && commandCards?.get !== false;
+            if (steamID.redirectAnswerTo instanceof DiscordMessage && this.bot.discordBot && useGetCard) {
                 const stock = this.bot.inventoryManager.getInventory.getAmount({
                     priceKey: match.id ?? match.sku,
                     includeNonNormalized: false,
@@ -2112,7 +2114,7 @@ export default class PricelistManagerCommands {
                         }\n` +
                         `**PPU:** ${match.isPartialPriced ? 'Enabled' : 'Disabled'}${
                             match.group ? `\n**Group:** ${match.group}` : ''
-                        }`
+                        }\n\n### Complete entry\n\`\`\`json\n${this.generateOutput(match)}\n\`\`\``
                 );
                 return;
             }

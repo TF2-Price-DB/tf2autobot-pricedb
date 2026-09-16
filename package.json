@@ -1,7 +1,7 @@
 {
     "name": "tf2autobot-pricedb-io",
-    "version": "6.0.0",
-    "description": "Fully automated TF2 trading bot advertising on www.backpack.tf using prices from www.pricedb.io, Originally made by Nicklason.",
+    "version": "6.1.0",
+    "description": "Fully automated TF2 trading bot advertising on www.backpack.tf using prices from www.pricedb.io",
     "main": "dist/app.js",
     "scripts": {
         "release": "np --no-cleanup --no-publish",
@@ -21,13 +21,13 @@
         "type": "git",
         "url": "git+https://github.com/TF2-Price-DB/tf2autobot-pricedb.git"
     },
-    "author": "TF2Autobot/IdiNium",
+    "author": "TF2-Price-DB/OliverPerring",
     "license": "MIT",
     "bugs": {
         "url": "https://github.com/TF2-Price-DB/tf2autobot-pricedb/issues"
     },
     "updaterepo": true,
-    "updateMessage": "PriceDB Autobot 6.0.0 is a major release. !updaterepo cannot install major updates; please follow the manual update instructions in the wiki.",
+    "updateMessage": "Update with !updaterepo to 6.1.0 report issues in the pricedb discord!",
     "homepage": "https://github.com/TF2-Price-DB/tf2autobot-pricedb#readme",
     "dependencies": {
         "@napi-rs/canvas": "^1.0.3",

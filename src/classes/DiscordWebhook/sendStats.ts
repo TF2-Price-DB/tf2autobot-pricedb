@@ -1,12 +1,17 @@
-import Currencies from '@tf2autobot/tf2-currencies';
-import pluralize from 'pluralize';
 import SteamID from 'steamid';
+import SteamTradeOfferManager from '@tf2autobot/tradeoffer-manager';
 import { sendWebhook } from './utils';
-import { Webhook } from './interfaces';
+import { Container, Webhook } from './interfaces';
 import log from '../../lib/logger';
 import { stats, profit, timeNow } from '../../lib/tools/export';
+import { dailyProfitSeries } from '../../lib/tools/profitRows';
 import Bot from '../Bot';
 import loadPollData from '../../lib/tools/polldata';
+import { collectStatsReadings, type StatsReadings } from './tradeCard/statsFacts';
+import { renderCard } from './tradeCard/cardRenderClient';
+
+/** `IS_COMPONENTS_V2` — required on any message that sets `components`. */
+const COMPONENTS_V2_FLAG = 1 << 15;
 
 export default async function sendStats(bot: Bot, forceSend = false, steamID?: SteamID): Promise<void> {
     const optDW = bot.options.discordWebhook;
@@ -17,140 +22,49 @@ export default async function sendStats(bot: Bot, forceSend = false, steamID?: S
         return;
     }
 
-    const trades = stats(bot, pollData);
-    const profits = await profit(bot, pollData, Math.floor((Date.now() - 86400000) / 1000));
+    const readings = await collectStatsReadingsForBot(bot, pollData);
 
-    const tradesFromEnv = bot.options.statistics.lastTotalTrades;
-    const keyPrices = bot.pricelist.getKeyPrices;
+    const card = await renderCard({ type: 'stats', readings });
 
-    // Format raw profit (24h) - keys and metal shown separately
-    const rawProfit24h =
-        profits.rawProfitTimed.keys !== 0
-            ? `${profits.rawProfitTimed.keys > 0 ? '+' : ''}${profits.rawProfitTimed.keys} keys, ${
-                  profits.rawProfitTimed.metal > 0 ? '+' : ''
-              }${profits.rawProfitTimed.metal.toFixed(2)} ref`
-            : `${profits.rawProfitTimed.metal > 0 ? '+' : ''}${profits.rawProfitTimed.metal.toFixed(2)} ref`;
+    const children: Container['components'] = [];
 
-    // Format total raw profit - keys and metal shown separately
-    const rawProfitTotal =
-        profits.rawProfit.keys !== 0
-            ? `${profits.rawProfit.keys > 0 ? '+' : ''}${profits.rawProfit.keys} keys, ${
-                  profits.rawProfit.metal > 0 ? '+' : ''
-              }${profits.rawProfit.metal.toFixed(2)} ref`
-            : `${profits.rawProfit.metal > 0 ? '+' : ''}${profits.rawProfit.metal.toFixed(2)} ref`;
+    if (card) {
+        children.push({ type: 12, items: [{ media: { url: 'attachment://stats.png' } }] });
+    }
 
-    // Calculate total profit (raw profit already includes all buy/sell differences via FIFO)
-    const totalProfit24hScrap =
-        profits.rawProfitTimed.keys * keyPrices.sell.metal * 9 + profits.rawProfitTimed.metal * 9;
-    const totalProfit24h = Currencies.toCurrencies(Math.round(totalProfit24hScrap), keyPrices.sell.metal).toString();
+    if (readings.hasEstimates) {
+        children.push({ type: 10, content: '⚠️ Contains estimates' });
+    }
 
-    const totalProfitAllScrap = profits.rawProfit.keys * keyPrices.sell.metal * 9 + profits.rawProfit.metal * 9;
-    const totalProfitAll = Currencies.toCurrencies(Math.round(totalProfitAllScrap), keyPrices.sell.metal).toString();
+    const sentAt = timeNow(bot.options);
+    children.push({
+        type: 10,
+        content:
+            `-# Key rate ${readings.keyBuy} / ${readings.keySell} ref\n` +
+            `-# ${process.env.BOT_VERSION_LABEL}\n` +
+            `-# ${sentAt.time}`
+    });
 
-    const discordStats: Webhook = {
+    const payload: Webhook = {
         username: optDW.displayName || botInfo.name,
         avatar_url: optDW.avatarURL || botInfo.avatarURL,
-        content: '',
-        embeds: [
+        flags: COMPONENTS_V2_FLAG,
+        components: [
             {
-                footer: {
-                    text: `${timeNow(bot.options).time} • ${process.env.BOT_VERSION_LABEL}`,
-                    icon_url: optDW.avatarURL || botInfo.avatarURL
-                },
-                title: '📊 Statistics 📊',
-                description:
-                    `All trades (accepted) are recorded from **${pluralize('day', trades.totalDays, true)}** ago.` +
-                    `\n**Total accepted trades:** ${
-                        tradesFromEnv !== 0
-                            ? String(tradesFromEnv + trades.totalAcceptedTrades)
-                            : String(trades.totalAcceptedTrades)
-                    }`,
-                fields: [
-                    {
-                        name: '__Type/Duration__',
-                        value:
-                            '**• Processed:**' +
-                            '\n**• Accepted:**' +
-                            '\n--- Received offer:' +
-                            '\n------ Countered:' +
-                            '\n--- Sent offer:' +
-                            '\n**• Declined:**' +
-                            '\n--- Received offer:' +
-                            '\n------ Countered:' +
-                            '\n--- Sent offer:' +
-                            '\n**• Skipped:**' +
-                            '\n**• Traded away:**' +
-                            '\n**• Canceled:**' +
-                            '\n--- by user:' +
-                            '\n--- confirmation failed:' +
-                            '\n--- unknown reason:',
-                        inline: true
-                    },
-                    {
-                        name: '__< 24 hours__',
-                        value:
-                            `**${trades.hours24.processed}**` +
-                            `\n**${trades.hours24.accepted.offer.total + trades.hours24.accepted.sent}**` +
-                            `\n${trades.hours24.accepted.offer.total}` +
-                            `\n${trades.hours24.accepted.offer.countered}` +
-                            `\n${trades.hours24.accepted.sent}` +
-                            `\n**${trades.hours24.decline.offer.total + trades.hours24.decline.sent}**` +
-                            `\n${trades.hours24.decline.offer.total}` +
-                            `\n${trades.hours24.decline.offer.countered}` +
-                            `\n${trades.hours24.decline.sent}` +
-                            `\n**${trades.hours24.skipped}**` +
-                            `\n**${trades.hours24.invalid}**` +
-                            `\n**${trades.hours24.canceled.total}**` +
-                            `\n${trades.hours24.canceled.byUser}` +
-                            `\n${trades.hours24.canceled.failedConfirmation}` +
-                            `\n${trades.hours24.canceled.unknown}`,
-                        inline: true
-                    },
-                    {
-                        name: '__Today__',
-                        value:
-                            `**${trades.today.processed}**` +
-                            `\n**${trades.today.accepted.offer.total + trades.today.accepted.sent}**` +
-                            `\n${trades.today.accepted.offer.total}` +
-                            `\n${trades.today.accepted.offer.countered}` +
-                            `\n${trades.today.accepted.sent}` +
-                            `\n**${trades.today.decline.offer.total + trades.today.decline.sent}**` +
-                            `\n${trades.today.decline.offer.total}` +
-                            `\n${trades.today.decline.offer.countered}` +
-                            `\n${trades.today.decline.sent}` +
-                            `\n**${trades.today.skipped}**` +
-                            `\n**${trades.today.invalid}**` +
-                            `\n**${trades.today.canceled.total}**` +
-                            `\n${trades.today.canceled.byUser}` +
-                            `\n${trades.today.canceled.failedConfirmation}` +
-                            `\n${trades.today.canceled.unknown}`,
-                        inline: true
-                    },
-                    {
-                        name: `__Profit${
-                            profits.since !== 0 ? ` (since ${pluralize('day', profits.since, true)} ago)__` : '__'
-                        }`,
-                        value:
-                            `**Last 24 hours:**` +
-                            `\n• Profit: ${rawProfit24h}` +
-                            `\n\n**All Time:**` +
-                            `\n• Profit: ${rawProfitTotal}` +
-                            `\n\n**Total Profit (Converted):**` +
-                            `\n• Last 24h: ${totalProfit24h}` +
-                            `\n• All Time: ${totalProfitAll}` +
-                            (profits.hasEstimates ? `\n\n⚠️ Contains estimates` : '')
-                    },
-                    {
-                        name: '__Key rate__',
-                        value: `${keyPrices.buy.metal}/${keyPrices.sell.metal} ref`
-                    }
-                ],
-                color: optDW.embedColor
+                type: 17,
+                accent_color: Number(optDW.embedColor),
+                components: children
             }
         ]
     };
 
-    sendWebhook(optDW.sendStats.url, discordStats, 'statistics')
+    sendWebhook(
+        optDW.sendStats.url,
+        payload,
+        'statistics',
+        undefined,
+        card ? { name: 'stats.png', buffer: card } : undefined
+    )
         .then(() => {
             if (forceSend) {
                 bot.sendMessage(steamID, '✅ Sent statistics to Discord Webhook!');
@@ -164,4 +78,40 @@ export default async function sendStats(bot: Bot, forceSend = false, steamID?: S
                 bot.sendMessage(steamID, '❌ Error sending statistics to Discord Webhook: ' + errMessage);
             }
         });
+}
+
+export async function collectStatsReadingsForBot(
+    bot: Bot,
+    pollData: SteamTradeOfferManager.PollData
+): Promise<StatsReadings> {
+    const trades = stats(bot, pollData);
+    const profits = await profit(bot, pollData, Math.floor((Date.now() - 86400000) / 1000));
+
+    const tradesFromEnv = bot.options.statistics.lastTotalTrades;
+    const keyPrices = bot.pricelist.getKeyPrices;
+
+    const tradesList = Object.keys(pollData.offerData ?? {}).map(id => pollData.offerData[id]);
+
+    const series = dailyProfitSeries(
+        tradesList,
+        id => bot.isAdmin(id),
+        keyPrices.sell.metal,
+        bot.options.timezone || 'UTC',
+        Date.now(),
+        14
+    );
+
+    return collectStatsReadings({
+        hours24: trades.hours24,
+        today: trades.today,
+        totalDays: trades.totalDays,
+        totalAccepted: tradesFromEnv ? tradesFromEnv + trades.totalAcceptedTrades : trades.totalAcceptedTrades,
+        keyBuy: keyPrices.buy.metal,
+        keySell: keyPrices.sell.metal,
+        raw24h: profits.rawProfitTimed,
+        rawAll: profits.rawProfit,
+        hasEstimates: profits.hasEstimates,
+        sinceDays: profits.since,
+        series
+    });
 }

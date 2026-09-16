@@ -1,4 +1,5 @@
 import type { CurrentPure } from '../../../lib/tools/pure';
+import type { StatsReadings } from './statsFacts';
 
 export interface StockCardEntry {
     sku: string;
@@ -38,7 +39,8 @@ export type CardRenderRequest =
           pageSize: number;
           showQualityBorders: boolean;
       }
-    | { type: 'trade'; payload: TradeCardPayload };
+    | { type: 'trade'; payload: TradeCardPayload }
+    | { type: 'stats'; readings: StatsReadings };
 
 export interface CardRenderResult {
     ok: boolean;

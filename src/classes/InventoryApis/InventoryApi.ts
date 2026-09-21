@@ -36,6 +36,11 @@ export default class InventoryApi {
         return {};
     }
 
+    // Providers may wrap Steam's inventory payload in their own response object.
+    protected normalizeResponse(data: unknown): unknown {
+        return data;
+    }
+
     // Adapted from node-steamcommunity
     public getUserInventoryContents(
         userID: SteamID | string,
@@ -64,6 +69,7 @@ export default class InventoryApi {
         }
 
         const headers = this.getHeaders();
+        const normalizeResponse = this.normalizeResponse.bind(this);
 
         let pos = 1;
         get([], []);
@@ -78,7 +84,7 @@ export default class InventoryApi {
                 headers: headers
             }).then(
                 response => {
-                    const result = response.data as GetUserInventoryContentsResult;
+                    const result = normalizeResponse(response.data) as GetUserInventoryContentsResult;
 
                     if (response.status === 403 && result === null) {
                         callback(new Error('This profile is private.'));

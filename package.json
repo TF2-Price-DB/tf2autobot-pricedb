@@ -27,7 +27,7 @@
         "url": "https://github.com/TF2-Price-DB/tf2autobot-pricedb/issues"
     },
     "updaterepo": true,
-    "updateMessage": "Update with !updaterepo to 6.1.0 report issues in the pricedb discord!",
+    "updateMessage": "Update with !updaterepo to 6.1.1 report issues in the pricedb discord!",
     "homepage": "https://github.com/TF2-Price-DB/tf2autobot-pricedb#readme",
     "dependencies": {
         "@napi-rs/canvas": "^1.0.3",

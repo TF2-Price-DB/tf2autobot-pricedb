@@ -30,16 +30,14 @@ test.each([
     expect(NextCritDriver.toPrice(new Currencies({ keys: 2, metal }))).toEqual({ keys: 2, half_scrap: halfScrap });
 });
 
-test('rejects prices outside the API limits', () => {
+test('rejects invalid prices', () => {
     for (const price of [
         { keys: -1, metal: 0 },
         { keys: 0.5, metal: 0 },
-        { keys: 4294967296, metal: 0 },
         { keys: 0, metal: -0.01 },
-        { keys: 0, metal: Infinity },
-        { keys: 0, metal: 4000 }
+        { keys: 0, metal: Infinity }
     ]) {
-        expect(() => NextCritDriver.toPrice(price as Currencies)).toThrow('Price is outside');
+        expect(() => NextCritDriver.toPrice(price as Currencies)).toThrow('Invalid NextCrit sell-listing price');
     }
 });
 
@@ -168,7 +166,7 @@ test('preserves the HAT returned by NextCrit', async () => {
 
 test('rejects malformed asset IDs before making requests', () => {
     const driver = new NextCritDriver('key');
-    for (const assetId of ['0', '-1', '1,2', '440_123', '9223372036854775808']) {
+    for (const assetId of ['0', '-1', '1,2', '440_123']) {
         expect(() => driver.deleteListing(assetId)).toThrow('Invalid NextCrit asset ID');
     }
     expect(request).not.toHaveBeenCalled();
@@ -314,4 +312,14 @@ test('does not remove listings when remote inventory listings cannot be read', a
     request.mockResolvedValueOnce({ data: { success: false } });
     await expect(new NextCritDriver('key').syncSellListings([], '76561198000000000')).rejects.toThrow('did not return');
     expect(request).toHaveBeenCalledTimes(1);
+});
+
+test('leaves database integer widths to NextCrit', async () => {
+    const driver = new NextCritDriver('key');
+    await driver.createOrUpdateListing('9223372036854775808', new Currencies({ keys: 4294967296, metal: 4000 }));
+    expect(request).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+            data: [{ asset_id: '9223372036854775808', price: { keys: 4294967296, half_scrap: 72000 } }]
+        })
+    );
 });

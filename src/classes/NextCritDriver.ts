@@ -1,5 +1,5 @@
 import axios, { AxiosInstance, AxiosRequestConfig } from 'axios';
-import Currencies from '@tf2autobot/tf2-currencies';
+import Currencies from '../lib/currencies';
 import { Agent } from 'https';
 
 export interface NextCritSellAsset {
@@ -160,17 +160,15 @@ export default class NextCritDriver {
 
     static toPrice(currencies: Currencies): NextCritPrice {
         // Refined prices use TF2's truncated decimal notation, e.g. 0.11 ref = one scrap.
-        const halfScrap = Math.round(Currencies.toScrap(currencies.metal) * 2);
+        const halfScrap = Currencies.toHalfScrap(currencies.metal);
         if (
             !Number.isInteger(currencies.keys) ||
             currencies.keys < 0 ||
-            currencies.keys > 4294967295 ||
             !Number.isFinite(currencies.metal) ||
             currencies.metal < 0 ||
-            halfScrap < 0 ||
-            halfScrap > 65535
+            halfScrap < 0
         ) {
-            throw new Error('Price is outside NextCrit sell-listing limits');
+            throw new Error('Invalid NextCrit sell-listing price');
         }
         return { keys: currencies.keys, half_scrap: halfScrap };
     }
@@ -183,7 +181,7 @@ export default class NextCritDriver {
     }
 
     private static validateAssetId(assetId: string): void {
-        if (!/^[1-9]\d*$/.test(assetId) || BigInt(assetId) > 9223372036854775807n) {
+        if (!/^[1-9]\d*$/.test(assetId)) {
             throw new Error('Invalid NextCrit asset ID');
         }
     }

@@ -947,7 +947,7 @@ export default class Bot {
                         if (listing.intent === 1 && match !== null && !match.enabled) {
                             log.debug(`Intent sell, removed because not selling: ${match.sku}`);
                             listing.remove();
-                            void this.listings.deleteNextCritListing(listing.id.replace('440_', ''));
+                            this.listings.scheduleNextCritSync();
                         }
 
                         listings[listingSKU] = (listings[listingSKU] ?? []).concat(listing);

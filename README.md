@@ -247,8 +247,10 @@ Set `NEXT_CRIT_ENABLE=true` and `NEXT_CRIT_API_KEY` to a long-lived API key for
 this bot's account on [next.crittf.tf](https://next.crittf.tf). The integration is
 disabled by default. While NextCrit uses a self-signed certificate, also set
 `NEXT_CRIT_ALLOW_SELF_SIGNED=true`; this disables certificate verification only
-for the NextCrit client. It mirrors the sell assets selected by the bot's listing
-checks, updates their prices, removes withdrawn listings, and deletes all of the
+for the NextCrit client. It lists every eligible tradable inventory asset up to
+each sell entry's stock limit, including assets with individual prices. Assets
+reserved in active trades are skipped when skipItemsInTrade is enabled. It
+updates prices, removes withdrawn or sold assets, and deletes all of the
 account's NextCrit sell listings when the bot halts or removes all listings.
 Use a dedicated account for the bot if you also manage listings manually.
 

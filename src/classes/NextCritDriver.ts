@@ -2,6 +2,11 @@ import axios, { AxiosInstance, AxiosRequestConfig } from 'axios';
 import Currencies from '@tf2autobot/tf2-currencies';
 import { Agent } from 'https';
 
+export interface NextCritSellAsset {
+    assetId: string;
+    currencies: Currencies;
+}
+
 export interface NextCritPrice {
     keys: number;
     half_scrap: number;
@@ -69,6 +74,51 @@ export default class NextCritDriver {
             }
             if (!response.success) throw new Error('NextCrit did not publish the sell listing');
             this.published.set(assetId, price);
+        });
+    }
+
+    syncSellListings(assets: NextCritSellAsset[], steam64: string): Promise<void> {
+        const desired = new Map<string, NextCritSellListing>();
+        for (const { assetId, currencies } of assets) {
+            NextCritDriver.validateAssetId(assetId);
+            if (desired.has(assetId)) throw new Error('Duplicate NextCrit asset ID');
+            desired.set(assetId, { asset_id: assetId, price: NextCritDriver.toPrice(currencies) });
+        }
+        return this.enqueue(async () => {
+            const response = await this.request<ListingsResponse>({ method: 'GET', url: '/api/v2/sell-listings/my' });
+            if (!response.success || !Array.isArray(response.listings)) {
+                throw new Error('NextCrit did not return sell listings');
+            }
+            const existing = new Map(response.listings.map(listing => [listing.asset_id, listing]));
+            const obsolete = response.listings.filter(listing => !desired.has(listing.asset_id));
+            if (obsolete.length > 0) {
+                const removed = await this.request<{ success: boolean }>({
+                    method: 'DELETE',
+                    url: '/api/v2/sell-listings',
+                    params: { asset_ids: obsolete.map(listing => listing.asset_id).join(',') }
+                });
+                if (!removed.success) throw new Error('NextCrit did not delete obsolete sell listings');
+                for (const listing of obsolete) this.published.delete(listing.asset_id);
+            }
+            const changed = [...desired.values()].filter(listing => {
+                const previous = existing.get(listing.asset_id);
+                return (
+                    previous?.price.keys !== listing.price.keys ||
+                    previous.price.half_scrap !== listing.price.half_scrap
+                );
+            });
+            if (changed.length === 0) return;
+            const config: AxiosRequestConfig = { method: 'POST', url: '/api/v2/sell-listings', data: changed };
+            let result: ListingsResponse;
+            try {
+                result = await this.request<ListingsResponse>(config);
+            } catch (err) {
+                if (!(err instanceof NextCritRequestError) || err.status !== 404) throw err;
+                await this.refreshInventoryNow(steam64);
+                result = await this.request<ListingsResponse>(config);
+            }
+            if (!result.success) throw new Error('NextCrit did not publish sell listings');
+            for (const listing of changed) this.published.set(listing.asset_id, listing.price);
         });
     }
 

@@ -211,3 +211,107 @@ test('limits self-signed certificate support to the NextCrit HTTPS agent', () =>
     expect(selfSignedAgent.options.rejectUnauthorized).toBe(false);
     expect(process.env.NODE_TLS_REJECT_UNAUTHORIZED).toBeUndefined();
 });
+
+test('publishes every desired asset in a single batch', async () => {
+    const driver = new NextCritDriver('key');
+    await driver.syncSellListings(
+        ['101', '102', '103'].map(assetId => ({ assetId, currencies: new Currencies({ keys: 1 }) })),
+        '76561198000000000'
+    );
+    expect(request).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+            method: 'POST',
+            data: ['101', '102', '103'].map(asset_id => ({ asset_id, price: { keys: 1, half_scrap: 0 } }))
+        })
+    );
+    expect(request).toHaveBeenCalledTimes(2);
+});
+
+test('reconciles sold assets, changed prices, and additional copies from remote state', async () => {
+    request.mockResolvedValueOnce({
+        data: {
+            success: true,
+            listings: [
+                { asset_id: '101', price: { keys: 1, half_scrap: 0 } },
+                { asset_id: '102', price: { keys: 1, half_scrap: 0 } },
+                { asset_id: '199', price: { keys: 1, half_scrap: 0 } }
+            ]
+        }
+    });
+    const driver = new NextCritDriver('key');
+    await driver.syncSellListings(
+        [
+            { assetId: '101', currencies: new Currencies({ keys: 1 }) },
+            { assetId: '102', currencies: new Currencies({ keys: 2 }) },
+            { assetId: '103', currencies: new Currencies({ keys: 1 }) }
+        ],
+        '76561198000000000'
+    );
+    expect(request).toHaveBeenNthCalledWith(
+        2,
+        expect.objectContaining({ method: 'DELETE', params: { asset_ids: '199' } })
+    );
+    expect(request).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+            method: 'POST',
+            data: [
+                { asset_id: '102', price: { keys: 2, half_scrap: 0 } },
+                { asset_id: '103', price: { keys: 1, half_scrap: 0 } }
+            ]
+        })
+    );
+});
+
+test('withdraws all remote listings when no assets are eligible, including after a restart', async () => {
+    request.mockResolvedValueOnce({
+        data: {
+            success: true,
+            listings: [
+                { asset_id: '101', price: { keys: 1, half_scrap: 0 } },
+                { asset_id: '102', price: { keys: 1, half_scrap: 0 } }
+            ]
+        }
+    });
+    await new NextCritDriver('key').syncSellListings([], '76561198000000000');
+    expect(request).toHaveBeenLastCalledWith(
+        expect.objectContaining({ method: 'DELETE', params: { asset_ids: '101,102' } })
+    );
+    expect(request).toHaveBeenCalledTimes(2);
+});
+
+test('avoids writes when every remote asset already has the correct price', async () => {
+    request.mockResolvedValueOnce({
+        data: { success: true, listings: [{ asset_id: '101', price: { keys: 1, half_scrap: 0 } }] }
+    });
+    await new NextCritDriver('key').syncSellListings(
+        [{ assetId: '101', currencies: new Currencies({ keys: 1 }) }],
+        '76561198000000000'
+    );
+    expect(request).toHaveBeenCalledTimes(1);
+});
+
+test('refreshes and retries the whole batch before clearing listings on halt', async () => {
+    request
+        .mockResolvedValueOnce({ data: { success: true, listings: [] } })
+        .mockRejectedValueOnce({ isAxiosError: true, response: { status: 404 } });
+    const driver = new NextCritDriver('key');
+    const sync = driver.syncSellListings(
+        ['101', '102'].map(assetId => ({ assetId, currencies: new Currencies({ keys: 1 }) })),
+        '76561198000000000'
+    );
+    const halt = driver.deleteAllListings();
+    await Promise.all([sync, halt]);
+    expect(request.mock.calls.map(([config]) => (config as AxiosRequestConfig).method)).toEqual([
+        'GET',
+        'POST',
+        'GET',
+        'POST',
+        'DELETE'
+    ]);
+});
+
+test('does not remove listings when remote inventory listings cannot be read', async () => {
+    request.mockResolvedValueOnce({ data: { success: false } });
+    await expect(new NextCritDriver('key').syncSellListings([], '76561198000000000')).rejects.toThrow('did not return');
+    expect(request).toHaveBeenCalledTimes(1);
+});

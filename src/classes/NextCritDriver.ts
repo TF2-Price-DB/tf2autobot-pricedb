@@ -1,6 +1,6 @@
 import axios, { AxiosInstance, AxiosRequestConfig } from 'axios';
 import Currencies from '../lib/currencies';
-import { Agent } from 'https';
+import { Agent } from 'node:https';
 
 export interface NextCritSellAsset {
     assetId: string;

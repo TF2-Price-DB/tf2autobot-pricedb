@@ -1872,9 +1872,10 @@ export default class Bot {
                     log.error('Failed to sign in to Steam: ', err);
 
                     if (err.eresult === EResult.AccessDenied) {
-                        this.deleteRefreshToken().finally(() => {
-                            reject(err);
-                        });
+                        void this.deleteRefreshToken().then(
+                            () => reject(err),
+                            () => reject(err)
+                        );
                     } else {
                         reject(err);
                     }

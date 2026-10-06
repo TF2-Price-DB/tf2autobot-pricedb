@@ -223,6 +223,26 @@ test('validates skipItemsInTrade cancelOfferAfterMinutes', () => {
     cleanPath(path.dirname(optionsPath));
 });
 
+test('loads NextCrit options', () => {
+    let result = Options.loadOptions({ steamAccountName: 'abc123' });
+    expect(result.nextCritEnable).toBeFalsy();
+    expect(result.nextCritApiKey).toEqual('');
+    expect(result.nextCritAllowSelfSigned).toBeFalsy();
+    process.env.NEXT_CRIT_ENABLE = 'true';
+    process.env.NEXT_CRIT_API_KEY = 'nextcrit-test-key';
+    process.env.NEXT_CRIT_ALLOW_SELF_SIGNED = 'true';
+    try {
+        result = Options.loadOptions({ steamAccountName: 'abc123' });
+        expect(result.nextCritEnable).toBeTruthy();
+        expect(result.nextCritApiKey).toEqual('nextcrit-test-key');
+        expect(result.nextCritAllowSelfSigned).toBeTruthy();
+    } finally {
+        delete process.env.NEXT_CRIT_ENABLE;
+        delete process.env.NEXT_CRIT_API_KEY;
+        delete process.env.NEXT_CRIT_ALLOW_SELF_SIGNED;
+    }
+});
+
 test('loads journal.tf options', () => {
     let result = Options.loadOptions({ steamAccountName: 'abc123' });
     expect(result.journalTfEnable).toBeFalsy();

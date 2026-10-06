@@ -240,3 +240,21 @@ For issues or questions specific to this pricedb.io fork (or to my services), pl
 
 -   Original project: [TF2Autobot by IdiNium](https://github.com/idinium96/tf2autobot)
 -   Based on [tf2-automatic by Nicklason](https://github.com/Nicklason/tf2-automatic)
+
+### NextCrit sell listings
+
+Set `NEXT_CRIT_ENABLE=true` and `NEXT_CRIT_API_KEY` to a long-lived API key for
+this bot's account on [next.crittf.tf](https://next.crittf.tf). The integration is
+disabled by default. While NextCrit uses a self-signed certificate, also set
+`NEXT_CRIT_ALLOW_SELF_SIGNED=true`; this disables certificate verification only
+for the NextCrit client. It mirrors the sell assets selected by the bot's listing
+checks, updates their prices, removes withdrawn listings, and deletes all of the
+account's NextCrit sell listings when the bot halts or removes all listings.
+Use a dedicated account for the bot if you also manage listings manually.
+
+The driver exchanges the API key for a short-lived Bearer token and renews it
+automatically. Prices use integer keys and half-scrap (18 half-scrap per refined).
+NextCrit resolves HAT Version Z from the asset in its inventory; sell requests
+send asset IDs rather than SKUs or locally generated HATs. If NextCrit cannot find
+an asset, the bot requests an inventory refresh and retries publishing. Failed
+publishes are retried on subsequent listing checks. Buy listings are not supported.

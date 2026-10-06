@@ -4,6 +4,7 @@ import dayjs from 'dayjs';
 import Currencies from '@tf2autobot/tf2-currencies';
 import * as timersPromises from 'timers/promises';
 import Bot from './Bot';
+import NextCritDriver from './NextCritDriver';
 import Pricelist, { Entry, PricesObject } from './Pricelist';
 import log from '../lib/logger';
 import { exponentialBackoff } from '../lib/helpers';
@@ -28,6 +29,8 @@ interface RemoveAllListingsParams {
 }
 
 export default class Listings {
+    private readonly nextCrit: NextCritDriver | undefined;
+
     private checkingAllListings = false;
 
     private removingAllListings = false;
@@ -54,6 +57,13 @@ export default class Listings {
 
     constructor(private readonly bot: Bot) {
         this.bot = bot;
+        if (bot.options.nextCritEnable) {
+            this.nextCrit = new NextCritDriver(
+                bot.options.nextCritApiKey,
+                undefined,
+                bot.options.nextCritAllowSelfSigned
+            );
+        }
         this.templates = {
             buy:
                 this.bot.options.details.buy ||
@@ -176,6 +186,7 @@ export default class Listings {
                 }
                 doneSomething = true;
                 listing.remove();
+                void this.deleteNextCritListing(listing.id.replace('440_', ''));
                 return;
             }
 
@@ -198,6 +209,7 @@ export default class Listings {
                 // Remove from pricedb.io if it's a sell listing
                 if (listing.intent === 1) {
                     void this.deletePriceDBListing(listing.id.replace('440_', ''));
+                    void this.deleteNextCritListing(listing.id.replace('440_', ''));
                 }
             } else if ((listing.intent === 0 && amountCanBuy <= 0) || (listing.intent === 1 && amountCanSell <= 0)) {
                 if (showLogs) {
@@ -212,6 +224,7 @@ export default class Listings {
                 // Remove from pricedb.io if it's a sell listing
                 if (listing.intent === 1) {
                     void this.deletePriceDBListing(listing.id.replace('440_', ''));
+                    void this.deleteNextCritListing(listing.id.replace('440_', ''));
                 }
             } else if (
                 listing.intent === 0 &&
@@ -229,6 +242,9 @@ export default class Listings {
                 listing.remove();
                 // This is a buy listing (intent 0), no need to remove from pricedb.io (only sell listings)
             } else {
+                if (listing.intent === 1) {
+                    void this.publishNextCritListing(listing.id.replace('440_', ''), match.sell);
+                }
                 const newDetails = this.getDetails(
                     listing.intent,
                     listing.intent === 0 ? amountCanBuy : amountCanSell,
@@ -396,6 +412,7 @@ export default class Listings {
 
                 // Also create listing on pricedb.io store (only sell listings supported)
                 void this.createOrUpdatePriceDBListing(assetid, matchNew.sell);
+                void this.publishNextCritListing(assetid, matchNew.sell);
             }
         }
 
@@ -534,7 +551,11 @@ export default class Listings {
         });
     }
 
-    removeAll(): Promise<void> {
+    async removeAll(): Promise<void> {
+        await Promise.all([this.removeAllBackpackListings(), this.nextCrit?.deleteAllListings()]);
+    }
+
+    private removeAllBackpackListings(): Promise<void> {
         return new Promise((resolve, reject) => {
             if (this.checkingAllListings) {
                 this.cancelCheckingListings = true;
@@ -862,6 +883,24 @@ export default class Listings {
             await this.bot.pricedbStoreManager.deleteListing(assetId);
         } catch (err) {
             log.error(`Failed to delete pricedb.io listing for ${assetId}:`, err);
+        }
+    }
+
+    private async publishNextCritListing(assetId: string, currencies: Currencies): Promise<void> {
+        if (!this.nextCrit || this.bot.isHalted) return;
+        try {
+            await this.nextCrit.createOrUpdateListing(assetId, currencies, this.bot.client.steamID.getSteamID64());
+        } catch (err) {
+            log.error(`Failed to publish NextCrit sell listing for ${assetId}:`, err);
+        }
+    }
+
+    async deleteNextCritListing(assetId: string): Promise<void> {
+        if (!this.nextCrit) return;
+        try {
+            await this.nextCrit.deleteListing(assetId);
+        } catch (err) {
+            log.error(`Failed to delete NextCrit sell listing for ${assetId}:`, err);
         }
     }
 

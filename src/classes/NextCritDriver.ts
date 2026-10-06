@@ -1,0 +1,181 @@
+import axios, { AxiosInstance, AxiosRequestConfig } from 'axios';
+import Currencies from '@tf2autobot/tf2-currencies';
+import { Agent } from 'https';
+
+export interface NextCritPrice {
+    keys: number;
+    half_scrap: number;
+}
+
+export interface NextCritSellListing {
+    asset_id: string;
+    price: NextCritPrice;
+    hat?: string;
+}
+
+interface ListingsResponse {
+    success: boolean;
+    listings: NextCritSellListing[];
+}
+
+export class NextCritRequestError extends Error {
+    constructor(readonly status: number | undefined, code: string | undefined) {
+        super(`NextCrit request failed (${status ?? code ?? 'network error'})`);
+    }
+}
+
+/** Publishes inventory assets through NextCrit's v2 sell-listing API. */
+export default class NextCritDriver {
+    private readonly http: AxiosInstance;
+
+    private token = '';
+
+    private tokenExpiresAt = 0;
+
+    private lastInventoryRefresh = 0;
+
+    private queue: Promise<unknown> = Promise.resolve();
+
+    private readonly published = new Map<string, NextCritPrice>();
+
+    constructor(private readonly apiKey: string, baseUrl = 'https://next.crittf.tf', allowSelfSigned = false) {
+        if (!apiKey) throw new Error('NextCrit requires an API key');
+        this.http = axios.create({
+            baseURL: baseUrl,
+            timeout: 30000,
+            maxRedirects: 0,
+            httpsAgent: new Agent({ rejectUnauthorized: !allowSelfSigned })
+        });
+    }
+
+    createOrUpdateListing(assetId: string, currencies: Currencies, steam64?: string): Promise<void> {
+        const price = NextCritDriver.toPrice(currencies);
+        NextCritDriver.validateAssetId(assetId);
+        return this.enqueue(async () => {
+            const previous = this.published.get(assetId);
+            if (previous?.keys === price.keys && previous.half_scrap === price.half_scrap) return;
+            const config: AxiosRequestConfig = {
+                method: 'POST',
+                url: '/api/v2/sell-listings',
+                data: [{ asset_id: assetId, price }]
+            };
+            let response: ListingsResponse;
+            try {
+                response = await this.request<ListingsResponse>(config);
+            } catch (err) {
+                if (!(err instanceof NextCritRequestError) || err.status !== 404 || !steam64) throw err;
+                await this.refreshInventoryNow(steam64);
+                response = await this.request<ListingsResponse>(config);
+            }
+            if (!response.success) throw new Error('NextCrit did not publish the sell listing');
+            this.published.set(assetId, price);
+        });
+    }
+
+    getListings(): Promise<NextCritSellListing[]> {
+        return this.enqueue(async () => {
+            const response = await this.request<ListingsResponse>({ method: 'GET', url: '/api/v2/sell-listings/my' });
+            if (!response.success) throw new Error('NextCrit did not return sell listings');
+            return response.listings;
+        });
+    }
+
+    deleteListing(assetId: string): Promise<void> {
+        NextCritDriver.validateAssetId(assetId);
+        return this.enqueue(async () => {
+            const response = await this.request<{ success: boolean }>({
+                method: 'DELETE',
+                url: '/api/v2/sell-listings',
+                params: { asset_ids: assetId }
+            });
+            if (!response.success) throw new Error('NextCrit did not delete the sell listing');
+            this.published.delete(assetId);
+        });
+    }
+
+    deleteAllListings(): Promise<void> {
+        return this.enqueue(async () => {
+            const response = await this.request<{ success: boolean }>({
+                method: 'DELETE',
+                url: '/api/v2/sell-listings/my'
+            });
+            if (!response.success) throw new Error('NextCrit did not delete sell listings');
+            this.published.clear();
+        });
+    }
+
+    refreshInventory(steam64: string): Promise<void> {
+        return this.enqueue(() => this.refreshInventoryNow(steam64));
+    }
+
+    static toPrice(currencies: Currencies): NextCritPrice {
+        // Refined prices use TF2's truncated decimal notation, e.g. 0.11 ref = one scrap.
+        const halfScrap = Math.round(Currencies.toScrap(currencies.metal) * 2);
+        if (
+            !Number.isInteger(currencies.keys) ||
+            currencies.keys < 0 ||
+            currencies.keys > 4294967295 ||
+            !Number.isFinite(currencies.metal) ||
+            currencies.metal < 0 ||
+            halfScrap < 0 ||
+            halfScrap > 65535
+        ) {
+            throw new Error('Price is outside NextCrit sell-listing limits');
+        }
+        return { keys: currencies.keys, half_scrap: halfScrap };
+    }
+
+    private async refreshInventoryNow(steam64: string): Promise<void> {
+        if (!/^7656119\d{10}$/.test(steam64)) throw new Error('Invalid NextCrit Steam ID');
+        if (Date.now() - this.lastInventoryRefresh < 60000) return;
+        await this.request({ method: 'GET', url: `/api/v2/inventories/${steam64}/0/refresh` });
+        this.lastInventoryRefresh = Date.now();
+    }
+
+    private static validateAssetId(assetId: string): void {
+        if (!/^[1-9]\d*$/.test(assetId) || BigInt(assetId) > 9223372036854775807n) {
+            throw new Error('Invalid NextCrit asset ID');
+        }
+    }
+
+    // Keep writes ordered so an earlier publish cannot finish after a deletion.
+    private enqueue<T>(operation: () => Promise<T>): Promise<T> {
+        const result = this.queue.then(operation);
+        this.queue = result.catch(() => undefined);
+        return result;
+    }
+
+    private async authenticate(): Promise<void> {
+        const response = await this.http.post<{ token: string }>('/api/v2/auth', undefined, {
+            headers: { 'X-API-KEY': this.apiKey }
+        });
+        if (typeof response.data.token !== 'string' || !response.data.token) {
+            throw new Error('NextCrit returned an invalid authentication token');
+        }
+        this.token = response.data.token;
+        // NextCrit tokens last 15 minutes; renew with a minute to spare.
+        this.tokenExpiresAt = Date.now() + 14 * 60 * 1000;
+    }
+
+    private async request<T>(config: AxiosRequestConfig): Promise<T> {
+        try {
+            if (Date.now() >= this.tokenExpiresAt) await this.authenticate();
+            try {
+                return (await this.http.request<T>({ ...config, headers: { Authorization: `Bearer ${this.token}` } }))
+                    .data;
+            } catch (err) {
+                if (!axios.isAxiosError(err) || err.response?.status !== 401) throw err;
+                this.tokenExpiresAt = 0;
+                await this.authenticate();
+                return (await this.http.request<T>({ ...config, headers: { Authorization: `Bearer ${this.token}` } }))
+                    .data;
+            }
+        } catch (err) {
+            // Axios errors include request headers. Never pass API keys or tokens to the logger.
+            if (axios.isAxiosError(err)) {
+                throw new NextCritRequestError(err.response?.status, err.code);
+            }
+            throw err;
+        }
+    }
+}

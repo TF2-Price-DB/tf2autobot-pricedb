@@ -2353,6 +2353,9 @@ export default interface Options extends JsonOptions {
     steamSupplyApiKey?: string;
     steamApisApiKey?: string;
     expressLoadApiKey?: string;
+    nextCritEnable?: boolean;
+    nextCritApiKey?: string;
+    nextCritAllowSelfSigned?: boolean;
     journalTfEnable?: boolean;
     journalTfApiKey?: string;
 
@@ -2692,6 +2695,9 @@ export function loadOptions(options?: Options): Options {
         steamSupplyApiKey: getOption('steamsupplyApiKey', '', String, incomingOptions),
         steamApisApiKey: getOption('steamapisApiKey', '', String, incomingOptions),
         expressLoadApiKey: getOption('expressloadApiKey', '', String, incomingOptions),
+        nextCritEnable: getOption('nextCritEnable', false, jsonParseBoolean, incomingOptions),
+        nextCritApiKey: getOption('nextCritApiKey', '', String, incomingOptions),
+        nextCritAllowSelfSigned: getOption('nextCritAllowSelfSigned', false, jsonParseBoolean, incomingOptions),
         journalTfEnable: getOption('journalTfEnable', false, jsonParseBoolean, incomingOptions),
         journalTfApiKey: getOption('journalTfApiKey', '', String, incomingOptions),
 

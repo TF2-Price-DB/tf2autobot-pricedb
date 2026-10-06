@@ -1,4 +1,5 @@
 import callbackQueue from 'callback-queue';
+import Bluebird from 'bluebird';
 import pluralize from 'pluralize';
 import dayjs from 'dayjs';
 import Currencies from '@tf2autobot/tf2-currencies';
@@ -550,10 +551,13 @@ export default class Listings {
         });
     }
 
-    async removeAll(): Promise<void> {
+    removeAll(): Promise<void> {
         clearTimeout(this.nextCritSyncTimer);
         this.nextCritSyncTimer = undefined;
-        await Promise.all([this.removeAllBackpackListings(), this.nextCrit?.deleteAllListings()]);
+        // Callers use Bluebird's asCallback, which native async-function promises do not expose.
+        return Bluebird.all([this.removeAllBackpackListings(), this.nextCrit?.deleteAllListings()]).then<void>(
+            () => undefined
+        );
     }
 
     private removeAllBackpackListings(): Promise<void> {

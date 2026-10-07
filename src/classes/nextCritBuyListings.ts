@@ -9,7 +9,7 @@ export default function nextCritBuyListings(bot: Bot): NextCritBuyInput[] {
     for (const [priceKey, entry] of Object.entries(bot.pricelist.getPrices)) {
         if (!entry.enabled || entry.id || entry.intent === 1 || !entry.buy) continue;
         const capacity = bot.inventoryManager.amountCanTrade({ priceKey, tradeIntent: 'buying' });
-        if (!(capacity > 0)) continue;
+        if (capacity <= 0) continue;
         if (
             bot.options.pricelist.filterCantAfford.enable &&
             !bot.inventoryManager.isCanAffordToBuy(entry.buy, bot.inventoryManager.getInventory)

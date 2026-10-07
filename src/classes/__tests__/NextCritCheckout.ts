@@ -3,8 +3,10 @@ import type Bot from '../Bot';
 import type NextCritDriver from '../NextCritDriver';
 import NextCritCheckout from '../NextCritCheckout';
 import NextCritCheckoutCart from '../Carts/NextCritCheckoutCart';
+import NextCritBuyCheckoutCart from '../Carts/NextCritBuyCheckoutCart';
 
 jest.mock('../Carts/NextCritCheckoutCart');
+jest.mock('../Carts/NextCritBuyCheckoutCart');
 jest.mock('../../lib/logger', () => ({ __esModule: true, default: { warn: jest.fn() } }));
 
 const buyer = '76561198000000001';
@@ -106,10 +108,10 @@ test.each([
     checkout.stop();
 });
 
-test('ignores buys, other message types, broadcasts and messages for another bot', async () => {
+test('ignores other message types, broadcasts and messages for another bot', async () => {
     const { checkout, stream, enqueue } = setup();
     await start(checkout);
-    stream.write(event([{ ...request, listing_type: 'buy' }, { type: 'price_update' }]));
+    stream.write(event([{ type: 'price_update' }, { ...request, listing_type: 'unknown' }]));
     stream.write(event([request], [buyer]));
     stream.write(event([request], null));
     expect(enqueue).not.toHaveBeenCalled();
@@ -167,3 +169,30 @@ test('stopped or halted bots do not act on checkout messages', async () => {
     expect(enqueue).not.toHaveBeenCalled();
     checkout.stop();
 });
+
+test('queues a buy order by listing ID and quantity without seller asset IDs', async () => {
+    const { checkout, stream, enqueue } = setup();
+    await start(checkout);
+    stream.write(event([{ ...request, listing_type: 'buy', quantity: 1, asset_ids: undefined }]));
+    expect(NextCritBuyCheckoutCart).toHaveBeenCalledWith(
+        expect.objectContaining({ accountid: 39734273 }),
+        'trade-token',
+        expect.anything(),
+        expect.anything(),
+        2,
+        1
+    );
+    expect(enqueue).toHaveBeenCalledWith(expect.any(NextCritBuyCheckoutCart), false, false);
+    checkout.stop();
+});
+
+test.each([{ listing_id: 0 }, { listing_id: '2' }, { quantity: 0 }, { quantity: 1.5 }])(
+    'rejects invalid buy checkout details %s',
+    async changes => {
+        const { checkout, stream, enqueue } = setup();
+        await start(checkout);
+        stream.write(event([{ ...request, listing_type: 'buy', ...changes }]));
+        expect(enqueue).not.toHaveBeenCalled();
+        checkout.stop();
+    }
+);

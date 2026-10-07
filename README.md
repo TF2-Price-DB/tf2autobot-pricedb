@@ -279,13 +279,20 @@ field for secondary quality normalization. Buy entries for specific craft number
 are skipped because HAT Version Z cannot express them.
 
 When NextCrit is enabled, the ready bot also listens to `/api/events/v2` for
-instant sell checkout. It validates the buyer's Steam trade URL and queues a
-normal UserCart for the exact asset IDs requested. The cart verifies advertised
+instant buy and sell checkout. It validates the requester's Steam trade URL.
+Sell checkout queues a normal UserCart for the exact asset IDs requested. The cart verifies advertised
 prices, stock limits (including pending outgoing sales), and asset availability
 before construction and again after the usual reputation and escrow checks.
 Requests that would change the quantity, substitute assets, or use changed
 prices are rejected. Payment, change, and mobile confirmations use the existing
-trade queue. Buy-listing checkout events are ignored.
+trade queue.
+
+Buy checkout resolves the requested listing ID to an enabled buy entry and
+selects matching items from the seller's inventory through the normal UserCart.
+The cart requires the full requested quantity at the advertised buy price,
+accounts for pending incoming purchases against the stock limit, and rechecks
+payment reservations before sending. Everyday currently requests one item per
+buy checkout and does not send seller asset IDs.
 
 The SSE connection reconnects after disconnects, renewing expired listener
 tokens during authentication. A healthy stream stays open across token expiry,

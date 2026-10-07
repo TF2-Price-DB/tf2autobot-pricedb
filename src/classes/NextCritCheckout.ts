@@ -4,6 +4,7 @@ import * as v from 'valibot';
 import type Bot from './Bot';
 import type NextCritDriver from './NextCritDriver';
 import NextCritCheckoutCart from './Carts/NextCritCheckoutCart';
+import NextCritBuyCheckoutCart from './Carts/NextCritBuyCheckoutCart';
 import NextCritEvents from '../lib/nextCritEvents';
 import log from '../lib/logger';
 
@@ -31,6 +32,17 @@ const sellCheckoutSchema = v.pipe(
     v.check(request => request.quantity === request.asset_ids.length, 'Checkout quantity must match the assets'),
     v.check(request => new Set(request.asset_ids).size === request.asset_ids.length, 'Checkout assets must be unique')
 );
+
+const buyCheckoutSchema = v.object({
+    type: v.literal('trade_request'),
+    listing_type: v.literal('buy'),
+    listing_id: v.pipe(v.number(), v.integer(), v.minValue(1)),
+    quantity: v.pipe(v.number(), v.integer(), v.minValue(1)),
+    requester_steam64: v.pipe(v.string(), v.regex(/^7656119\d{10}$/)),
+    trade_offer_url: v.string()
+});
+
+const checkoutSchema = v.variant('listing_type', [sellCheckoutSchema, buyCheckoutSchema]);
 
 export default class NextCritCheckout {
     private connection: AbortController | undefined;
@@ -122,7 +134,7 @@ export default class NextCritCheckout {
                     try {
                         this.enqueue(request);
                     } catch {
-                        log.warn('NextCrit checkout rejected an invalid or unavailable sell request');
+                        log.warn('NextCrit checkout rejected an invalid or unavailable trade request');
                     }
                 }
             }
@@ -133,13 +145,14 @@ export default class NextCritCheckout {
 
     private enqueue(value: unknown): void {
         const message = v.safeParse(messageTypeSchema, value);
-        if (!message.success || message.output.type !== 'trade_request' || message.output.listing_type !== 'sell')
+        if (
+            !message.success ||
+            message.output.type !== 'trade_request' ||
+            (message.output.listing_type !== 'sell' && message.output.listing_type !== 'buy')
+        )
             return;
-        const {
-            requester_steam64: requester,
-            trade_offer_url: tradeUrl,
-            asset_ids: assetIds
-        } = v.parse(sellCheckoutSchema, value);
+        const request = v.parse(checkoutSchema, value);
+        const { requester_steam64: requester, trade_offer_url: tradeUrl } = request;
         const partner = new SteamID(requester);
         const url = new URL(tradeUrl);
         const token = url.searchParams.get('token');
@@ -157,9 +170,19 @@ export default class NextCritCheckout {
             url.searchParams.getAll('token').length !== 1 ||
             !token
         )
-            throw new Error('NextCrit checkout trade URL does not match the buyer');
+            throw new Error('NextCrit checkout trade URL does not match the requester');
         if (this.bot.handler.cartQueue.getPosition(partner) !== -1 || this.bot.trades.getActiveOffer(partner)) return;
-        const cart = new NextCritCheckoutCart(partner, token, this.bot, this.driver, assetIds);
+        const cart =
+            request.listing_type === 'sell'
+                ? new NextCritCheckoutCart(partner, token, this.bot, this.driver, request.asset_ids)
+                : new NextCritBuyCheckoutCart(
+                      partner,
+                      token,
+                      this.bot,
+                      this.driver,
+                      request.listing_id,
+                      request.quantity
+                  );
         this.bot.handler.cartQueue.enqueue(cart, false, false);
     }
 }

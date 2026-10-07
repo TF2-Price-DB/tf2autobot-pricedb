@@ -5,7 +5,11 @@ import { createHatVersionZ, HatVersionZProps } from '../vendor/the-future/create
 
 /** Build buy criteria from the schema, including items absent from our inventory. */
 export default function nextCritBuyListings(bot: Bot): NextCritBuyInput[] {
-    const listings: NextCritBuyInput[] = [];
+    return nextCritBuyListingEntries(bot).map(entry => entry.listing);
+}
+
+export function nextCritBuyListingEntries(bot: Bot): { sku: string; listing: NextCritBuyInput }[] {
+    const listings: { sku: string; listing: NextCritBuyInput }[] = [];
     for (const [priceKey, entry] of Object.entries(bot.pricelist.getPrices)) {
         if (!entry.enabled || entry.id || entry.intent === 1 || !entry.buy) continue;
         const capacity = bot.inventoryManager.amountCanTrade({ priceKey, tradeIntent: 'buying' });
@@ -61,11 +65,14 @@ export default function nextCritBuyListings(bot: Bot): NextCritBuyInput[] {
         if (bot.options.normalize.festivized.their && !item.festive) ignored.push('festivized');
         if (item.quality === 5 && !item.effect) ignored.push('unusual_effect');
         listings.push({
-            hat: `Z^${createHatVersionZ(props)}`,
-            ignored_fields: ignored,
-            price: NextCritDriver.toPrice(entry.buy),
-            // Represent unlimited stock as a finite JSON quantity; leave finite widths to NextCrit.
-            amount: capacity === Infinity ? 65535 : capacity
+            sku: entry.sku,
+            listing: {
+                hat: `Z^${createHatVersionZ(props)}`,
+                ignored_fields: ignored,
+                price: NextCritDriver.toPrice(entry.buy),
+                // Represent unlimited stock as a finite JSON quantity; leave finite widths to NextCrit.
+                amount: capacity === Infinity ? 65535 : capacity
+            }
         });
     }
     return listings;

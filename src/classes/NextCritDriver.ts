@@ -180,12 +180,9 @@ export default class NextCritDriver {
             desired.set(key, copy);
         }
         return this.enqueue(async () => {
-            const response = await this.request<BuyListingsResponse>({ method: 'GET', url: '/api/v2/buy-listings/my' });
-            if (!response.success || !Array.isArray(response.listings)) {
-                throw new Error('NextCrit did not return buy listings');
-            }
-            const existing = new Map(response.listings.map(listing => [NextCritDriver.buyKey(listing), listing]));
-            const obsolete = response.listings.filter(listing => !desired.has(NextCritDriver.buyKey(listing)));
+            const listings = await this.getBuyListings();
+            const existing = new Map(listings.map(listing => [NextCritDriver.buyKey(listing), listing]));
+            const obsolete = listings.filter(listing => !desired.has(NextCritDriver.buyKey(listing)));
             if (obsolete.length > 0) {
                 const removed = await this.request<{ success: boolean }>({
                     method: 'DELETE',
@@ -214,7 +211,14 @@ export default class NextCritDriver {
         });
     }
 
-    private static buyKey(listing: NextCritBuyInput): string {
+    async getBuyListings(): Promise<NextCritBuyListing[]> {
+        const response = await this.request<BuyListingsResponse>({ method: 'GET', url: '/api/v2/buy-listings/my' });
+        if (!response.success || !Array.isArray(response.listings))
+            throw new Error('NextCrit did not return buy listings');
+        return response.listings;
+    }
+
+    static buyKey(listing: NextCritBuyInput): string {
         const props = unparseHatVersionZ(listing.hat.slice(2));
         if (!listing.hat.startsWith('Z^')) throw new Error('Invalid NextCrit buy HAT');
         const ignored = new Set(listing.ignored_fields);

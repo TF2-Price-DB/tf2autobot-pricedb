@@ -1,6 +1,7 @@
 import axios, { AxiosInstance, AxiosRequestConfig } from 'axios';
 import Currencies from '../lib/currencies';
 import { Agent } from 'node:https';
+import { Readable } from 'node:stream';
 import { createHatVersionZ, unparseHatVersionZ } from '../vendor/the-future/createHat';
 
 export interface NextCritSellAsset {
@@ -67,6 +68,8 @@ export default class NextCritDriver {
 
     private token = '';
 
+    private authentication: Promise<void> | undefined;
+
     private tokenExpiresAt = 0;
 
     private lastInventoryRefresh = 0;
@@ -82,6 +85,16 @@ export default class NextCritDriver {
             timeout: 30000,
             maxRedirects: 0,
             httpsAgent: new Agent({ rejectUnauthorized: !allowSelfSigned })
+        });
+    }
+
+    openEventStream(signal: AbortSignal): Promise<Readable> {
+        return this.request<Readable>({
+            method: 'GET',
+            url: '/api/events/v2',
+            responseType: 'stream',
+            headers: { Accept: 'text/event-stream' },
+            signal
         });
     }
 
@@ -309,7 +322,16 @@ export default class NextCritDriver {
         return result;
     }
 
-    private async authenticate(): Promise<void> {
+    private authenticate(): Promise<void> {
+        if (this.authentication === undefined) {
+            this.authentication = this.authenticateNow().finally(() => {
+                this.authentication = undefined;
+            });
+        }
+        return this.authentication;
+    }
+
+    private async authenticateNow(): Promise<void> {
         const response = await this.http.post<{ token: string }>('/api/v2/auth', undefined, {
             headers: { 'X-API-KEY': this.apiKey }
         });
@@ -321,22 +343,35 @@ export default class NextCritDriver {
         this.tokenExpiresAt = Date.now() + 14 * 60 * 1000;
     }
 
+    private authorizedConfig(config: AxiosRequestConfig): AxiosRequestConfig {
+        return {
+            ...config,
+            headers: { ...config.headers, Authorization: `Bearer ${this.token}` },
+            // The SSE endpoint authenticates its listener token through the query string.
+            ...(config.url === '/api/events/v2' ? { params: { token: this.token } } : {})
+        };
+    }
+
     private async request<T>(config: AxiosRequestConfig): Promise<T> {
         try {
             if (Date.now() >= this.tokenExpiresAt) await this.authenticate();
             try {
-                return (await this.http.request<T>({ ...config, headers: { Authorization: `Bearer ${this.token}` } }))
-                    .data;
+                return (await this.http.request<T>(this.authorizedConfig(config))).data;
             } catch (err) {
+                if (axios.isAxiosError(err) && config.responseType === 'stream') {
+                    const response: unknown = err.response?.data;
+                    if (response instanceof Readable) response.destroy();
+                }
                 if (!axios.isAxiosError(err) || err.response?.status !== 401) throw err;
                 this.tokenExpiresAt = 0;
                 await this.authenticate();
-                return (await this.http.request<T>({ ...config, headers: { Authorization: `Bearer ${this.token}` } }))
-                    .data;
+                return (await this.http.request<T>(this.authorizedConfig(config))).data;
             }
         } catch (err) {
             // Axios errors include request headers. Never pass API keys or tokens to the logger.
             if (axios.isAxiosError(err)) {
+                const response: unknown = err.response?.data;
+                if (config.responseType === 'stream' && response instanceof Readable) response.destroy();
                 throw new NextCritRequestError(err.response?.status, err.code);
             }
             throw err;

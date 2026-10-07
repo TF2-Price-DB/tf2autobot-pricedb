@@ -1,5 +1,6 @@
 import axios, { AxiosError, AxiosRequestConfig } from 'axios';
 import { Agent } from 'https';
+import { PassThrough } from 'node:stream';
 import Currencies from '@tf2autobot/tf2-currencies';
 import NextCritDriver, { NextCritRequestError } from '../NextCritDriver';
 
@@ -410,4 +411,62 @@ test('leaves buy quantity integer widths to NextCrit', async () => {
     expect(request).toHaveBeenLastCalledWith(
         expect.objectContaining({ method: 'POST', url: '/api/v2/buy-listings', data: [listing] })
     );
+});
+
+test('authenticates the SSE listener with the current token and preserves cancellation', async () => {
+    const stream = new PassThrough();
+    request.mockResolvedValueOnce({ data: stream });
+    const controller = new AbortController();
+    await expect(new NextCritDriver('key').openEventStream(controller.signal)).resolves.toBe(stream);
+    expect(request).toHaveBeenCalledWith(
+        expect.objectContaining({
+            url: '/api/events/v2',
+            responseType: 'stream',
+            signal: controller.signal,
+            headers: { Accept: 'text/event-stream', Authorization: 'Bearer short-lived-token' },
+            params: { token: 'short-lived-token' }
+        })
+    );
+    stream.destroy();
+});
+
+test('renews the SSE query token after a 401 and closes the rejected response stream', async () => {
+    const rejected = new PassThrough();
+    const stream = new PassThrough();
+    post.mockResolvedValueOnce({ data: { token: 'old' } }).mockResolvedValueOnce({ data: { token: 'new' } });
+    request
+        .mockRejectedValueOnce({ isAxiosError: true, response: { status: 401, data: rejected } })
+        .mockResolvedValueOnce({ data: stream });
+    await new NextCritDriver('key').openEventStream(new AbortController().signal);
+    expect(rejected.destroyed).toBe(true);
+    expect(requestConfigs().map(config => config.params as unknown)).toEqual([{ token: 'old' }, { token: 'new' }]);
+    stream.destroy();
+});
+
+test('shares authentication between the SSE listener and listing requests', async () => {
+    let finish: (value: { data: { token: string } }) => void;
+    post.mockReturnValueOnce(
+        new Promise(resolve => {
+            finish = resolve;
+        })
+    );
+    const driver = new NextCritDriver('key');
+    const events = driver.openEventStream(new AbortController().signal);
+    const listings = driver.getListings();
+    finish({ data: { token: 'shared' } });
+    await Promise.all([events, listings]);
+    expect(post).toHaveBeenCalledTimes(1);
+});
+
+test('closes both rejected SSE response streams when reauthentication also fails', async () => {
+    const first = new PassThrough();
+    const second = new PassThrough();
+    request
+        .mockRejectedValueOnce({ isAxiosError: true, response: { status: 401, data: first } })
+        .mockRejectedValueOnce({ isAxiosError: true, response: { status: 401, data: second } });
+    await expect(new NextCritDriver('secret-key').openEventStream(new AbortController().signal)).rejects.toThrow(
+        'NextCrit request failed (401)'
+    );
+    expect(first.destroyed).toBe(true);
+    expect(second.destroyed).toBe(true);
 });

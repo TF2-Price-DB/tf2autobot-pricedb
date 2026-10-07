@@ -277,3 +277,19 @@ does not specify them. Generic unusual entries accept any effect. Secondary
 Strange quality remains explicit in the market name; the API has no ignored
 field for secondary quality normalization. Buy entries for specific craft numbers
 are skipped because HAT Version Z cannot express them.
+
+When NextCrit is enabled, the ready bot also listens to `/api/events/v2` for
+instant sell checkout. It validates the buyer's Steam trade URL and queues a
+normal UserCart for the exact asset IDs requested. The cart verifies advertised
+prices, stock limits (including pending outgoing sales), and asset availability
+before construction and again after the usual reputation and escrow checks.
+Requests that would change the quantity, substitute assets, or use changed
+prices are rejected. Payment, change, and mobile confirmations use the existing
+trade queue. Buy-listing checkout events are ignored.
+
+The SSE connection reconnects after disconnects, renewing expired listener
+tokens during authentication. A healthy stream stays open across token expiry,
+which NextCrit checks only when establishing a connection.
+It stops when the bot halts or shuts down and resumes on unhalt. NextCrit's
+current event stream does not replay requests missed while disconnected; the
+buyer can retry checkout after the bot reconnects.

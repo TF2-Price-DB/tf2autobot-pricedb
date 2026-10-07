@@ -592,6 +592,7 @@ export default class Bot {
 
     async halt(): Promise<boolean> {
         this.halted = true;
+        this.listings.stopNextCritCheckout();
         clearInterval(this.steamGamePresenceInterval);
         this.steamGamePresenceInterval = null;
 
@@ -638,6 +639,7 @@ export default class Bot {
         this.discordBot?.unhalt();
 
         this.startAutoRefreshListings();
+        this.listings.startNextCritCheckout();
 
         return recreateListingsFailed;
     }
@@ -1653,6 +1655,7 @@ export default class Bot {
                     void this.checkTradeProtectionAcknowledged();
                     this.manager.pollInterval = 10 * 1000;
                     this.setReady = true;
+                    this.listings.startNextCritCheckout();
                     this.handler.onReady();
                     this.trades.startPollWatchdog();
                     this.manager.doPoll();

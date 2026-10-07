@@ -96,3 +96,13 @@ test('uses the normalized paint price for every matching asset', () => {
 test('does not publish assets missing from the tradable inventory', () => {
     expect(nextCritSellAssets(makeBot({ ids: [] }))).toEqual([]);
 });
+
+test('checkout stock limits include assets committed to pending sales', () => {
+    expect(nextCritSellAssets(makeBot({ limit: 1, reserved: ['101'] }), true)).toEqual([]);
+    expect(nextCritSellAssets(makeBot({ limit: 2, reserved: ['101'] }), true).map(asset => asset.assetId)).toEqual([
+        '102'
+    ]);
+    const bot = makeBot({ limit: 1, reserved: ['101'] });
+    bot.options.miscSettings.skipItemsInTrade.enable = false;
+    expect(nextCritSellAssets(bot, true)).toEqual([]);
+});

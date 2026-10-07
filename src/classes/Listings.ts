@@ -6,6 +6,7 @@ import Currencies from '@tf2autobot/tf2-currencies';
 import * as timersPromises from 'timers/promises';
 import Bot from './Bot';
 import NextCritDriver from './NextCritDriver';
+import NextCritCheckout from './NextCritCheckout';
 import nextCritSellAssets from './nextCritSellAssets';
 import nextCritBuyListings from './nextCritBuyListings';
 import Pricelist, { Entry, PricesObject } from './Pricelist';
@@ -33,6 +34,8 @@ interface RemoveAllListingsParams {
 
 export default class Listings {
     private readonly nextCrit: NextCritDriver | undefined;
+
+    private readonly nextCritCheckout: NextCritCheckout | undefined;
 
     private nextCritSyncTimer: NodeJS.Timeout | undefined;
 
@@ -68,6 +71,7 @@ export default class Listings {
                 undefined,
                 bot.options.nextCritAllowSelfSigned
             );
+            this.nextCritCheckout = new NextCritCheckout(bot, this.nextCrit);
         }
         this.templates = {
             buy:
@@ -75,6 +79,14 @@ export default class Listings {
                 'I am buying your %name% for %price%, I have %current_stock% / %max_stock%.',
             sell: this.bot.options.details.sell || 'I am selling my %name% for %price%, I am selling %amount_trade%.'
         };
+    }
+
+    startNextCritCheckout(): void {
+        this.nextCritCheckout?.start();
+    }
+
+    stopNextCritCheckout(): void {
+        this.nextCritCheckout?.stop();
     }
 
     checkByPriceKey({

@@ -2,34 +2,39 @@ import type Bot from './Bot';
 import type { Entry } from './Pricelist';
 import type { NextCritSellAsset } from './NextCritDriver';
 
-type SellGroup = { entry: Entry; assetIds: string[] };
+type SellGroup = { entry: Entry; assetIds: string[]; pendingSales: number };
 
 /** Select every tradable asset covered by an enabled sell entry, up to its stock limit. */
-export default function nextCritSellAssets(bot: Bot): NextCritSellAsset[] {
+export default function nextCritSellAssets(bot: Bot, forCheckout = false): NextCritSellAsset[] {
     const assets: NextCritSellAsset[] = [];
-    for (const [priceKey, { entry, assetIds }] of collectSellGroups(bot)) {
+    for (const [priceKey, { entry, assetIds, pendingSales }] of collectSellGroups(bot, forCheckout)) {
         const amountCanSell = bot.inventoryManager.amountCanTrade({ priceKey, tradeIntent: 'selling' });
+        // Outgoing offers still appear in inventory, but consume the checkout stock budget.
+        const capacity = Math.max(0, amountCanSell - pendingSales);
         // Keep the selection stable as inventory ordering changes, preserving stock reserved by min.
         assetIds.sort(compareAssetIds);
-        for (const assetId of assetIds.slice(0, amountCanSell)) {
+        for (const assetId of assetIds.slice(0, capacity)) {
             assets.push({ assetId, currencies: entry.sell });
         }
     }
     return assets;
 }
 
-function collectSellGroups(bot: Bot): Map<string, SellGroup> {
+function collectSellGroups(bot: Bot, forCheckout: boolean): Map<string, SellGroup> {
     const groups = new Map<string, SellGroup>();
     for (const [sku, items] of Object.entries(bot.inventoryManager.getInventory.getItems)) {
         for (const item of items) {
             const entry = findSellEntry(bot, sku, item.id);
             if (!entry) continue;
-            if (bot.options.miscSettings.skipItemsInTrade.enable && bot.trades.isInTrade(item.id)) continue;
             const priceKey = entry.id ?? entry.sku;
             let group = groups.get(priceKey);
             if (!group) {
-                group = { entry, assetIds: [] };
+                group = { entry, assetIds: [], pendingSales: 0 };
                 groups.set(priceKey, group);
+            }
+            if (bot.trades.isInTrade(item.id)) {
+                if (forCheckout) group.pendingSales++;
+                if (forCheckout || bot.options.miscSettings.skipItemsInTrade.enable) continue;
             }
             group.assetIds.push(item.id);
         }

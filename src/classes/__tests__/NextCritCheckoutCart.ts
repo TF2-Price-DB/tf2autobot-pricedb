@@ -96,6 +96,11 @@ test('rejects a changed advertised price before constructing an offer', async ()
     expect(mockConstruct).not.toHaveBeenCalled();
 });
 
+test('refuses to send without fetching advertised prices', async () => {
+    const { preSend } = setup();
+    await expect(preSend()).rejects.toThrow('advertised price is missing');
+});
+
 test('rejects removed server listings', async () => {
     const { cart, getListings } = setup();
     getListings.mockResolvedValue([]);

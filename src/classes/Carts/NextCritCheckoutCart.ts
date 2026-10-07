@@ -3,6 +3,7 @@ import UserCart from './UserCart';
 import type Bot from '../Bot';
 import NextCritDriver, { NextCritPrice } from '../NextCritDriver';
 import nextCritSellAssets from '../nextCritSellAssets';
+import type Currencies from '../../lib/currencies';
 
 /** A normal user cart that must deliver every requested asset at its advertised price. */
 export default class NextCritCheckoutCart extends UserCart {
@@ -27,10 +28,10 @@ export default class NextCritCheckoutCart extends UserCart {
             if (!listing) throw new Error('NextCrit checkout listing is no longer available');
             this.prices.set(assetId, { ...listing.price });
         }
-        this.validateAvailability();
+        this.validatePrices(this.validateAvailability());
         const altered = await super.constructOffer();
         if (altered) throw new Error('NextCrit checkout cannot fulfill the requested quantity');
-        this.validateAvailability();
+        this.validatePrices(this.validateAvailability());
         for (const assetId of this.assetIds) {
             if (!this.offer?.itemsToGive.some(item => item.assetid === assetId)) {
                 throw new Error('NextCrit checkout is missing a requested asset');
@@ -43,13 +44,13 @@ export default class NextCritCheckoutCart extends UserCart {
     protected async preSendOffer(): Promise<void> {
         await super.preSendOffer();
         // Recheck after inventory, reputation, and escrow requests have had time to finish.
-        this.validateAvailability();
+        this.validatePrices(this.validateAvailability());
         if (this.offer.itemsToGive.some(item => this.bot.trades.isInTrade(item.assetid))) {
             throw new Error('NextCrit checkout items are already reserved');
         }
     }
 
-    private validateAvailability(): void {
+    private validateAvailability(): Map<string, Currencies> {
         if (!this.bot.isReady || this.bot.isHalted || this.bot.botManager.isStopping) {
             throw new Error('NextCrit checkout is unavailable while the bot is stopped');
         }
@@ -62,9 +63,16 @@ export default class NextCritCheckoutCart extends UserCart {
             if (!currencies || this.bot.trades.isInTrade(assetId)) {
                 throw new Error('NextCrit checkout asset is no longer sellable');
             }
+        }
+        return eligible;
+    }
+
+    private validatePrices(eligible: Map<string, Currencies>): void {
+        for (const assetId of this.assetIds) {
             const price = this.prices.get(assetId);
-            const current = NextCritDriver.toPrice(currencies);
-            if (price && (current.keys !== price.keys || current.half_scrap !== price.half_scrap)) {
+            if (!price) throw new Error('NextCrit checkout advertised price is missing');
+            const current = NextCritDriver.toPrice(eligible.get(assetId));
+            if (current.keys !== price.keys || current.half_scrap !== price.half_scrap) {
                 throw new Error('NextCrit checkout price has changed');
             }
         }

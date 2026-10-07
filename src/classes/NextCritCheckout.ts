@@ -1,10 +1,36 @@
 import type { Readable } from 'node:stream';
 import SteamID from 'steamid';
+import * as v from 'valibot';
 import type Bot from './Bot';
 import type NextCritDriver from './NextCritDriver';
 import NextCritCheckoutCart from './Carts/NextCritCheckoutCart';
 import NextCritEvents from '../lib/nextCritEvents';
 import log from '../lib/logger';
+
+const jsonArraySchema = v.pipe(v.string(), v.parseJson(), v.array(v.unknown()));
+
+const envelopeSchema = v.object({
+    steam64s: v.nullable(v.array(v.string())),
+    message: v.string()
+});
+
+const messageTypeSchema = v.object({
+    type: v.string(),
+    listing_type: v.optional(v.string())
+});
+
+const sellCheckoutSchema = v.pipe(
+    v.object({
+        type: v.literal('trade_request'),
+        listing_type: v.literal('sell'),
+        requester_steam64: v.pipe(v.string(), v.regex(/^7656119\d{10}$/)),
+        trade_offer_url: v.string(),
+        asset_ids: v.pipe(v.array(v.pipe(v.string(), v.regex(/^[1-9]\d*$/))), v.nonEmpty()),
+        quantity: v.number()
+    }),
+    v.check(request => request.quantity === request.asset_ids.length, 'Checkout quantity must match the assets'),
+    v.check(request => new Set(request.asset_ids).size === request.asset_ids.length, 'Checkout assets must be unique')
+);
 
 export default class NextCritCheckout {
     private connection: AbortController | undefined;
@@ -84,17 +110,15 @@ export default class NextCritCheckout {
     private handleMessages(data: string): void {
         if (!this.running || !this.available) return;
         try {
-            const envelopes: unknown = JSON.parse(data);
-            if (!Array.isArray(envelopes)) throw new Error('Invalid NextCrit envelopes');
+            const envelopes = v.parse(jsonArraySchema, data);
             const steam64 = this.bot.client.steamID.getSteamID64();
-            for (const envelope of envelopes as unknown[]) {
-                if (!envelope || typeof envelope !== 'object') continue;
-                const targets: unknown = Reflect.get(envelope, 'steam64s');
-                const message: unknown = Reflect.get(envelope, 'message');
-                if (!Array.isArray(targets) || !targets.includes(steam64) || typeof message !== 'string') continue;
-                const requests: unknown = JSON.parse(message);
-                if (!Array.isArray(requests)) throw new Error('Invalid NextCrit messages');
-                for (const request of requests as unknown[]) {
+            for (const envelope of envelopes) {
+                const result = v.safeParse(envelopeSchema, envelope);
+                if (!result.success) continue;
+                const { steam64s, message } = result.output;
+                if (!steam64s?.includes(steam64)) continue;
+                const requests = v.parse(jsonArraySchema, message);
+                for (const request of requests) {
                     try {
                         this.enqueue(request);
                     } catch {
@@ -108,23 +132,14 @@ export default class NextCritCheckout {
     }
 
     private enqueue(value: unknown): void {
-        if (!value || typeof value !== 'object') return;
-        if (Reflect.get(value, 'type') !== 'trade_request' || Reflect.get(value, 'listing_type') !== 'sell') return;
-        const requester: unknown = Reflect.get(value, 'requester_steam64');
-        const tradeUrl: unknown = Reflect.get(value, 'trade_offer_url');
-        const assetIds: unknown = Reflect.get(value, 'asset_ids');
-        const quantity: unknown = Reflect.get(value, 'quantity');
-        if (
-            typeof requester !== 'string' ||
-            !/^7656119\d{10}$/.test(requester) ||
-            typeof tradeUrl !== 'string' ||
-            !Array.isArray(assetIds) ||
-            assetIds.length === 0 ||
-            quantity !== assetIds.length ||
-            assetIds.some((id: unknown) => typeof id !== 'string' || !/^[1-9]\d*$/.test(id)) ||
-            new Set(assetIds).size !== assetIds.length
-        )
-            throw new Error('Invalid NextCrit checkout request');
+        const message = v.safeParse(messageTypeSchema, value);
+        if (!message.success || message.output.type !== 'trade_request' || message.output.listing_type !== 'sell')
+            return;
+        const {
+            requester_steam64: requester,
+            trade_offer_url: tradeUrl,
+            asset_ids: assetIds
+        } = v.parse(sellCheckoutSchema, value);
         const partner = new SteamID(requester);
         const url = new URL(tradeUrl);
         const token = url.searchParams.get('token');
@@ -144,7 +159,7 @@ export default class NextCritCheckout {
         )
             throw new Error('NextCrit checkout trade URL does not match the buyer');
         if (this.bot.handler.cartQueue.getPosition(partner) !== -1 || this.bot.trades.getActiveOffer(partner)) return;
-        const cart = new NextCritCheckoutCart(partner, token, this.bot, this.driver, assetIds as string[]);
+        const cart = new NextCritCheckoutCart(partner, token, this.bot, this.driver, assetIds);
         this.bot.handler.cartQueue.enqueue(cart, false, false);
     }
 }

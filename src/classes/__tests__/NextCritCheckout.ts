@@ -71,6 +71,10 @@ test('queues exact assets for the authenticated buyer using the trade token', as
 
 test.each([
     { quantity: 1 },
+    { quantity: '2' },
+    { asset_ids: [] },
+    { asset_ids: [101, 102] },
+    { requester_steam64: 123 },
     { asset_ids: ['101', '101'] },
     { asset_ids: ['not-an-id', '102'] },
     { requester_steam64: owner },
@@ -83,6 +87,22 @@ test.each([
     await start(checkout);
     stream.write(event([{ ...request, ...changes }]));
     expect(enqueue).not.toHaveBeenCalled();
+    checkout.stop();
+});
+
+test.each([
+    'invalid json',
+    JSON.stringify({ steam64s: [owner], message: JSON.stringify([request]) }),
+    JSON.stringify([{ steam64s: owner, message: JSON.stringify([request]) }]),
+    JSON.stringify([{ steam64s: [owner], message: JSON.stringify(request) }]),
+    JSON.stringify([{ steam64s: [owner], message: [request] }])
+])('rejects malformed event payloads and processes the next event: %s', async data => {
+    const { checkout, stream, enqueue } = setup();
+    await start(checkout);
+    stream.write(`data: ${data}\n\n`);
+    expect(enqueue).not.toHaveBeenCalled();
+    stream.write(event([request]));
+    expect(enqueue).toHaveBeenCalledTimes(1);
     checkout.stop();
 });
 

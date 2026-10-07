@@ -1,6 +1,7 @@
 import axios, { AxiosInstance, AxiosRequestConfig } from 'axios';
 import Currencies from '../lib/currencies';
 import { Agent } from 'node:https';
+import { createHatVersionZ, unparseHatVersionZ } from '../vendor/the-future/createHat';
 
 export interface NextCritSellAsset {
     assetId: string;
@@ -18,6 +19,37 @@ export interface NextCritSellListing {
     hat?: string;
 }
 
+export type NextCritIgnoredField =
+    | 'craftability'
+    | 'marketability'
+    | 'skin_wear'
+    | 'tradability'
+    | 'loaner'
+    | 'unusual_effect'
+    | 'killstreaker'
+    | 'sheen'
+    | 'paint'
+    | 'strange_parts'
+    | 'strange_filters'
+    | 'spells'
+    | 'festivized';
+
+export interface NextCritBuyInput {
+    hat: string;
+    ignored_fields: NextCritIgnoredField[];
+    price: NextCritPrice;
+    amount: number;
+}
+
+export interface NextCritBuyListing extends NextCritBuyInput {
+    id: number;
+}
+
+interface BuyListingsResponse {
+    success: boolean;
+    listings: NextCritBuyListing[];
+}
+
 interface ListingsResponse {
     success: boolean;
     listings: NextCritSellListing[];
@@ -29,7 +61,7 @@ export class NextCritRequestError extends Error {
     }
 }
 
-/** Publishes inventory assets through NextCrit's v2 sell-listing API. */
+/** Publishes sell assets and buy criteria through NextCrit's v2 listing API. */
 export default class NextCritDriver {
     private readonly http: AxiosInstance;
 
@@ -122,6 +154,82 @@ export default class NextCritDriver {
         });
     }
 
+    syncBuyListings(listings: NextCritBuyInput[]): Promise<void> {
+        const desired = new Map<string, NextCritBuyInput>();
+        for (const listing of listings) {
+            if (!Number.isInteger(listing.amount) || listing.amount < 1 || listing.amount > 65535) {
+                throw new Error('Invalid NextCrit buy-listing amount');
+            }
+            // Snapshot caller-owned values before entering the shared write queue.
+            const copy = { ...listing, price: { ...listing.price }, ignored_fields: [...listing.ignored_fields] };
+            const key = NextCritDriver.buyKey(copy);
+            if (desired.has(key)) throw new Error('Duplicate NextCrit buy criteria');
+            desired.set(key, copy);
+        }
+        return this.enqueue(async () => {
+            const response = await this.request<BuyListingsResponse>({ method: 'GET', url: '/api/v2/buy-listings/my' });
+            if (!response.success || !Array.isArray(response.listings)) {
+                throw new Error('NextCrit did not return buy listings');
+            }
+            const existing = new Map(response.listings.map(listing => [NextCritDriver.buyKey(listing), listing]));
+            const obsolete = response.listings.filter(listing => !desired.has(NextCritDriver.buyKey(listing)));
+            if (obsolete.length > 0) {
+                const removed = await this.request<{ success: boolean }>({
+                    method: 'DELETE',
+                    url: '/api/v2/buy-listings',
+                    params: { listing_ids: obsolete.map(listing => listing.id).join(',') }
+                });
+                if (!removed.success) throw new Error('NextCrit did not delete obsolete buy listings');
+            }
+            const changed = [...desired.entries()]
+                .filter(([key, listing]) => {
+                    const previous = existing.get(key);
+                    return (
+                        previous?.amount !== listing.amount ||
+                        previous.price.keys !== listing.price.keys ||
+                        previous.price.half_scrap !== listing.price.half_scrap
+                    );
+                })
+                .map(([, listing]) => listing);
+            if (changed.length === 0) return;
+            const result = await this.request<BuyListingsResponse>({
+                method: 'POST',
+                url: '/api/v2/buy-listings',
+                data: changed
+            });
+            if (!result.success) throw new Error('NextCrit did not publish buy listings');
+        });
+    }
+
+    private static buyKey(listing: NextCritBuyInput): string {
+        const props = unparseHatVersionZ(listing.hat.slice(2));
+        if (!listing.hat.startsWith('Z^')) throw new Error('Invalid NextCrit buy HAT');
+        const ignored = new Set(listing.ignored_fields);
+        props.marketHashName = props.marketHashName
+            .split(' ')
+            .filter(word => word !== 'Non-Craftable' && (!ignored.has('festivized') || word !== 'Festivized'))
+            .join(' ');
+        if (ignored.has('skin_wear')) {
+            props.marketHashName = props.marketHashName.replace(
+                / \((?:Factory New|Minimal Wear|Field-Tested|Well-Worn|Battle Scarred)\)$/,
+                ''
+            );
+        }
+        if (ignored.has('craftability')) props.craftable = false;
+        if (ignored.has('marketability')) props.marketable = false;
+        if (ignored.has('tradability')) props.tradable = false;
+        if (ignored.has('festivized')) props.festivized = false;
+        if (ignored.has('loaner')) props.loaner = false;
+        if (ignored.has('unusual_effect')) props.unusualEffects = [];
+        if (ignored.has('killstreaker')) props.killstreakers = [];
+        if (ignored.has('sheen')) props.sheens = [];
+        if (ignored.has('paint')) props.paints = [];
+        if (ignored.has('strange_parts')) props.strangeParts = [];
+        if (ignored.has('strange_filters')) props.strangeFilters = [];
+        if (ignored.has('spells')) props.spells = [];
+        return JSON.stringify([createHatVersionZ(props), [...ignored].sort()]);
+    }
+
     getListings(): Promise<NextCritSellListing[]> {
         return this.enqueue(async () => {
             const response = await this.request<ListingsResponse>({ method: 'GET', url: '/api/v2/sell-listings/my' });
@@ -145,12 +253,20 @@ export default class NextCritDriver {
 
     deleteAllListings(): Promise<void> {
         return this.enqueue(async () => {
-            const response = await this.request<{ success: boolean }>({
-                method: 'DELETE',
-                url: '/api/v2/sell-listings/my'
-            });
-            if (!response.success) throw new Error('NextCrit did not delete sell listings');
-            this.published.clear();
+            const failures: unknown[] = [];
+            for (const intent of ['sell', 'buy']) {
+                try {
+                    const response = await this.request<{ success: boolean }>({
+                        method: 'DELETE',
+                        url: `/api/v2/${intent}-listings/my`
+                    });
+                    if (!response.success) throw new Error(`NextCrit did not delete ${intent} listings`);
+                    if (intent === 'sell') this.published.clear();
+                } catch (err) {
+                    failures.push(err);
+                }
+            }
+            if (failures.length > 0) throw failures[0];
         });
     }
 

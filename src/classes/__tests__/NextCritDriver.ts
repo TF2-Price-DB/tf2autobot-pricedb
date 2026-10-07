@@ -99,10 +99,10 @@ test('deletes only the selected asset and clears published state when deleting a
     await driver.createOrUpdateListing('123', currencies);
     await driver.deleteAllListings();
     expect(request).toHaveBeenLastCalledWith(
-        expect.objectContaining({ method: 'DELETE', url: '/api/v2/sell-listings/my' })
+        expect.objectContaining({ method: 'DELETE', url: '/api/v2/buy-listings/my' })
     );
     await driver.createOrUpdateListing('123', currencies);
-    expect(request).toHaveBeenCalledTimes(5);
+    expect(request).toHaveBeenCalledTimes(6);
 });
 
 test('preserves publish/delete ordering even while authentication is pending', async () => {
@@ -304,6 +304,7 @@ test('refreshes and retries the whole batch before clearing listings on halt', a
         'POST',
         'GET',
         'POST',
+        'DELETE',
         'DELETE'
     ]);
 });
@@ -322,4 +323,83 @@ test('leaves database integer widths to NextCrit', async () => {
             data: [{ asset_id: '9223372036854775808', price: { keys: 4294967296, half_scrap: 72000 } }]
         })
     );
+});
+
+const requestConfigs = () => request.mock.calls.map(([config]) => config as AxiosRequestConfig);
+
+const buy = {
+    hat: 'Z^Rocket_Launcher;TC;Unique',
+    ignored_fields: ['marketability'] as const,
+    price: { keys: 1, half_scrap: 2 },
+    amount: 3
+};
+const buyInput = () => ({ ...buy, ignored_fields: [...buy.ignored_fields] });
+
+test('syncs buy prices and quantities and removes obsolete criteria by listing ID', async () => {
+    request.mockResolvedValueOnce({
+        data: {
+            success: true,
+            listings: [
+                { ...buyInput(), id: 7, amount: 1 },
+                { ...buyInput(), id: 8, hat: 'Z^Scattergun;TC;Unique' }
+            ]
+        }
+    });
+    await new NextCritDriver('key').syncBuyListings([buyInput()]);
+    expect(requestConfigs().map(config => [config.method, config.url])).toEqual([
+        ['GET', '/api/v2/buy-listings/my'],
+        ['DELETE', '/api/v2/buy-listings'],
+        ['POST', '/api/v2/buy-listings']
+    ]);
+    expect(requestConfigs()[1].params).toEqual({ listing_ids: '8' });
+    expect(requestConfigs()[2].data).toEqual([buyInput()]);
+});
+
+test('recognizes canonical server buy criteria and ignores field ordering', async () => {
+    const input = {
+        ...buyInput(),
+        hat: 'Z^Festivized_Rocket_Launcher;TMCF;Unique',
+        ignored_fields: ['marketability', 'festivized'] as ('marketability' | 'festivized')[]
+    };
+    request.mockResolvedValueOnce({
+        data: {
+            success: true,
+            listings: [
+                {
+                    ...input,
+                    hat: 'Z^Rocket_Launcher;TC;Unique',
+                    ignored_fields: [...input.ignored_fields].reverse(),
+                    id: 1
+                }
+            ]
+        }
+    });
+    await new NextCritDriver('key').syncBuyListings([input]);
+    expect(request).toHaveBeenCalledTimes(1);
+});
+
+test('withdraws every buy listing when desired stock is empty', async () => {
+    request.mockResolvedValueOnce({ data: { success: true, listings: [{ ...buyInput(), id: 9 }] } });
+    await new NextCritDriver('key').syncBuyListings([]);
+    expect(requestConfigs()[1]).toMatchObject({ method: 'DELETE', params: { listing_ids: '9' } });
+});
+
+test('retries a failed buy publish on the next sync', async () => {
+    request
+        .mockResolvedValueOnce({ data: { success: true, listings: [] } })
+        .mockResolvedValueOnce({ data: { success: false } });
+    const driver = new NextCritDriver('key');
+    await expect(driver.syncBuyListings([buyInput()])).rejects.toThrow('did not publish buy');
+    await driver.syncBuyListings([buyInput()]);
+    expect(requestConfigs().filter(config => config.method === 'POST')).toHaveLength(2);
+});
+
+test('attempts buy cleanup even when sell cleanup fails', async () => {
+    request.mockImplementation((config: AxiosRequestConfig) =>
+        Promise.resolve({
+            data: { success: config.url === '/api/v2/buy-listings/my' }
+        })
+    );
+    await expect(new NextCritDriver('key').deleteAllListings()).rejects.toThrow('did not delete sell');
+    expect(requestConfigs().map(config => config.url)).toEqual(['/api/v2/sell-listings/my', '/api/v2/buy-listings/my']);
 });

@@ -6,7 +6,14 @@ jest.mock('../Bot', () => ({ __esModule: true, default: jest.fn() }));
 
 function setup() {
     const listings = new Listings({
-        options: { nextCritEnable: false, details: { buy: '', sell: '' } }
+        options: {
+            nextCritEnable: false,
+            details: { buy: '', sell: '' },
+            miscSettings: { createListings: { enable: true } }
+        },
+        inventoryManager: { getInventory: { getItems: {} } },
+        pricelist: { getPrices: {} },
+        client: { steamID: { getSteamID64: () => '76561198000000000' } }
     } as unknown as Bot);
     const internals = listings as unknown as {
         removeAllBackpackListings: () => Promise<void>;
@@ -58,4 +65,36 @@ test.each(['backpack', 'nextcrit'])('redoListings reports %s removal failure thr
     });
     expect(callbackError).toBe(failure);
     expect(checkAll).not.toHaveBeenCalled();
+});
+
+test('queues both listing intents before removal while the sell sync is pending', async () => {
+    const { listings } = setup();
+    const calls: string[] = [];
+    let finishSell: () => void;
+    const selling = new Promise<void>(resolve => {
+        finishSell = resolve;
+    });
+    const internals = listings as unknown as {
+        syncNextCritListings: () => Promise<void>;
+        nextCrit: Pick<NextCritDriver, 'syncSellListings' | 'syncBuyListings' | 'deleteAllListings'>;
+    };
+    internals.nextCrit = {
+        syncSellListings: jest.fn(() => {
+            calls.push('sell');
+            return selling;
+        }),
+        syncBuyListings: jest.fn(() => {
+            calls.push('buy');
+            return Promise.resolve();
+        }),
+        deleteAllListings: jest.fn(() => {
+            calls.push('delete');
+            return Promise.resolve();
+        })
+    };
+    const sync = internals.syncNextCritListings();
+    const removing = listings.removeAll();
+    expect(calls).toEqual(['sell', 'buy', 'delete']);
+    finishSell();
+    await Promise.all([sync, removing]);
 });

@@ -7,6 +7,7 @@ import * as timersPromises from 'timers/promises';
 import Bot from './Bot';
 import NextCritDriver from './NextCritDriver';
 import nextCritSellAssets from './nextCritSellAssets';
+import nextCritBuyListings from './nextCritBuyListings';
 import Pricelist, { Entry, PricesObject } from './Pricelist';
 import log from '../lib/logger';
 import { exponentialBackoff } from '../lib/helpers';
@@ -901,11 +902,22 @@ export default class Listings {
 
     private async syncNextCritListings(): Promise<void> {
         if (!this.nextCrit || !this.isCreateListing) return;
-        try {
-            await this.nextCrit.syncSellListings(nextCritSellAssets(this.bot), this.bot.client.steamID.getSteamID64());
-        } catch (err) {
-            log.error('Failed to sync NextCrit sell listings:', err);
-        }
+        // Queue both intents before yielding, so removeAll always runs after both publishes.
+        const sync = async (intent: 'sell' | 'buy'): Promise<void> => {
+            try {
+                if (intent === 'sell') {
+                    await this.nextCrit.syncSellListings(
+                        nextCritSellAssets(this.bot),
+                        this.bot.client.steamID.getSteamID64()
+                    );
+                } else {
+                    await this.nextCrit.syncBuyListings(nextCritBuyListings(this.bot));
+                }
+            } catch (err) {
+                log.error(`Failed to sync NextCrit ${intent} listings:`, err);
+            }
+        };
+        await Promise.all([sync('sell'), sync('buy')]);
     }
 
     private getDetails(intent: 0 | 1, amountCanTrade: number, entry: Entry, item?: DictItem): string {

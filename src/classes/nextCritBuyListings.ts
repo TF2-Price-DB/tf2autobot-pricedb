@@ -64,8 +64,8 @@ export default function nextCritBuyListings(bot: Bot): NextCritBuyInput[] {
             hat: `Z^${createHatVersionZ(props)}`,
             ignored_fields: ignored,
             price: NextCritDriver.toPrice(entry.buy),
-            // NextCrit represents quantity as an unsigned 16-bit integer, including unlimited stock.
-            amount: Math.min(capacity, 65535)
+            // Represent unlimited stock as a finite JSON quantity; leave finite widths to NextCrit.
+            amount: capacity === Infinity ? 65535 : capacity
         });
     }
     return listings;

@@ -61,8 +61,12 @@ test.each([0, -1])('withdraws buys when capacity is %s', capacity => {
     expect(nextCritBuyListings(makeBot('205;6', capacity))).toEqual([]);
 });
 
-test.each([Infinity, 70000])('caps capacity %s to the API quantity limit', capacity => {
-    expect(nextCritBuyListings(makeBot('205;6', capacity))[0].amount).toBe(65535);
+test('represents unlimited stock as a finite JSON quantity', () => {
+    expect(nextCritBuyListings(makeBot('205;6', Infinity))[0].amount).toBe(65535);
+});
+
+test('leaves finite quantity widths to NextCrit', () => {
+    expect(nextCritBuyListings(makeBot('205;6', 70000))[0].amount).toBe(70000);
 });
 
 test.each([{ enabled: false }, { intent: 1 }, { id: '123' }, { buy: null }])('skips ineligible entries %s', changes => {

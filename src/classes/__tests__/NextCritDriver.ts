@@ -403,3 +403,11 @@ test('attempts buy cleanup even when sell cleanup fails', async () => {
     await expect(new NextCritDriver('key').deleteAllListings()).rejects.toThrow('did not delete sell');
     expect(requestConfigs().map(config => config.url)).toEqual(['/api/v2/sell-listings/my', '/api/v2/buy-listings/my']);
 });
+
+test('leaves buy quantity integer widths to NextCrit', async () => {
+    const listing = { ...buyInput(), amount: 70000 };
+    await new NextCritDriver('key').syncBuyListings([listing]);
+    expect(request).toHaveBeenLastCalledWith(
+        expect.objectContaining({ method: 'POST', url: '/api/v2/buy-listings', data: [listing] })
+    );
+});

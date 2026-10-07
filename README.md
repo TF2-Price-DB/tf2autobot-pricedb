@@ -263,8 +263,9 @@ publishes are retried on subsequent listing checks.
 
 Buy listings are generated from enabled buy and bank entries, even when the bot
 has no matching inventory assets. They use the buy price and remaining stock
-capacity, with unlimited stock represented as 65,535 (the API maximum). The
-filterCantAfford setting also applies to buy listings. Changes to price, stock,
+capacity, with unlimited stock represented as 65,535. Finite quantities pass
+through unchanged; NextCrit validates their integer widths. The filterCantAfford
+setting also applies to buy listings. Changes to price, stock,
 intent, and enabled status are synchronized on listing checks.
 
 Buy HATs use the schema and the vendored TF2-Price-DB/the-future serializer.

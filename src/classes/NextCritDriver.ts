@@ -157,7 +157,7 @@ export default class NextCritDriver {
     syncBuyListings(listings: NextCritBuyInput[]): Promise<void> {
         const desired = new Map<string, NextCritBuyInput>();
         for (const listing of listings) {
-            if (!Number.isInteger(listing.amount) || listing.amount < 1 || listing.amount > 65535) {
+            if (!Number.isInteger(listing.amount) || listing.amount < 1) {
                 throw new Error('Invalid NextCrit buy-listing amount');
             }
             // Snapshot caller-owned values before entering the shared write queue.

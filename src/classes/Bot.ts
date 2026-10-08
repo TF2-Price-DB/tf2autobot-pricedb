@@ -23,6 +23,7 @@ import path from 'path';
 import * as files from '../lib/files';
 import { isUsableRefreshToken } from '../lib/refreshToken';
 import { getSteamMaintenanceDelay } from '../lib/steamMaintenance';
+import omitAbsentFormFields from '../lib/tools/omitAbsentFormFields';
 
 import DiscordBot from './DiscordBot';
 import { Message as DiscordMessage } from 'discord.js';
@@ -332,6 +333,7 @@ export default class Bot {
 
         this.client = new SteamUser({ autoRelogin: false });
         this.community = new SteamCommunity();
+        omitAbsentFormFields(this.community);
         this.manager = new TradeOfferManager({
             steam: this.client,
             community: this.community,

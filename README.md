@@ -240,3 +240,63 @@ For issues or questions specific to this pricedb.io fork (or to my services), pl
 
 -   Original project: [TF2Autobot by IdiNium](https://github.com/idinium96/tf2autobot)
 -   Based on [tf2-automatic by Nicklason](https://github.com/Nicklason/tf2-automatic)
+
+### NextCrit listings
+
+Set `NEXT_CRIT_ENABLE=true` and `NEXT_CRIT_API_KEY` to a long-lived API key for
+this bot's account on [next.crittf.tf](https://next.crittf.tf). The integration is
+disabled by default. While NextCrit uses a self-signed certificate, also set
+`NEXT_CRIT_ALLOW_SELF_SIGNED=true`; this disables certificate verification only
+for the NextCrit client. It lists every eligible tradable inventory asset up to
+each sell entry's stock limit, including assets with individual prices. Assets
+reserved in active trades are skipped when skipItemsInTrade is enabled. It
+updates prices, removes withdrawn or sold assets, and deletes all of the
+account's NextCrit buy and sell listings when the bot halts or removes all listings.
+Use a dedicated account for the bot if you also manage listings manually.
+
+The driver exchanges the API key for a short-lived Bearer token and renews it
+automatically. Prices use integer keys and half-scrap (18 half-scrap per refined).
+NextCrit resolves HAT Version Z from the asset in its inventory; sell requests
+send asset IDs rather than SKUs or locally generated HATs. If NextCrit cannot find
+an asset, the bot requests an inventory refresh and retries publishing. Failed
+publishes are retried on subsequent listing checks.
+
+Buy listings are generated from enabled buy and bank entries, even when the bot
+has no matching inventory assets. They use the buy price and remaining stock
+capacity, with unlimited stock represented as 65,535. Finite quantities pass
+through unchanged; NextCrit validates their integer widths. The filterCantAfford
+setting also applies to buy listings. Changes to price, stock,
+intent, and enabled status are synchronized on listing checks.
+
+Buy HATs use the schema and the vendored TF2-Price-DB/the-future serializer.
+Tradability, craftability, quality, killstreak tier, skin, wear, and specific
+unusual effects stay explicit. Marketability, killstreaker, sheen, strange parts,
+strange filters, and spells are ignored because SKU does not distinguish them.
+Incoming paint and festivized normalization allow those attributes when the SKU
+does not specify them. Generic unusual entries accept any effect. Secondary
+Strange quality remains explicit in the market name; the API has no ignored
+field for secondary quality normalization. Buy entries for specific craft numbers
+are skipped because HAT Version Z cannot express them.
+
+When NextCrit is enabled, the ready bot also listens to `/api/events/v2` for
+instant buy and sell checkout. It validates the requester's Steam trade URL.
+Sell checkout queues a normal UserCart for the exact asset IDs requested. The cart verifies advertised
+prices, stock limits (including pending outgoing sales), and asset availability
+before construction and again after the usual reputation and escrow checks.
+Requests that would change the quantity, substitute assets, or use changed
+prices are rejected. Payment, change, and mobile confirmations use the existing
+trade queue.
+
+Buy checkout resolves the requested listing ID to an enabled buy entry and
+selects matching items from the seller's inventory through the normal UserCart.
+The cart requires the full requested quantity at the advertised buy price,
+accounts for pending incoming purchases against the stock limit, and rechecks
+payment reservations before sending. Everyday currently requests one item per
+buy checkout and does not send seller asset IDs.
+
+The SSE connection reconnects after disconnects, renewing expired listener
+tokens during authentication. A healthy stream stays open across token expiry,
+which NextCrit checks only when establishing a connection.
+It stops when the bot halts or shuts down and resumes on unhalt. NextCrit's
+current event stream does not replay requests missed while disconnected; the
+buyer can retry checkout after the bot reconnects.

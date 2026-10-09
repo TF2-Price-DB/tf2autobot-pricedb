@@ -1,9 +1,14 @@
 import callbackQueue from 'callback-queue';
+import Bluebird from 'bluebird';
 import pluralize from 'pluralize';
 import dayjs from 'dayjs';
 import Currencies from '@tf2autobot/tf2-currencies';
 import * as timersPromises from 'timers/promises';
 import Bot from './Bot';
+import NextCritDriver from './NextCritDriver';
+import NextCritCheckout from './NextCritCheckout';
+import nextCritSellAssets from './nextCritSellAssets';
+import nextCritBuyListings from './nextCritBuyListings';
 import Pricelist, { Entry, PricesObject } from './Pricelist';
 import log from '../lib/logger';
 import { exponentialBackoff } from '../lib/helpers';
@@ -28,6 +33,12 @@ interface RemoveAllListingsParams {
 }
 
 export default class Listings {
+    private readonly nextCrit: NextCritDriver | undefined;
+
+    private readonly nextCritCheckout: NextCritCheckout | undefined;
+
+    private nextCritSyncTimer: NodeJS.Timeout | undefined;
+
     private checkingAllListings = false;
 
     private removingAllListings = false;
@@ -54,12 +65,28 @@ export default class Listings {
 
     constructor(private readonly bot: Bot) {
         this.bot = bot;
+        if (bot.options.nextCritEnable) {
+            this.nextCrit = new NextCritDriver(
+                bot.options.nextCritApiKey,
+                undefined,
+                bot.options.nextCritAllowSelfSigned
+            );
+            this.nextCritCheckout = new NextCritCheckout(bot, this.nextCrit);
+        }
         this.templates = {
             buy:
                 this.bot.options.details.buy ||
                 'I am buying your %name% for %price%, I have %current_stock% / %max_stock%.',
             sell: this.bot.options.details.sell || 'I am selling my %name% for %price%, I am selling %amount_trade%.'
         };
+    }
+
+    startNextCritCheckout(): void {
+        this.nextCritCheckout?.start();
+    }
+
+    stopNextCritCheckout(): void {
+        this.nextCritCheckout?.stop();
     }
 
     checkByPriceKey({
@@ -88,6 +115,7 @@ export default class Listings {
         if (!this.isCreateListing) {
             return;
         }
+        this.scheduleNextCritSync();
 
         if (showLogs) {
             log.debug(`Checking ${priceKey}...`);
@@ -481,7 +509,9 @@ export default class Listings {
                     log.debug('Done checking all');
                     // Done checking all listings
                     this.checkingAllListings = false;
-                    next();
+                    clearTimeout(this.nextCritSyncTimer);
+                    this.nextCritSyncTimer = undefined;
+                    void this.syncNextCritListings().then(() => next());
                 });
             };
 
@@ -535,6 +565,15 @@ export default class Listings {
     }
 
     removeAll(): Promise<void> {
+        clearTimeout(this.nextCritSyncTimer);
+        this.nextCritSyncTimer = undefined;
+        // Callers use Bluebird's asCallback, which native async-function promises do not expose.
+        return Bluebird.all([this.removeAllBackpackListings(), this.nextCrit?.deleteAllListings()]).then<void>(
+            () => undefined
+        );
+    }
+
+    private removeAllBackpackListings(): Promise<void> {
         return new Promise((resolve, reject) => {
             if (this.checkingAllListings) {
                 this.cancelCheckingListings = true;
@@ -863,6 +902,34 @@ export default class Listings {
         } catch (err) {
             log.error(`Failed to delete pricedb.io listing for ${assetId}:`, err);
         }
+    }
+
+    scheduleNextCritSync(): void {
+        if (!this.nextCrit || this.nextCritSyncTimer || this.checkingAllListings) return;
+        this.nextCritSyncTimer = setTimeout(() => {
+            this.nextCritSyncTimer = undefined;
+            void this.syncNextCritListings();
+        }, 250);
+    }
+
+    private async syncNextCritListings(): Promise<void> {
+        if (!this.nextCrit || !this.isCreateListing) return;
+        // Queue both intents before yielding, so removeAll always runs after both publishes.
+        const sync = async (intent: 'sell' | 'buy'): Promise<void> => {
+            try {
+                if (intent === 'sell') {
+                    await this.nextCrit.syncSellListings(
+                        nextCritSellAssets(this.bot),
+                        this.bot.client.steamID.getSteamID64()
+                    );
+                } else {
+                    await this.nextCrit.syncBuyListings(nextCritBuyListings(this.bot));
+                }
+            } catch (err) {
+                log.error(`Failed to sync NextCrit ${intent} listings:`, err);
+            }
+        };
+        await Promise.all([sync('sell'), sync('buy')]);
     }
 
     private getDetails(intent: 0 | 1, amountCanTrade: number, entry: Entry, item?: DictItem): string {

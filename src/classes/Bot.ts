@@ -593,6 +593,7 @@ export default class Bot {
 
     async halt(): Promise<boolean> {
         this.halted = true;
+        this.listings.stopNextCritCheckout();
         clearInterval(this.steamGamePresenceInterval);
         this.steamGamePresenceInterval = null;
 
@@ -639,6 +640,7 @@ export default class Bot {
         this.discordBot?.unhalt();
 
         this.startAutoRefreshListings();
+        this.listings.startNextCritCheckout();
 
         return recreateListingsFailed;
     }
@@ -948,6 +950,7 @@ export default class Bot {
                         if (listing.intent === 1 && match !== null && !match.enabled) {
                             log.debug(`Intent sell, removed because not selling: ${match.sku}`);
                             listing.remove();
+                            this.listings.scheduleNextCritSync();
                         }
 
                         listings[listingSKU] = (listings[listingSKU] ?? []).concat(listing);
@@ -1654,6 +1657,7 @@ export default class Bot {
                     void this.checkTradeProtectionAcknowledged();
                     this.manager.pollInterval = 10 * 1000;
                     this.setReady = true;
+                    this.listings.startNextCritCheckout();
                     this.handler.onReady();
                     this.trades.startPollWatchdog();
                     this.manager.doPoll();
@@ -1873,9 +1877,10 @@ export default class Bot {
                     log.error('Failed to sign in to Steam: ', err);
 
                     if (err.eresult === EResult.AccessDenied) {
-                        this.deleteRefreshToken().finally(() => {
-                            reject(err);
-                        });
+                        void this.deleteRefreshToken().then(
+                            () => reject(err),
+                            () => reject(err)
+                        );
                     } else {
                         reject(err);
                     }

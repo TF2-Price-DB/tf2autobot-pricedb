@@ -754,6 +754,7 @@ export default class ManagerCommands {
                         // Listings for selling exist, but the item is currently disabled, remove it.
                         log.debug(`Intent sell, removed because not selling: ${match.sku}`);
                         listing.remove();
+                        this.bot.listings.scheduleNextCritSync();
                     }
 
                     listings[listingSKU] = (listings[listingSKU] ?? []).concat(listing);

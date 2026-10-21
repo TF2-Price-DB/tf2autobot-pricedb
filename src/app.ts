@@ -1,12 +1,6 @@
-try {
-    // only installed in dev mode
-    // eslint-disable-next-line @typescript-eslint/no-var-requires,@typescript-eslint/no-unsafe-assignment
-    const { bootstrap } = require('global-agent');
-    // eslint-disable-next-line @typescript-eslint/no-unsafe-call
-    bootstrap();
-} catch (e) {
-    // no worries
-}
+import bootstrapProxy from './lib/bootstrapProxy';
+
+bootstrapProxy();
 import 'module-alias/register';
 // eslint-disable-next-line @typescript-eslint/no-var-requires,@typescript-eslint/no-unsafe-assignment
 const { version: BOT_VERSION } = require('../package.json');

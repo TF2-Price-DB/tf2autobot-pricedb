@@ -6,7 +6,8 @@ import { createHatVersionZ, HatVersionZProps } from '../vendor/the-future/create
 export default function skuToHat(sku: string, schema: SchemaManager.Schema): string {
     const item = SKU.fromString(sku);
     if (item.craftnumber) throw new Error('HAT Version Z cannot express a specific craft number');
-    const marketHashName = schema.getName(item, false, false, true)?.replace(/%23/g, '#');
+    // Steam market names retain proper-name prefixes, e.g. "The Winger".
+    const marketHashName = schema.getName(item, true, false, true)?.replace(/%23/g, '#');
     const quality = schema.getQualityById(item.quality);
     if (!marketHashName || !quality) throw new Error(`Cannot build NextCrit HAT for ${sku}`);
     const lookup = (id: number, getName: (id: number) => string | null): string[] => {

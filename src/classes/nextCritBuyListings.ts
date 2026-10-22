@@ -12,6 +12,8 @@ export function nextCritBuyListingEntries(bot: Bot): { sku: string; listing: Nex
     const listings: { sku: string; listing: NextCritBuyInput }[] = [];
     for (const [priceKey, entry] of Object.entries(bot.pricelist.getPrices)) {
         if (!entry.enabled || entry.id || entry.intent === 1 || !entry.buy) continue;
+        // A negative buy price must not prevent valid orders from reaching Crit TF.
+        if (entry.buy.keys < 0 || entry.buy.metal < 0) continue;
         const capacity = bot.inventoryManager.amountCanTrade({ priceKey, tradeIntent: 'buying' });
         if (capacity <= 0) continue;
         if (

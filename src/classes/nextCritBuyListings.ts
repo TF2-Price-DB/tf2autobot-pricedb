@@ -2,6 +2,7 @@ import SKU from '@tf2autobot/tf2-sku';
 import type Bot from './Bot';
 import NextCritDriver, { NextCritBuyInput, NextCritIgnoredField } from './NextCritDriver';
 import skuToHat from '../lib/skuToHat';
+import log from '../lib/logger';
 
 /** Build buy criteria from the schema, including items absent from our inventory. */
 export default function nextCritBuyListings(bot: Bot): NextCritBuyInput[] {
@@ -46,5 +47,17 @@ export function nextCritBuyListingEntries(bot: Bot): { sku: string; listing: Nex
             }
         });
     }
-    return listings;
+    const groups = new Map<string, typeof listings>();
+    for (const entry of listings) {
+        const key = NextCritDriver.buyKey(entry.listing);
+        const group = groups.get(key) ?? [];
+        group.push(entry);
+        groups.set(key, group);
+    }
+    // Checkout must resolve criteria to exactly one SKU; never choose an arbitrary duplicate.
+    return [...groups.values()].flatMap(group => {
+        if (group.length === 1) return group;
+        log.warn(`Skipping ambiguous Crit TF buy criteria for SKUs: ${group.map(entry => entry.sku).join(', ')}`);
+        return [];
+    });
 }

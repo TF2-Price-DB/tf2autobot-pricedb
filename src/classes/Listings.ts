@@ -91,6 +91,16 @@ export default class Listings {
         this.nextCritCheckout?.start();
     }
 
+    async syncNextCritTradeOfferToken(): Promise<void> {
+        if (!this.nextCrit || !this.bot.tradeOfferUrl) return;
+        try {
+            const token = new URL(this.bot.tradeOfferUrl).searchParams.get('token');
+            await this.nextCrit.setTradeOfferToken(token ?? '');
+        } catch {
+            log.warn('Failed to sync the trade offer token to Crit TF; continuing without updating it.');
+        }
+    }
+
     stopNextCritCheckout(): void {
         this.nextCritCheckout?.stop();
     }

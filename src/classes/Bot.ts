@@ -1977,6 +1977,7 @@ export default class Bot {
 
         if (cachedTradeOfferUrl !== null) {
             this.tradeOfferUrl = cachedTradeOfferUrl;
+            await this.listings.syncNextCritTradeOfferToken();
             return;
         }
 
@@ -2001,6 +2002,7 @@ export default class Bot {
 
         this.tradeOfferUrl = url;
         this.cacheTradeOfferUrl(url);
+        await this.listings.syncNextCritTradeOfferToken();
     }
 
     private scheduleTradeOfferUrlRetry(attempt = 1): void {

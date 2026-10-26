@@ -29,6 +29,7 @@ export default class MiscCommands {
             steamID,
             `Steam: <https://steamcommunity.com/profiles/${botSteamID}>` +
                 `\nBackpack.tf: <https://backpack.tf/u/${botSteamID}>` +
+                `\nCrit.tf: <https://crit.tf/inventory/${botSteamID}>` +
                 `\nRep.tf: <https://rep.tf/${botSteamID}>` +
                 manncoStoreLink +
                 `\nTrade Offer URL: <${this.bot.tradeOfferUrl}>`

@@ -110,6 +110,11 @@ export default class NextCritDriver {
         });
     }
 
+    async setTradeOfferToken(token: string): Promise<void> {
+        if (!/^[A-Za-z0-9_-]{8}$/.test(token)) throw new Error('Invalid NextCrit trade offer token');
+        await this.request({ method: 'POST', url: '/api/v2/trade-offer-token', data: { token } });
+    }
+
     async postTradeProgress(progress: NextCritTradeProgress): Promise<void> {
         const response = await this.request<{ accepted: boolean }>({
             method: 'POST',

@@ -584,9 +584,13 @@ export default class Listings {
         clearTimeout(this.nextCritSyncTimer);
         this.nextCritSyncTimer = undefined;
         // Callers use Bluebird's asCallback, which native async-function promises do not expose.
-        return Bluebird.all([this.removeAllBackpackListings(), this.nextCrit?.deleteAllListings()]).then<void>(
-            () => undefined
-        );
+        return Bluebird.all([
+            this.removeAllBackpackListings(),
+            this.nextCrit?.deleteAllListings().catch(() => {
+                // Crit TF is optional; an outage must not prevent startup or backpack.tf listing refreshes.
+                log.warn('Failed to delete Crit TF listings; continuing without removing them.');
+            })
+        ]).then<void>(() => undefined);
     }
 
     private removeAllBackpackListings(): Promise<void> {

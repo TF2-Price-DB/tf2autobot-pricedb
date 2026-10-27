@@ -37,10 +37,6 @@ export const DEFAULTS: JsonOptions = {
         createListings: {
             enable: true
         },
-        pricedbStore: {
-            enable: true,
-            enableInventoryRefresh: true
-        },
         manncoStore: {
             enable: false
         },
@@ -1292,12 +1288,6 @@ interface Counteroffer extends OnlyEnable {
     useSeparateKeyRates?: boolean;
 }
 
-// --------- PriceDB Store Settings ----------
-
-interface PriceDBStore extends OnlyEnable {
-    enableInventoryRefresh?: boolean;
-}
-
 type ManncoStore = OnlyEnable;
 
 // --------- Misc Settings ----------
@@ -1320,7 +1310,6 @@ interface MiscSettings {
     showOnlyMetal?: OnlyEnable;
     sortInventory?: SortInventory;
     createListings?: OnlyEnable;
-    pricedbStore?: PriceDBStore;
     manncoStore?: ManncoStore;
     startHalted?: OnlyEnable;
     counterOffer?: Counteroffer;
@@ -2332,6 +2321,8 @@ export interface JsonOptions {
  *
  */
 export interface DeprecatedJsonOptions extends JsonOptions {
+    miscSettings?: MiscSettings & { pricedbStore?: { enable?: boolean; enableInventoryRefresh?: boolean } };
+    pricedbStoreApiKey?: string;
     detailsExtra?: DeprecatedDetailsExtra;
 }
 
@@ -2344,7 +2335,6 @@ export default interface Options extends JsonOptions {
 
     bptfAccessToken?: string;
     bptfApiKey?: string;
-    pricedbStoreApiKey?: string;
     manncoStoreApiKey?: string;
     useragentHeaderCustom?: string;
     useragentHeaderShowVersion?: boolean;
@@ -2492,10 +2482,23 @@ export function removeCliOptions(incomingOptions: Options): void {
     }
 }
 
+/** Drop retired store configuration before validating either saved or incoming options. */
+function removeRetiredStoreOptions(options: DeprecatedJsonOptions): boolean {
+    let changed = false;
+    if (options.miscSettings?.pricedbStore !== undefined) {
+        delete options.miscSettings.pricedbStore;
+        changed = true;
+    }
+    if (options.pricedbStoreApiKey !== undefined) {
+        delete options.pricedbStoreApiKey;
+        changed = true;
+    }
+    return changed;
+}
+
 /** take a JsonOptions that had potentially deprecated options and update appropriately */
 function replaceOldProperties(options: DeprecatedJsonOptions): boolean {
-    // Automatically replace old properties
-    let isChanged = false;
+    let isChanged = removeRetiredStoreOptions(options);
 
     // <= v4.1.5 → v4.2.0
     const hv = options.highValue;
@@ -2687,7 +2690,6 @@ export function loadOptions(options?: Options): Options {
 
         bptfAccessToken: getOption('bptfAccessToken', '', String, incomingOptions),
         bptfApiKey: getOption('bptfApiKey', '', String, incomingOptions),
-        pricedbStoreApiKey: getOption('pricedbStoreApiKey', '', String, incomingOptions),
         manncoStoreApiKey: getOption('manncoStoreApiKey', '', String, incomingOptions),
         useragentHeaderCustom: getOption('useragentHeaderCustom', '', String, incomingOptions),
         useragentHeaderShowVersion: getOption('useragentHeaderShowVersion', false, jsonParseBoolean, incomingOptions),
@@ -2740,6 +2742,7 @@ export function loadOptions(options?: Options): Options {
         throw new Error('STEAM_ACCOUNT_NAME must be set in the environment');
     }
 
+    removeRetiredStoreOptions(incomingOptions);
     removeCliOptions(incomingOptions);
     const jsonOptions = loadJsonOptions(getOptionsPath(envOptions.steamAccountName), incomingOptions);
 

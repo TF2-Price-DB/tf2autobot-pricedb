@@ -5,7 +5,6 @@ import TradeOfferManager, { CustomError, EconItem } from '@tf2autobot/tradeoffer
 import SteamCommunity from '@tf2autobot/steamcommunity';
 import SteamTotp from 'steam-totp';
 import ListingManager, { Listing } from '@tf2autobot/bptf-listings';
-import PriceDBStoreManager from './PriceDBStoreManager';
 import ManncoStoreManager, { ManncoPricelistItem, ManncoRateLimitError } from './ManncoStoreManager';
 import sendManncoTransaction from './DiscordWebhook/sendManncoTransaction';
 import JournalTfManager from './JournalTfManager';
@@ -68,12 +67,6 @@ type EasyCopyPasteInstance = {
 
 const EasyCopyPasteCtor = EasyCopyPaste as unknown as new () => EasyCopyPasteInstance;
 
-// Temporary kill switch for the PriceDB Store / crit.tf integration.
-const PRICEDB_STORE_ENABLED = false;
-
-type PriceDBListingEvent = { id: string };
-type PriceDBInventoryRefreshedEvent = { itemCount: number; refreshCount: number };
-
 const TRADE_OFFER_URL_RETRY_BASE_DELAY = 5 * 1000;
 const TRADE_OFFER_URL_RETRY_MAX_DELAY = 5 * 60 * 1000;
 
@@ -108,8 +101,6 @@ export default class Bot {
     tradeOfferUrl: string;
 
     listingManager: ListingManager;
-
-    pricedbStoreManager: PriceDBStoreManager;
 
     manncoStoreManager: ManncoStoreManager;
 
@@ -411,28 +402,6 @@ export default class Bot {
 
     get getAdmins(): SteamID[] {
         return this.admins;
-    }
-
-    /**
-     * Get the crit.tf store URL with cached slug if available, otherwise steamID-based URL
-     */
-    getPricedbStoreUrl(): string {
-        if (!this.client.steamID) {
-            log.warn('Cannot get PriceDB store URL: not logged in to Steam');
-            return 'https://crit.tf';
-        }
-
-        const steamID = this.client.steamID.getSteamID64();
-        const fallbackUrl = `https://crit.tf/store?id=${steamID}`;
-
-        if (this.pricedbStoreManager) {
-            const cachedUrl = this.pricedbStoreManager.getCachedStoreURL();
-            if (cachedUrl) {
-                return cachedUrl;
-            }
-        }
-
-        return fallbackUrl;
     }
 
     isWhitelisted(steamID: SteamID | string): boolean {
@@ -1435,54 +1404,6 @@ export default class Bot {
                                         }
                                         cb(null);
                                     });
-                                },
-                                (cb: Callback): void => {
-                                    if (
-                                        !PRICEDB_STORE_ENABLED ||
-                                        !this.options.pricedbStoreApiKey ||
-                                        !this.options.miscSettings.pricedbStore.enable
-                                    ) {
-                                        cb(null);
-                                        return;
-                                    }
-
-                                    if (!this.client.steamID) {
-                                        log.warn('Cannot initialize PriceDB Store Manager: not logged in to Steam');
-                                        cb(null);
-                                        return;
-                                    }
-
-                                    this.pricedbStoreManager = new PriceDBStoreManager(
-                                        this.options.pricedbStoreApiKey,
-                                        this.client.steamID.getSteamID64()
-                                    );
-
-                                    this.pricedbStoreManager.on('listingCreated', (listing: PriceDBListingEvent) => {
-                                        log.debug('PriceDB Store listing created:', listing.id);
-                                    });
-
-                                    this.pricedbStoreManager.on('listingUpdated', (listing: PriceDBListingEvent) => {
-                                        log.debug('PriceDB Store listing updated:', listing.id);
-                                    });
-
-                                    this.pricedbStoreManager.on('listingDeleted', (assetId: string) => {
-                                        log.debug('PriceDB Store listing deleted:', assetId);
-                                    });
-
-                                    this.pricedbStoreManager.on(
-                                        'inventoryRefreshed',
-                                        (evt: PriceDBInventoryRefreshedEvent) => {
-                                            log.info(
-                                                `PriceDB Store inventory refreshed: ${evt.itemCount} items (${evt.refreshCount}/25 today)`
-                                            );
-                                        }
-                                    );
-
-                                    this.pricedbStoreManager.on('error', (err: unknown) => {
-                                        log.error('PriceDB Store Manager error:', err);
-                                    });
-
-                                    void handleCallback(this.pricedbStoreManager.init(), cb);
                                 },
                                 (cb: Callback): void => {
                                     if (

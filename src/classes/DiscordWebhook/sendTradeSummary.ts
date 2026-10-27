@@ -165,9 +165,7 @@ export default async function sendTradeSummary(
 
     const botLinks = misc.note
         ? misc.note
-        : `[Backpack.tf](https://backpack.tf/profiles/${botInfo.steamID.getSteamID64()}) · [crit.tf](https://crit.tf/inventory/${botInfo.steamID.getSteamID64()})${
-              bot.options.miscSettings.pricedbStore.enable ? ` · [Store](${bot.getPricedbStoreUrl()})` : ''
-          }`;
+        : `[Backpack.tf](https://backpack.tf/profiles/${botInfo.steamID.getSteamID64()}) · [crit.tf](https://crit.tf/inventory/${botInfo.steamID.getSteamID64()})`;
 
     const keyRateMetal = bot.pricelist.getKeyPrice.metal;
     const profitData = collectItemProfits(offer, bot);

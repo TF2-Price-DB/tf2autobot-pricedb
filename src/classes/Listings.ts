@@ -988,8 +988,6 @@ export default class Listings {
 
             const ecpString = this.bot.ecp.toEcpStr(entry.id ?? entry.name, key);
 
-            // Keep the legacy template alias pointing to the current Crit TF inventory.
-            const critStoreUrl = `https://crit.tf/inventory/${this.bot.client.steamID.getSteamID64()}`;
             const pricedbItemUrl = `https://pricedb.io/item/${encodeURIComponent(entry.sku)}`;
             let critListingUrl = '';
             if (details.includes('%crit_listing%')) {
@@ -1013,7 +1011,6 @@ export default class Listings {
                 .replace(/%max_stock%/g, isShowBoldOnMaxStock ? boldDetails(maxStock, style) : maxStock)
                 .replace(/%current_stock%/g, isShowBoldOnCurrentStock ? boldDetails(currentStock, style) : currentStock)
                 .replace(/%amount_trade%/g, isShowBoldOnAmount ? boldDetails(amountTrade, style) : amountTrade)
-                .replace(/%(?:crit_store|pricedb_store)%/g, critStoreUrl)
                 .replace(/%pricedb_item%/g, pricedbItemUrl)
                 .replace(/%crit_listing%/g, critListingUrl);
         };

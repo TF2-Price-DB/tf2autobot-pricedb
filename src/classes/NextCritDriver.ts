@@ -94,6 +94,7 @@ export default class NextCritDriver {
         if (!apiKey) throw new Error('NextCrit requires an API key');
         this.http = axios.create({
             baseURL: baseUrl,
+            headers: { 'User-Agent': 'TF2AutobotPriceDB@' + process.env.BOT_VERSION },
             timeout: 30000,
             maxRedirects: 0,
             httpsAgent: new Agent({ rejectUnauthorized: !allowSelfSigned })

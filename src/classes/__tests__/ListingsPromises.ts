@@ -1,6 +1,8 @@
 import type Bot from '../Bot';
 import type NextCritDriver from '../NextCritDriver';
 import Listings from '../Listings';
+import { NextCritRequestError } from '../NextCritDriver';
+import log from '../../lib/logger';
 
 jest.mock('../Bot', () => ({ __esModule: true, default: jest.fn() }));
 
@@ -51,14 +53,10 @@ test('redoListings waits for both providers before checking listings and calling
     expect(checkAll).toHaveBeenCalledTimes(1);
 });
 
-test.each(['backpack', 'nextcrit'])('redoListings reports %s removal failure through asCallback', async provider => {
-    const { listings, internals, removeBackpack, checkAll } = setup();
+test('redoListings reports backpack removal failure through asCallback', async () => {
+    const { listings, removeBackpack, checkAll } = setup();
     const failure = new Error('Deletion failed');
-    if (provider === 'backpack') {
-        removeBackpack.mockRejectedValue(failure);
-    } else {
-        internals.nextCrit = { deleteAllListings: jest.fn(() => Promise.reject(failure)) };
-    }
+    removeBackpack.mockRejectedValue(failure);
     const result = listings.redoListings();
     const callbackError = await new Promise<Error>(resolve => {
         void result.asCallback(err => resolve(err as Error));
@@ -66,6 +64,24 @@ test.each(['backpack', 'nextcrit'])('redoListings reports %s removal failure thr
     expect(callbackError).toBe(failure);
     expect(checkAll).not.toHaveBeenCalled();
 });
+
+test.each([new NextCritRequestError(undefined, 'ECONNABORTED'), new NextCritRequestError(503, undefined)])(
+    'redoListings continues after a Crit TF outage: %s',
+    async failure => {
+        const { listings, internals, checkAll } = setup();
+        const warning = jest.spyOn(log, 'warn').mockImplementation(() => log);
+        internals.nextCrit = { deleteAllListings: jest.fn(() => Promise.reject(failure)) };
+        try {
+            await new Promise<void>((resolve, reject) => {
+                void listings.redoListings().asCallback(err => (err ? reject(err) : resolve()));
+            });
+            expect(checkAll).toHaveBeenCalledTimes(1);
+            expect(warning).toHaveBeenCalled();
+        } finally {
+            warning.mockRestore();
+        }
+    }
+);
 
 test('queues both listing intents before removal while the sell sync is pending', async () => {
     const { listings } = setup();

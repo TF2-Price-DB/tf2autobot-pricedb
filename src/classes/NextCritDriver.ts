@@ -133,7 +133,7 @@ export default class NextCritDriver {
         return this.enqueue(async () => {
             const previous = this.published.get(assetId);
             if (previous?.keys === price.keys && previous.half_scrap === price.half_scrap) return;
-            await this.ensureSellInventory(steam64, [assetId]);
+            if (!previous) await this.ensureSellInventory(steam64, [assetId]);
             const config: AxiosRequestConfig = {
                 method: 'POST',
                 url: '/api/v2/sell-listings',
@@ -144,6 +144,7 @@ export default class NextCritDriver {
                 response = await this.request<ListingsResponse>(config);
             } catch (err) {
                 if (!(err instanceof NextCritRequestError) || err.status !== 404) throw err;
+                this.published.delete(assetId);
                 await this.ensureSellInventory(steam64, [assetId], true);
                 response = await this.request<ListingsResponse>(config);
             }
@@ -184,7 +185,8 @@ export default class NextCritDriver {
             });
             if (changed.length === 0) return;
             const assetIds = changed.map(listing => listing.asset_id);
-            await this.ensureSellInventory(steam64, assetIds);
+            const newAssetIds = assetIds.filter(assetId => !existing.has(assetId));
+            if (newAssetIds.length > 0) await this.ensureSellInventory(steam64, newAssetIds);
             const config: AxiosRequestConfig = { method: 'POST', url: '/api/v2/sell-listings', data: changed };
             let result: ListingsResponse;
             try {

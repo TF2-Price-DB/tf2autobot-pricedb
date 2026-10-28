@@ -84,7 +84,9 @@ export default class NextCritDriver {
 
     private tokenExpiresAt = 0;
 
-    private lastInventoryRefresh = 0;
+    private lastInventoryRefresh = -Infinity;
+
+    private inventorySnapshot: { steam64: string; response: InventoryResponse } | undefined;
 
     private queue: Promise<unknown> = Promise.resolve();
 
@@ -344,32 +346,32 @@ export default class NextCritDriver {
             }
             return assetIds.every(assetId => Object.prototype.hasOwnProperty.call(response.inventory, assetId));
         };
-        if (!forceRefresh) {
-            try {
-                const cached = await this.request<InventoryResponse>({
-                    method: 'GET',
-                    url: `/api/v2/inventories/${steam64}/1h`
-                });
-                if (containsAssets(cached)) return;
-            } catch (err) {
-                if (!(err instanceof NextCritRequestError) || err.status !== 404) throw err;
-            }
+        if (!forceRefresh && Date.now() - this.lastInventoryRefresh < 60000) {
+            const snapshot = this.inventorySnapshot;
+            if (snapshot?.steam64 === steam64 && containsAssets(snapshot.response)) return;
         }
-        // Missing assets must bypass both the server cache and the routine refresh cooldown.
-        const refreshed = await this.request<InventoryResponse>({
-            method: 'GET',
-            url: `/api/v2/inventories/${steam64}/0/refresh`
-        });
-        this.lastInventoryRefresh = Date.now();
+        const refreshed = await this.loadFreshInventory(steam64, forceRefresh ? '0' : '6h');
+        if (!refreshed) throw new Error('NextCrit inventory refresh is cooling down; retry on a later listing sync');
         if (!containsAssets(refreshed))
             throw new Error('NextCrit inventory is still missing sell-listing assets after refresh');
     }
 
     private async refreshInventoryNow(steam64: string): Promise<void> {
         if (!/^7656119\d{10}$/.test(steam64)) throw new Error('Invalid NextCrit Steam ID');
-        if (Date.now() - this.lastInventoryRefresh < 60000) return;
-        await this.request({ method: 'GET', url: `/api/v2/inventories/${steam64}/0/refresh` });
+        await this.loadFreshInventory(steam64);
+    }
+
+    private async loadFreshInventory(steam64: string, maxAge = '0'): Promise<InventoryResponse | undefined> {
+        if (Date.now() - this.lastInventoryRefresh < 60000) return undefined;
+        // Count failed attempts too, so unavailable inventories cannot cause a refresh loop.
         this.lastInventoryRefresh = Date.now();
+        this.inventorySnapshot = undefined;
+        const response = await this.request<InventoryResponse>({
+            method: 'GET',
+            url: `/api/v2/inventories/${steam64}/${maxAge}/refresh`
+        });
+        this.inventorySnapshot = { steam64, response };
+        return response;
     }
 
     private static validateAssetId(assetId: string): void {

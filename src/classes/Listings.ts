@@ -5,7 +5,7 @@ import dayjs from 'dayjs';
 import Currencies from '@tf2autobot/tf2-currencies';
 import * as timersPromises from 'timers/promises';
 import Bot from './Bot';
-import NextCritDriver from './NextCritDriver';
+import NextCritDriver, { NextCritInventoryPendingError } from './NextCritDriver';
 import NextCritCheckout from './NextCritCheckout';
 import NextCritItemUrls from './NextCritItemUrls';
 import skuToHat from '../lib/skuToHat';
@@ -834,12 +834,12 @@ export default class Listings {
         }
     }
 
-    scheduleNextCritSync(): void {
+    scheduleNextCritSync(delayMs = 250): void {
         if (!this.nextCrit || this.nextCritSyncTimer || this.checkingAllListings) return;
         this.nextCritSyncTimer = setTimeout(() => {
             this.nextCritSyncTimer = undefined;
             void this.syncNextCritListings();
-        }, 250);
+        }, delayMs);
     }
 
     private async syncNextCritListings(): Promise<void> {
@@ -856,6 +856,11 @@ export default class Listings {
                     await this.nextCrit.syncBuyListings(nextCritBuyListings(this.bot));
                 }
             } catch (err) {
+                if (err instanceof NextCritInventoryPendingError) {
+                    log.debug(`NextCrit sell inventory pending; retrying in ${Math.ceil(err.retryAfterMs / 1000)}s.`);
+                    this.scheduleNextCritSync(err.retryAfterMs);
+                    return;
+                }
                 log.error(`Failed to sync NextCrit ${intent} listings:`, err);
             }
         };

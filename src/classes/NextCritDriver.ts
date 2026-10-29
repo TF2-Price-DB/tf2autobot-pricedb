@@ -74,6 +74,12 @@ export class NextCritRequestError extends Error {
     }
 }
 
+export class NextCritInventoryPendingError extends Error {
+    constructor(message: string, readonly retryAfterMs: number) {
+        super(message);
+    }
+}
+
 /** Publishes sell assets and buy criteria through NextCrit's v2 listing API. */
 export default class NextCritDriver {
     private readonly http: AxiosInstance;
@@ -85,6 +91,8 @@ export default class NextCritDriver {
     private tokenExpiresAt = 0;
 
     private lastInventoryRefresh = -Infinity;
+
+    private lastForcedInventoryRefresh = -Infinity;
 
     private inventorySnapshot: { steam64: string; response: InventoryResponse } | undefined;
 
@@ -352,10 +360,21 @@ export default class NextCritDriver {
             const snapshot = this.inventorySnapshot;
             if (snapshot?.steam64 === steam64 && containsAssets(snapshot.response)) return;
         }
-        const refreshed = await this.loadFreshInventory(steam64, forceRefresh ? '0' : '6h');
-        if (!refreshed) throw new Error('NextCrit inventory refresh is cooling down; retry on a later listing sync');
+        if (!forceRefresh) {
+            const cached = await this.loadFreshInventory(steam64, '6h');
+            if (cached && containsAssets(cached)) return;
+        }
+        // A cached inventory can predate a completed trade. Reading it must not
+        // consume the rate limit for the fresh refresh needed to discover new assets.
+        const refreshed = await this.loadFreshInventory(steam64, '0');
+        const retryAfterMs = Math.max(1000, this.lastForcedInventoryRefresh + 60000 - Date.now());
+        if (!refreshed)
+            throw new NextCritInventoryPendingError('NextCrit inventory refresh is cooling down', retryAfterMs);
         if (!containsAssets(refreshed))
-            throw new Error('NextCrit inventory is still missing sell-listing assets after refresh');
+            throw new NextCritInventoryPendingError(
+                'NextCrit inventory is still missing sell-listing assets after refresh',
+                retryAfterMs
+            );
     }
 
     private async refreshInventoryNow(steam64: string): Promise<void> {
@@ -364,9 +383,11 @@ export default class NextCritDriver {
     }
 
     private async loadFreshInventory(steam64: string, maxAge = '0'): Promise<InventoryResponse | undefined> {
-        if (Date.now() - this.lastInventoryRefresh < 60000) return undefined;
+        const lastAttempt = maxAge === '0' ? this.lastForcedInventoryRefresh : this.lastInventoryRefresh;
+        if (Date.now() - lastAttempt < 60000) return undefined;
         // Count failed attempts too, so unavailable inventories cannot cause a refresh loop.
         this.lastInventoryRefresh = Date.now();
+        if (maxAge === '0') this.lastForcedInventoryRefresh = this.lastInventoryRefresh;
         this.inventorySnapshot = undefined;
         const response = await this.request<InventoryResponse>({
             method: 'GET',

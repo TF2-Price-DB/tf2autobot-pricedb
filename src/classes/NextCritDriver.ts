@@ -74,6 +74,12 @@ export class NextCritRequestError extends Error {
     }
 }
 
+export class NextCritInventoryPendingError extends Error {
+    constructor(message: string, readonly retryAfterMs: number) {
+        super(message);
+    }
+}
+
 /** Publishes sell assets and buy criteria through NextCrit's v2 listing API. */
 export default class NextCritDriver {
     private readonly http: AxiosInstance;
@@ -84,7 +90,11 @@ export default class NextCritDriver {
 
     private tokenExpiresAt = 0;
 
-    private lastInventoryRefresh = 0;
+    private lastInventoryRefresh = -Infinity;
+
+    private lastForcedInventoryRefresh = -Infinity;
+
+    private inventorySnapshot: { steam64: string; response: InventoryResponse } | undefined;
 
     private queue: Promise<unknown> = Promise.resolve();
 
@@ -94,6 +104,7 @@ export default class NextCritDriver {
         if (!apiKey) throw new Error('NextCrit requires an API key');
         this.http = axios.create({
             baseURL: baseUrl,
+            headers: { 'User-Agent': 'TF2AutobotPriceDB@' + process.env.BOT_VERSION },
             timeout: 30000,
             maxRedirects: 0,
             httpsAgent: new Agent({ rejectUnauthorized: !allowSelfSigned })
@@ -130,7 +141,7 @@ export default class NextCritDriver {
         return this.enqueue(async () => {
             const previous = this.published.get(assetId);
             if (previous?.keys === price.keys && previous.half_scrap === price.half_scrap) return;
-            await this.ensureSellInventory(steam64, [assetId]);
+            if (!previous) await this.ensureSellInventory(steam64, [assetId]);
             const config: AxiosRequestConfig = {
                 method: 'POST',
                 url: '/api/v2/sell-listings',
@@ -141,6 +152,7 @@ export default class NextCritDriver {
                 response = await this.request<ListingsResponse>(config);
             } catch (err) {
                 if (!(err instanceof NextCritRequestError) || err.status !== 404) throw err;
+                this.published.delete(assetId);
                 await this.ensureSellInventory(steam64, [assetId], true);
                 response = await this.request<ListingsResponse>(config);
             }
@@ -181,7 +193,8 @@ export default class NextCritDriver {
             });
             if (changed.length === 0) return;
             const assetIds = changed.map(listing => listing.asset_id);
-            await this.ensureSellInventory(steam64, assetIds);
+            const newAssetIds = assetIds.filter(assetId => !existing.has(assetId));
+            if (newAssetIds.length > 0) await this.ensureSellInventory(steam64, newAssetIds);
             const config: AxiosRequestConfig = { method: 'POST', url: '/api/v2/sell-listings', data: changed };
             let result: ListingsResponse;
             try {
@@ -343,32 +356,45 @@ export default class NextCritDriver {
             }
             return assetIds.every(assetId => Object.prototype.hasOwnProperty.call(response.inventory, assetId));
         };
-        if (!forceRefresh) {
-            try {
-                const cached = await this.request<InventoryResponse>({
-                    method: 'GET',
-                    url: `/api/v2/inventories/${steam64}/1h`
-                });
-                if (containsAssets(cached)) return;
-            } catch (err) {
-                if (!(err instanceof NextCritRequestError) || err.status !== 404) throw err;
-            }
+        if (!forceRefresh && Date.now() - this.lastInventoryRefresh < 60000) {
+            const snapshot = this.inventorySnapshot;
+            if (snapshot?.steam64 === steam64 && containsAssets(snapshot.response)) return;
         }
-        // Missing assets must bypass both the server cache and the routine refresh cooldown.
-        const refreshed = await this.request<InventoryResponse>({
-            method: 'GET',
-            url: `/api/v2/inventories/${steam64}/0/refresh`
-        });
-        this.lastInventoryRefresh = Date.now();
+        if (!forceRefresh) {
+            const cached = await this.loadFreshInventory(steam64, '6h');
+            if (cached && containsAssets(cached)) return;
+        }
+        // A cached inventory can predate a completed trade. Reading it must not
+        // consume the rate limit for the fresh refresh needed to discover new assets.
+        const refreshed = await this.loadFreshInventory(steam64, '0');
+        const retryAfterMs = Math.max(1000, this.lastForcedInventoryRefresh + 60000 - Date.now());
+        if (!refreshed)
+            throw new NextCritInventoryPendingError('NextCrit inventory refresh is cooling down', retryAfterMs);
         if (!containsAssets(refreshed))
-            throw new Error('NextCrit inventory is still missing sell-listing assets after refresh');
+            throw new NextCritInventoryPendingError(
+                'NextCrit inventory is still missing sell-listing assets after refresh',
+                retryAfterMs
+            );
     }
 
     private async refreshInventoryNow(steam64: string): Promise<void> {
         if (!/^7656119\d{10}$/.test(steam64)) throw new Error('Invalid NextCrit Steam ID');
-        if (Date.now() - this.lastInventoryRefresh < 60000) return;
-        await this.request({ method: 'GET', url: `/api/v2/inventories/${steam64}/0/refresh` });
+        await this.loadFreshInventory(steam64);
+    }
+
+    private async loadFreshInventory(steam64: string, maxAge = '0'): Promise<InventoryResponse | undefined> {
+        const lastAttempt = maxAge === '0' ? this.lastForcedInventoryRefresh : this.lastInventoryRefresh;
+        if (Date.now() - lastAttempt < 60000) return undefined;
+        // Count failed attempts too, so unavailable inventories cannot cause a refresh loop.
         this.lastInventoryRefresh = Date.now();
+        if (maxAge === '0') this.lastForcedInventoryRefresh = this.lastInventoryRefresh;
+        this.inventorySnapshot = undefined;
+        const response = await this.request<InventoryResponse>({
+            method: 'GET',
+            url: `/api/v2/inventories/${steam64}/${maxAge}/refresh`
+        });
+        this.inventorySnapshot = { steam64, response };
+        return response;
     }
 
     private static validateAssetId(assetId: string): void {

@@ -165,9 +165,7 @@ export default async function sendTradeSummary(
 
     const botLinks = misc.note
         ? misc.note
-        : `[Backpack](https://backpack.tf/profiles/${botInfo.steamID.getSteamID64()})${
-              bot.options.miscSettings.pricedbStore.enable ? ` · [Store](${bot.getPricedbStoreUrl()})` : ''
-          }`;
+        : `[Backpack.tf](https://backpack.tf/profiles/${botInfo.steamID.getSteamID64()}) · [crit.tf](https://crit.tf/inventory/${botInfo.steamID.getSteamID64()})`;
 
     const keyRateMetal = bot.pricelist.getKeyPrice.metal;
     const profitData = collectItemProfits(offer, bot);
@@ -178,12 +176,14 @@ export default async function sendTradeSummary(
     // Components V2: one ordered array, text and image interleaved freely, every
     // Text Display fully markdown.
     //
-    // The name is itself the Steam link, so the row is three destinations with no
+    // The name is itself the Steam link, so the row has distinct destinations with no
     // repeats. Title at h3, not h2, which dominated a message whose subject is the
     // card below it; the partner line is bold body text to stay clear of it.
     const partnerDisplayName = escapeMarkdown(details.personaName);
     const partnerLine = misc.showQuickLinks
-        ? `**[${partnerDisplayName}](${links.steam}) | [backpack.tf](${links.bptf}) | [rep.tf](${links.reptf})**`
+        ? `**[${partnerDisplayName}](${links.steam}) | [backpack.tf](${
+              links.bptf
+          }) | [crit.tf](https://crit.tf/inventory/${offer.partner.toString()}) | [rep.tf](${links.reptf})**`
         : `**[${partnerDisplayName}](${links.steam})**`;
     const headerBlock = [`### ${title}`, partnerLine].join('\n');
 
@@ -624,7 +624,8 @@ async function sendLegacyTradeSummary(
                   slots !== undefined ? `/${slots}` : ''
               }`
             : '',
-        misc.note || `[View my backpack](https://backpack.tf/profiles/${botInfo.steamID.getSteamID64()})`
+        misc.note ||
+            `[View my backpack](https://backpack.tf/profiles/${botInfo.steamID.getSteamID64()}) · [crit.tf](https://crit.tf/inventory/${botInfo.steamID.getSteamID64()})`
     ].filter(Boolean);
 
     const webhook: Webhook = {
@@ -646,7 +647,9 @@ async function sendLegacyTradeSummary(
                         tSum.showTimeTakenInMS
                     )}\n\n` +
                     (tSum.showOfferMessage && message.length > 0 ? `${offerMessageLabel} "${message}"\n\n` : '') +
-                    (misc.showQuickLinks ? `${quickLinks(t.replace.specialChar(details.personaName), links)}\n` : ''),
+                    (misc.showQuickLinks
+                        ? `${quickLinks(t.replace.specialChar(details.personaName), links)} | [crit.tf](https://crit.tf/inventory/${offer.partner.toString()})\n`
+                        : ''),
                 fields: [
                     { name: '__Item list__', value: itemList.replace(/@/g, '') },
                     { name: '__Status__', value: statusLines.join('\n') }

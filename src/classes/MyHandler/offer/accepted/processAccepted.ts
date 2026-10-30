@@ -380,49 +380,11 @@ async function calculateProfitData(offer: i.TradeOffer, bot: Bot): Promise<void>
             const skusInTrade = Object.keys(dict.their).filter(s => !['5002;6', '5001;6', '5000;6'].includes(s));
             const isKeyOnlyTrade = skusInTrade.length === 1 && skusInTrade[0] === '5021;6';
 
-            // Calculate total pricelist value for items being TRACKED (EXCLUDING pure currency and payment keys)
-            // This MUST match what we actually add to FIFO to avoid incorrect diff calculations
-            const theirTotalKeys = Object.keys(dict.their).reduce((sum, s) => {
-                // Skip pure currency items
-                if (['5002;6', '5001;6', '5000;6'].includes(s)) {
-                    return sum;
-                }
-
-                // Skip payment keys (unless autokeys enabled and ONLY keys in trade)
-                if (s === '5021;6' && (!isAutokeysEnabled || !isKeyOnlyTrade)) {
-                    return sum;
-                }
-
-                const price = itemPrices[s];
-                return sum + (price ? price.buy.keys * dict.their[s] : 0);
-            }, 0);
-
-            const theirTotalMetal = Object.keys(dict.their).reduce((sum, s) => {
-                // Skip pure currency items
-                if (['5002;6', '5001;6', '5000;6'].includes(s)) {
-                    return sum;
-                }
-
-                // Skip payment keys (unless autokeys enabled and ONLY keys in trade)
-                if (s === '5021;6' && (!isAutokeysEnabled || !isKeyOnlyTrade)) {
-                    return sum;
-                }
-
-                const price = itemPrices[s];
-                return sum + (price ? price.buy.metal * dict.their[s] : 0);
-            }, 0);
-
-            // Get actual amount paid (value.our may have keys converted to metal by showOnlyMetal)
+            // The offer totals include payment currency and received change. Their
+            // difference is the adjustment to the tracked items' quoted buy costs.
             const value = offer.data('value') as i.ItemsValue;
-
-            // Convert pricelist totals to scrap for accurate comparison
             const keyPrice = bot.pricelist.getKeyPrice.metal;
-            const theirTotalScrap = Currencies.toScrap(theirTotalKeys * keyPrice + theirTotalMetal);
-            const actualPaidScrap = value ? value.our.total : theirTotalScrap;
-
-            // Calculate net overpay in scrap (handles showOnlyMetal conversion correctly)
-            const buyOverpayScrap = actualPaidScrap - theirTotalScrap;
-
+            const buyOverpayScrap = value ? value.our.total - value.their.total : 0;
             // Convert back to keys + metal for distribution
             const keyPriceScrap = Currencies.toScrap(keyPrice);
             const buyOverpayKeys = Math.floor(buyOverpayScrap / keyPriceScrap);
@@ -573,7 +535,7 @@ async function calculateProfitData(offer: i.TradeOffer, bot: Bot): Promise<void>
                 }
 
                 // Calculate raw profit from FIFO cost basis
-                // Raw profit = pricelist sell - pricelist buy + diff (realizes buy-side overpay/underpay)
+                // Raw profit = pricelist sell - (pricelist buy + purchase adjustment)
                 for (const entry of result.entries) {
                     const itemRawProfit = calculateFifoProfit(
                         { keys: pricelistSellKeys, metal: pricelistSellMetal },

@@ -25,7 +25,6 @@
                 "USERAGENT_HEADER_SHOW_VERSION": false,
 
                 "NEXT_CRIT_ENABLE": true,
-                "PRICEDB_STORE_API_KEY": "",
                 "MANNCO_STORE_API_KEY": "",
                 "MPTF_API_KEY": "",
                 "DISCORD_BOT_TOKEN": "",

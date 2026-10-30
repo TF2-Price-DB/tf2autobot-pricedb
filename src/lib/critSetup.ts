@@ -11,7 +11,7 @@ class CritSetupError extends Error {}
 /** Only explicit authentication failures justify replacing an existing key. */
 async function validKey(apiKey: string, steam64: string): Promise<boolean> {
     const response = await axios.post<{ token?: string; type?: string }>(`${ORIGIN}/api/v2/auth`, undefined, {
-        headers: { 'X-API-Key': apiKey },
+        headers: { 'X-API-Key': apiKey, 'User-Agent': 'TF2AutobotPriceDB@' + process.env.BOT_VERSION },
         timeout: 30000,
         maxRedirects: 0,
         validateStatus: () => true
@@ -61,6 +61,7 @@ class CritSession {
                 method,
                 data: body instanceof URLSearchParams ? body.toString() : body,
                 headers: {
+                    'User-Agent': 'TF2AutobotPriceDB@' + process.env.BOT_VERSION,
                     Cookie: this.jar.getCookieStringSync(url),
                     ...(method === 'POST' ? { Origin: target.origin } : {}),
                     ...(body instanceof URLSearchParams ? { 'Content-Type': 'application/x-www-form-urlencoded' } : {})

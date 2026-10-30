@@ -448,19 +448,6 @@ export const optionsSchema: jsonschema.Schema = {
                 createListings: {
                     $ref: '#/definitions/only-enable'
                 },
-                pricedbStore: {
-                    type: 'object',
-                    properties: {
-                        enable: {
-                            type: 'boolean'
-                        },
-                        enableInventoryRefresh: {
-                            type: 'boolean'
-                        }
-                    },
-                    required: ['enable'],
-                    additionalProperties: false
-                },
                 manncoStore: {
                     $ref: '#/definitions/only-enable'
                 },

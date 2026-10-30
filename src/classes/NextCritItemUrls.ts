@@ -4,7 +4,12 @@ import log from '../lib/logger';
 
 /** Cache the public HAT-to-item-ID feed used by crit.tf advanced search. */
 export default class NextCritItemUrls {
-    private readonly http = axios.create({ baseURL: 'https://crit.tf', timeout: 30000, maxRedirects: 0 });
+    private readonly http = axios.create({
+        baseURL: 'https://crit.tf',
+        headers: { 'User-Agent': 'TF2AutobotPriceDB@' + process.env.BOT_VERSION },
+        timeout: 30000,
+        maxRedirects: 0
+    });
 
     private ids = new Map<string, number>();
 

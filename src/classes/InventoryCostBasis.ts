@@ -24,10 +24,12 @@ export interface FIFOPrice {
     metal: number;
 }
 
-export function getFifoCostBasis(entry: Pick<FIFOEntry, 'costKeys' | 'costMetal' | 'diffKeys' | 'diffMetal'>): FIFOPrice {
+export function getFifoCostBasis(
+    entry: Pick<FIFOEntry, 'costKeys' | 'costMetal' | 'diffKeys' | 'diffMetal'>
+): FIFOPrice {
     return {
-        keys: entry.costKeys - entry.diffKeys,
-        metal: entry.costMetal - entry.diffMetal
+        keys: entry.costKeys + entry.diffKeys,
+        metal: entry.costMetal + entry.diffMetal
     };
 }
 

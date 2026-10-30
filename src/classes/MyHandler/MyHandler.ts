@@ -415,19 +415,7 @@ export default class MyHandler extends Handler {
                             .catch((err: Error) =>
                                 log.warn('Failed to remove all listings on shutdown (autokeys was enabled): ', err)
                             )
-                            .finally(() => {
-                                // Remove crit.tf listings
-                                if (this.bot.pricedbStoreManager) {
-                                    this.bot.pricedbStoreManager
-                                        .deleteAllListings()
-                                        .catch((err: Error) =>
-                                            log.warn('Failed to remove pricedb.io listings on shutdown: ', err)
-                                        )
-                                        .finally(() => resolve());
-                                } else {
-                                    resolve();
-                                }
-                            });
+                            .finally(() => resolve());
                     });
             } else {
                 if (!this.bot.listingManager || this.bot.listingManager.ready !== true) {
@@ -439,17 +427,7 @@ export default class MyHandler extends Handler {
                 this.bot.listings
                     .removeAll()
                     .catch((err: Error) => log.warn('Failed to remove all listings on shutdown: ', err))
-                    .finally(() => {
-                        // Remove crit.tf listings
-                        if (this.bot.pricedbStoreManager) {
-                            this.bot.pricedbStoreManager
-                                .deleteAllListings()
-                                .catch((err: Error) => log.warn('Failed to remove crit.tf listings on shutdown: ', err))
-                                .finally(() => resolve());
-                        } else {
-                            resolve();
-                        }
-                    });
+                    .finally(() => resolve());
             }
         });
     }
@@ -2388,17 +2366,6 @@ export default class MyHandler extends Handler {
                 // Update listings
                 updateListings(offer, this.bot, highValue);
 
-                // Refresh pricedb.io inventory after trade if enabled
-                if (
-                    this.bot.pricedbStoreManager &&
-                    this.opt.miscSettings.pricedbStore.enable &&
-                    this.opt.miscSettings.pricedbStore.enableInventoryRefresh
-                ) {
-                    this.bot.pricedbStoreManager.refreshInventory().catch(err => {
-                        log.warn('Failed to refresh pricedb.io inventory after trade:', err);
-                    });
-                }
-
                 // Invite to group
                 this.inviteToGroups(offer.partner);
 
@@ -2560,7 +2527,6 @@ export default class MyHandler extends Handler {
                             ? this.opt.customMessage.welcome
                                   .replace(/%name%/g, '')
                                   .replace(/%admin%/g, isAdmin ? '!help' : '!how2trade')
-                                  .replace(/%pricedb_store%/g, this.bot.getPricedbStoreUrl())
                             : `Hi! If you don't know how things work, please type "!${isAdmin ? 'help' : 'how2trade'}"`
                     );
                 }
@@ -2587,7 +2553,6 @@ export default class MyHandler extends Handler {
                     ? this.opt.customMessage.welcome
                           .replace(/%name%/g, friend.player_name)
                           .replace(/%admin%/g, isAdmin ? '!help' : '!how2trade')
-                          .replace(/%pricedb_store%/g, this.bot.getPricedbStoreUrl())
                     : `Hi ${friend.player_name}! If you don't know how things work, please type ` +
                           `"!${isAdmin ? 'help' : 'how2trade'}"`
             );

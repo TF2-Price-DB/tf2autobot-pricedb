@@ -233,20 +233,6 @@ export default class HelpCommands {
                         `paints - Get a list of paints partial sku 🎨`
                     ].join(`\n- ${prefix}`)
             );
-
-            await timersPromises.setTimeout(2000);
-            this.bot.sendMessage(
-                steamID,
-                '.\n✨=== crit.tf Store ===✨\n- ' +
-                    [
-                        `${prefix}crittfgroup - View your store group info, members, and friendly store URL 🏪`,
-                        `crittfinvite <steamID> - Invite a user to your store group 📨`,
-                        `crittfinvites - List pending group invites you've received 📬`,
-                        `crittfaccept <groupId> - Accept a group invite ✅`,
-                        `crittfleave <groupId> - Leave a store group 👋`
-                    ].join(`\n- ${prefix}`) +
-                    '\n\n💡 Tip: Use %pricedb_store% in your listing notes to automatically include your store URL!'
-            );
         }
     }
 

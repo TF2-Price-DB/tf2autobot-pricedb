@@ -5,7 +5,7 @@ import dayjs from 'dayjs';
 import Currencies from '@tf2autobot/tf2-currencies';
 import * as timersPromises from 'timers/promises';
 import Bot from './Bot';
-import NextCritDriver from './NextCritDriver';
+import NextCritDriver, { NextCritInventoryPendingError } from './NextCritDriver';
 import NextCritCheckout from './NextCritCheckout';
 import NextCritItemUrls from './NextCritItemUrls';
 import skuToHat from '../lib/skuToHat';
@@ -239,10 +239,6 @@ export default class Listings {
                 this.expectedListingPrices.delete(listing.id);
 
                 listing.remove();
-                // Remove from pricedb.io if it's a sell listing
-                if (listing.intent === 1) {
-                    void this.deletePriceDBListing(listing.id.replace('440_', ''));
-                }
             } else if ((listing.intent === 0 && amountCanBuy <= 0) || (listing.intent === 1 && amountCanSell <= 0)) {
                 if (showLogs) {
                     log.debug(`We are not ${listing.intent === 0 ? 'buying' : 'selling'} more, remove the listing.`);
@@ -253,10 +249,6 @@ export default class Listings {
                 this.expectedListingPrices.delete(listing.id);
 
                 listing.remove();
-                // Remove from pricedb.io if it's a sell listing
-                if (listing.intent === 1) {
-                    void this.deletePriceDBListing(listing.id.replace('440_', ''));
-                }
             } else if (
                 listing.intent === 0 &&
                 !invManager.isCanAffordToBuy(match.buy, invManager.getInventory) &&
@@ -271,7 +263,6 @@ export default class Listings {
                 this.expectedListingPrices.delete(listing.id);
 
                 listing.remove();
-                // This is a buy listing (intent 0), no need to remove from pricedb.io (only sell listings)
             } else {
                 const newDetails = this.getDetails(
                     listing.intent,
@@ -331,11 +322,6 @@ export default class Listings {
 
                     listing.update(toUpdate);
                     //TODO: make promote, demote
-
-                    // Update pricedb.io listing if it's a sell listing
-                    if (listing.intent === 1) {
-                        void this.createOrUpdatePriceDBListing(listing.id.replace('440_', ''), currencies);
-                    }
 
                     // Schedule a debounced cache refresh to sync expected prices
                     this.scheduleCacheRefresh();
@@ -437,9 +423,6 @@ export default class Listings {
                     ),
                     currencies: matchNew.sell
                 });
-
-                // Also create listing on pricedb.io store (only sell listings supported)
-                void this.createOrUpdatePriceDBListing(assetid, matchNew.sell);
             }
         }
 
@@ -584,9 +567,13 @@ export default class Listings {
         clearTimeout(this.nextCritSyncTimer);
         this.nextCritSyncTimer = undefined;
         // Callers use Bluebird's asCallback, which native async-function promises do not expose.
-        return Bluebird.all([this.removeAllBackpackListings(), this.nextCrit?.deleteAllListings()]).then<void>(
-            () => undefined
-        );
+        return Bluebird.all([
+            this.removeAllBackpackListings(),
+            this.nextCrit?.deleteAllListings().catch(() => {
+                // Crit TF is optional; an outage must not prevent startup or backpack.tf listing refreshes.
+                log.warn('Failed to delete Crit TF listings; continuing without removing them.');
+            })
+        ]).then<void>(() => undefined);
     }
 
     private removeAllBackpackListings(): Promise<void> {
@@ -847,85 +834,12 @@ export default class Listings {
         }
     }
 
-    /**
-     * Check if pricedb.io store is enabled
-     */
-    private get isPriceDBStoreEnabled(): boolean {
-        return (
-            this.bot.options.miscSettings.pricedbStore.enable &&
-            this.bot.pricedbStoreManager !== undefined &&
-            !this.bot.isHalted
-        );
-    }
-
-    /**
-     * Create or update a sell listing on pricedb.io store
-     */
-    async createOrUpdatePriceDBListing(assetId: string, currencies: Currencies): Promise<void> {
-        if (!this.isPriceDBStoreEnabled) {
-            return;
-        }
-
-        try {
-            const existingListing = this.bot.pricedbStoreManager.findListing(assetId);
-
-            if (existingListing) {
-                // Update existing listing
-                await this.bot.pricedbStoreManager.updateListing(assetId, currencies);
-            } else {
-                // Create new listing
-                await this.bot.pricedbStoreManager.createListing(assetId, currencies);
-            }
-        } catch (err: any) {
-            const isItemNotFoundError =
-                err?.status === 400 &&
-                (err?.data?.error === 'Item not found' || err?.data?.message?.includes('Item not found'));
-
-            if (isItemNotFoundError) {
-                log.warn(`Item ${assetId} not found in pricedb.io inventory. Attempting to refresh inventory...`);
-
-                // Attempt to refresh inventory (respects rate limits)
-                try {
-                    const refreshed = await this.bot.pricedbStoreManager.refreshInventory();
-                    if (refreshed) {
-                        log.info(
-                            `Inventory refreshed. The listing for ${assetId} will be created on the next update cycle.`
-                        );
-                    } else {
-                        log.debug(
-                            `Inventory refresh skipped (rate limited). The listing for ${assetId} will be retried later.`
-                        );
-                    }
-                } catch (error_) {
-                    log.error(`Failed to refresh inventory after item not found error:`, error_);
-                }
-            } else {
-                log.error(`Failed to create/update pricedb.io listing for ${assetId}:`, err);
-            }
-        }
-    }
-
-    /**
-     * Delete a listing from pricedb.io store
-     */
-    async deletePriceDBListing(assetId: string): Promise<void> {
-        if (!this.isPriceDBStoreEnabled) {
-            return;
-        }
-
-        try {
-            await this.bot.pricedbStoreManager.deleteListing(assetId);
-        } catch (err) {
-            log.error(`Failed to delete pricedb.io listing for ${assetId}:`, err);
-        }
-    }
-
-    scheduleNextCritSync(): void {
+    scheduleNextCritSync(delayMs = 250): void {
         if (!this.nextCrit || this.nextCritSyncTimer || this.checkingAllListings) return;
         this.nextCritSyncTimer = setTimeout(() => {
             this.nextCritSyncTimer = undefined;
             void this.syncNextCritListings();
-        }, 250);
+        }, delayMs);
     }
 
     private async syncNextCritListings(): Promise<void> {
@@ -942,6 +856,11 @@ export default class Listings {
                     await this.nextCrit.syncBuyListings(nextCritBuyListings(this.bot));
                 }
             } catch (err) {
+                if (err instanceof NextCritInventoryPendingError) {
+                    log.debug(`NextCrit sell inventory pending; retrying in ${Math.ceil(err.retryAfterMs / 1000)}s.`);
+                    this.scheduleNextCritSync(err.retryAfterMs);
+                    return;
+                }
                 log.error(`Failed to sync NextCrit ${intent} listings:`, err);
             }
         };
@@ -1074,8 +993,6 @@ export default class Listings {
 
             const ecpString = this.bot.ecp.toEcpStr(entry.id ?? entry.name, key);
 
-            // Get friendly store URL using cached slug if available
-            const pricedbStoreUrl = this.bot.getPricedbStoreUrl();
             const pricedbItemUrl = `https://pricedb.io/item/${encodeURIComponent(entry.sku)}`;
             let critListingUrl = '';
             if (details.includes('%crit_listing%')) {
@@ -1099,7 +1016,6 @@ export default class Listings {
                 .replace(/%max_stock%/g, isShowBoldOnMaxStock ? boldDetails(maxStock, style) : maxStock)
                 .replace(/%current_stock%/g, isShowBoldOnCurrentStock ? boldDetails(currentStock, style) : currentStock)
                 .replace(/%amount_trade%/g, isShowBoldOnAmount ? boldDetails(amountTrade, style) : amountTrade)
-                .replace(/%pricedb_store%/g, pricedbStoreUrl)
                 .replace(/%pricedb_item%/g, pricedbItemUrl)
                 .replace(/%crit_listing%/g, critListingUrl);
         };

@@ -2158,6 +2158,10 @@ export default class Trades {
         }
 
         const reservationKey = this.getReservationKey(offer);
+        // Polls return fresh offer objects; keep the existing deadline or retry delay.
+        if (this.offerExpiryTimers.has(reservationKey) || this.expiringOffers.has(reservationKey)) {
+            return;
+        }
         this.clearOfferExpiryByKey(reservationKey);
 
         const createdAt =

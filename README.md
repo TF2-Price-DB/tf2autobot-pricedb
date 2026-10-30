@@ -86,8 +86,8 @@ Look at the example [options.json](.example/options.json) for where this should 
 For example `!buy Burning Team Captain` becomes `buy_burning_team_captain` which is far easier to copy from listings. In order to add this to your listings you would update your buy and sell messages as per the below example.
 
 ```json
-    "buy": "🔥 %price% 📦 Stock : %current_stock% / %max_stock%. 💬 Send %ecp_item%. 👉 Visit %pricedb_store% for my store!",
-    "sell": "🔥 %price% 📦 Stock : %amount_trade% / %max_stock%. 💬 Send %ecp_item%. 👉 Visit %pricedb_store% for my store!",
+    "buy": "🔥 %price% 📦 Stock : %current_stock% / %max_stock%. 💬 Send %ecp_item%.",
+    "sell": "🔥 %price% 📦 Stock : %amount_trade% / %max_stock%. 💬 Send %ecp_item%.",
 ```
 
 -   `%price%` - displays the price (e.g., `14 keys`).
@@ -95,7 +95,6 @@ For example `!buy Burning Team Captain` becomes `buy_burning_team_captain` which
 -   `%ecp_item%` - displays the trading command (e.g., sell_Mann_Co_Supply_Crate_Key).
 -   `%max_stock%` - displays the maximum capacity of the item in the bot's inventory.
 -   `%current_stock%` - displays the current count of the item in the bot's inventory.
--   `%pricedb_store%` - displays the URL of the bot's PriceDB store.
 -   `%pricedb_item%` - displays the URL of the item.
 -   `%crit_listing%` - displays the item's crit.tf page, e.g. `https://crit.tf/item/4` for a Mann Co. Supply Crate Key. Works in buy/sell templates and custom item notes. Links are resolved from crit.tf's public HAT mapping, cached for one hour, and filled in automatically after loading. An unresolved item produces an empty value.
 
@@ -143,40 +142,11 @@ The new stats system uses new logic to track profit by recording keys and metal 
 
 ### crit.tf configuration
 
-If you want to use crit.tf follow the below
+Crit TF uses the current listing and checkout integration, enabled by default with `NEXT_CRIT_ENABLE=true`. On startup, the bot uses its Steam web session to set up a Crit TF API key when needed and saves the credentials for future restarts. An existing key can be supplied with `NEXT_CRIT_API_KEY`.
 
-1. **Environment variable**
+Set `NEXT_CRIT_ENABLE=false` to disable the integration.
 
-    Set your pricedb.io Store API key in your process manager (PM2 ecosystem, Docker env, or system env):
-
-    ```bash
-    PRICEDB_STORE_API_KEY=your_pricedb_store_api_key_here
-    ```
-
-2. **`options.json` misc settings**
-
-    In your `options.json`, under `miscSettings`, add or update:
-
-    ```json
-    "pricedbStore": {
-      "enable": true,
-      "enableInventoryRefresh": true
-    }
-    ```
-
-    This enables the pricedb.io Store Manager and allows the bot to periodically refresh your pricedb.io inventory.
-
-3. **Template variable for listings**
-
-    You can include your pricedb.io store URL in your backpack.tf listing notes by using the `%pricedb_store%` template variable. The bot will automatically replace it with your friendly store URL (e.g., `https://crit.tf/sf/your-slug`).
-
-    Example in your listing note:
-
-    ```
-    Visit my store: %pricedb_store%
-    ```
-
-After these changes, rebuild (if needed) and fully restart the bot so the new environment variable is picked up.
+`%crit_listing%` links to the individual item's Crit TF page.
 
 ---
 

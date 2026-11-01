@@ -43,6 +43,10 @@ export default class Listings {
 
     private nextCritSyncTimer: NodeJS.Timeout | undefined;
 
+    private nextCritSync: Promise<void> | undefined;
+
+    private nextCritSyncPending = false;
+
     private checkingAllListings = false;
 
     private removingAllListings = false;
@@ -566,6 +570,7 @@ export default class Listings {
     removeAll(): Promise<void> {
         clearTimeout(this.nextCritSyncTimer);
         this.nextCritSyncTimer = undefined;
+        this.nextCritSyncPending = false;
         // Callers use Bluebird's asCallback, which native async-function promises do not expose.
         return Bluebird.all([
             this.removeAllBackpackListings(),
@@ -844,6 +849,12 @@ export default class Listings {
 
     private async syncNextCritListings(): Promise<void> {
         if (!this.nextCrit || !this.isCreateListing) return;
+        // Slow requests must not retain a full pricelist snapshot for every price update.
+        // Rebuild from current state once the active sync has finished instead.
+        if (this.nextCritSync !== undefined) {
+            this.nextCritSyncPending = true;
+            return this.nextCritSync;
+        }
         // Queue both intents before yielding, so removeAll always runs after both publishes.
         const sync = async (intent: 'sell' | 'buy'): Promise<void> => {
             try {
@@ -864,7 +875,16 @@ export default class Listings {
                 log.error(`Failed to sync NextCrit ${intent} listings:`, err);
             }
         };
-        await Promise.all([sync('sell'), sync('buy')]);
+        this.nextCritSync = Promise.all([sync('sell'), sync('buy')]).then<void>(() => undefined);
+        try {
+            await this.nextCritSync;
+        } finally {
+            this.nextCritSync = undefined;
+            if (this.nextCritSyncPending) {
+                this.nextCritSyncPending = false;
+                this.scheduleNextCritSync();
+            }
+        }
     }
 
     private getDetails(intent: 0 | 1, amountCanTrade: number, entry: Entry, item?: DictItem): string {

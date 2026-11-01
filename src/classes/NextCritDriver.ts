@@ -195,16 +195,15 @@ export default class NextCritDriver {
             const assetIds = changed.map(listing => listing.asset_id);
             const newAssetIds = assetIds.filter(assetId => !existing.has(assetId));
             if (newAssetIds.length > 0) await this.ensureSellInventory(steam64, newAssetIds);
-            const config: AxiosRequestConfig = { method: 'POST', url: '/api/v2/sell-listings', data: changed };
-            let result: ListingsResponse;
+            const publish = () =>
+                this.publishListings('/api/v2/sell-listings', changed, 'NextCrit did not publish sell listings');
             try {
-                result = await this.request<ListingsResponse>(config);
+                await publish();
             } catch (err) {
                 if (!(err instanceof NextCritRequestError) || err.status !== 404) throw err;
                 await this.ensureSellInventory(steam64, assetIds, true);
-                result = await this.request<ListingsResponse>(config);
+                await publish();
             }
-            if (!result.success) throw new Error('NextCrit did not publish sell listings');
             for (const listing of changed) this.published.set(listing.asset_id, listing.price);
         });
     }
@@ -244,13 +243,27 @@ export default class NextCritDriver {
                 })
                 .map(([, listing]) => listing);
             if (changed.length === 0) return;
-            const result = await this.request<BuyListingsResponse>({
-                method: 'POST',
-                url: '/api/v2/buy-listings',
-                data: changed
-            });
-            if (!result.success) throw new Error('NextCrit did not publish buy listings');
+            await this.publishListings('/api/v2/buy-listings', changed, 'NextCrit did not publish buy listings');
         });
+    }
+
+    private async publishListings<T>(url: string, listings: T[], failureMessage: string): Promise<void> {
+        // Bound request sizes for large pricelists. A proxy may impose a smaller byte
+        // limit, so split rejected batches further without retrying a single large item.
+        for (let offset = 0; offset < listings.length; offset += 100) {
+            const batch = listings.slice(offset, offset + 100);
+            let response: { success: boolean };
+            try {
+                response = await this.request<{ success: boolean }>({ method: 'POST', url, data: batch });
+            } catch (err) {
+                if (!(err instanceof NextCritRequestError) || err.status !== 413 || batch.length === 1) throw err;
+                const middle = Math.ceil(batch.length / 2);
+                await this.publishListings(url, batch.slice(0, middle), failureMessage);
+                await this.publishListings(url, batch.slice(middle), failureMessage);
+                continue;
+            }
+            if (!response.success) throw new Error(failureMessage);
+        }
     }
 
     async getBuyListings(): Promise<NextCritBuyListing[]> {

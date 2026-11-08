@@ -73,7 +73,6 @@ export class Entry implements EntryData {
 
     sellUsd?: number;
 
-
     promoted: 0 | 1;
 
     group: string | null;
@@ -602,9 +601,7 @@ export default class Pricelist extends EventEmitter {
             }
 
             this.rememberMarketPrices(entry.sku, newPrices);
-            entry.buy = newPrices.buy;
-            entry.sell = newPrices.sell;
-            entry.time = price.time;
+            this.applyAutopriceUpdate(entry, newPrices, price.time);
         } else if (isBulk) {
             if (entry.autoprice) {
                 const item = this.transformedPricelistForBulk[entry.sku];
@@ -660,9 +657,7 @@ export default class Pricelist extends EventEmitter {
                 }
 
                 this.rememberMarketPrices(entry.sku, newPrices);
-                entry.buy = newPrices.buy;
-                entry.sell = newPrices.sell;
-                entry.time = item.time;
+                this.applyAutopriceUpdate(entry, newPrices, item.time);
             }
         }
 
@@ -693,6 +688,61 @@ export default class Pricelist extends EventEmitter {
                 time: null
             };
         }
+    }
+
+    /** Apply command-triggered market prices without bypassing an eligible PPU floor. */
+    private applyAutopriceUpdate(entry: Entry, market: BuyAndSell, time: number): void {
+        // Capture the cost before replacing buy with the market quote, including the legacy fallback.
+        const cost = entry.getFIFOPurchasePrice() ?? entry.buy;
+        const purchaseTime =
+            entry.getOldestPurchaseTime() ??
+            entry.partialPriceTime ??
+            entry.time ??
+            this.prices[entry.id ?? entry.sku]?.time;
+        const ppu = this.options.pricelist.partialPriceUpdate;
+        const now = Math.floor(Date.now() / 1000);
+        const wasPartialPriced = entry.isPartialPriced;
+
+        entry.buy = market.buy;
+        entry.sell = market.sell;
+        entry.time = time;
+
+        if (ppu.enable && cost && purchaseTime !== null && purchaseTime !== undefined) {
+            const stock = this.bot.inventoryManager.getInventory.getAmount({
+                priceKey: entry.id ?? entry.sku,
+                includeNonNormalized: false,
+                tradableOnly: true
+            });
+            if (stock > 0) entry.lastInStockTime = now;
+            const recentlyInStock =
+                entry.lastInStockTime !== null && now - entry.lastInStockTime < (ppu.stockGracePeriodSeconds || 3600);
+            const withinStockLimit = ppu.removeMaxRestriction
+                ? ppu.maxProtectedUnits === -1 || stock <= (ppu.maxProtectedUnits || 1)
+                : entry.max === 1;
+
+            if (
+                (stock > 0 || recentlyInStock) &&
+                withinStockLimit &&
+                now - purchaseTime < ppu.thresholdInSeconds &&
+                !['5021;6'].concat(ppu.excludeSKU).includes(entry.sku)
+            ) {
+                const keyPrice = this.getKeyPrice.metal;
+                const costValue = cost.toValue(keyPrice);
+                const marketBuy = market.buy.toValue(keyPrice);
+                const marketSell = market.sell.toValue(keyPrice);
+                const floor = costValue + (ppu.minProfitScrap || 1);
+                entry.buy = Currencies.toCurrencies(Math.min(marketBuy, costValue), keyPrice);
+                entry.sell = Currencies.toCurrencies(Math.max(marketSell, floor), keyPrice);
+                if (wasPartialPriced || marketBuy !== costValue || marketSell < floor) {
+                    entry.isPartialPriced = true;
+                    if (!wasPartialPriced) entry.partialPriceTime = now;
+                    return;
+                }
+            }
+        }
+
+        entry.isPartialPriced = false;
+        entry.partialPriceTime = null;
     }
 
     private rememberMarketPrices(sku: string, prices: BuyAndSell): void {

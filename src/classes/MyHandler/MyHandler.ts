@@ -395,7 +395,7 @@ export default class MyHandler extends Handler {
             clearInterval(this.pollDataInterval);
         }
 
-        return new Promise(resolve => {
+        return new Promise<void>(resolve => {
             if (this.opt.autokeys.enable) {
                 log.debug('Disabling Autokeys and disabling key entry in the pricelist...');
                 this.autokeys
@@ -429,6 +429,9 @@ export default class MyHandler extends Handler {
                     .catch((err: Error) => log.warn('Failed to remove all listings on shutdown: ', err))
                     .finally(() => resolve());
             }
+        }).then(async () => {
+            // Flush the latest history after shutdown mutations, including when autokeys is disabled.
+            if (this.bot.pricelist) await this.savePricelist(this.bot.pricelist.getPrices);
         });
     }
 
@@ -2719,7 +2722,11 @@ export default class MyHandler extends Handler {
          *
          * This will also save the "name" property. I think it's okay.
          */
-        files.writeFile(this.paths.files.pricelist, pricelist, true).catch(err => {
+        await this.savePricelist(pricelist);
+    }
+
+    private async savePricelist(pricelist: PricesObject): Promise<void> {
+        await files.writeFile(this.paths.files.pricelist, pricelist, true).catch(err => {
             log.warn('Failed to save pricelist: ', err);
         });
     }

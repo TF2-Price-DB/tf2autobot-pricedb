@@ -21,7 +21,7 @@ export default function updateListings(
     highValue: { isDisableSKU: string[]; theirItems: string[]; items: Items }
 ): void {
     const opt = bot.options;
-    const diff = offer.getDiff() || {};
+    const diff = (offer.getDiff() || {}) as Record<string, number>;
     const dict = offer.data('dict') as ItemsDict;
     const weapons = opt.miscSettings.weaponsAsCurrency.enable
         ? opt.miscSettings.weaponsAsCurrency.withUncraft
@@ -41,6 +41,7 @@ export default function updateListings(
     const pure = ['5000;6', '5001;6', '5002;6'];
     const pureWithWeapons = pure.concat(weapons);
     const isAdmin = bot.isAdmin(offer.partner);
+    let purchaseHistoryChanged = false;
 
     for (const priceKey in diff) {
         if (!Object.prototype.hasOwnProperty.call(diff, priceKey)) {
@@ -118,12 +119,14 @@ export default function updateListings(
                     priceListEntry.addPurchaseRecord(quantityChanged, pricePaid);
                     // Set lastInStockTime immediately when item is purchased
                     priceListEntry.lastInStockTime = Math.floor(Date.now() / 1000);
+                    purchaseHistoryChanged = true;
                     log.debug(`PPU: Recorded purchase of ${quantityChanged}x ${name} at ${pricePaid.toString()}`);
                 }
             } else if (diff[priceKey] < 0) {
                 // We gave away items (we sold them)
                 const previousLot = priceListEntry.purchaseHistory[0];
                 priceListEntry.removePurchaseRecord(quantityChanged);
+                purchaseHistoryChanged = purchaseHistoryChanged || previousLot !== undefined;
                 if (priceListEntry.purchaseHistory[0] !== previousLot) {
                     bot.pricelist.repriceAfterFifoSale(priceKey, amount);
                 }
@@ -671,6 +674,11 @@ export default function updateListings(
             //     });
             // }
         }
+    }
+
+    if (purchaseHistoryChanged) {
+        // Ownership changes must be saved even when prices did not change or price writes are throttled.
+        bot.pricelist.emit('pricelist', bot.pricelist.getPrices);
     }
 }
 
